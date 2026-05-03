@@ -336,6 +336,29 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertIn("CORE THESIS", system_content)
         self.assertIn("FINAL ACTIVATION", system_content)
 
+    def test_openclaw_prompt_is_compacted_to_fit_provider_budget(self):
+        persona = server.PERSONAS["openclaw"]
+        recent = [
+            {"role": "user", "content": "prior lengthy request " + ("x" * 2000)},
+            {"role": "assistant", "content": "prior lengthy answer " + ("y" * 2000)},
+        ]
+
+        messages = server.build_messages(
+            persona=persona,
+            query="Write a lengthy response about Ring sealing.",
+            retrieved=[],
+            durable_memories=[],
+            recent_turns=recent,
+            neuro={},
+            covenant="Be useful.",
+            prompt_budget_chars=12000,
+        )
+
+        self.assertLessEqual(server.prompt_size(messages), 12000)
+        self.assertIn("Cypher Tempre Prompt-Layer Runtime", messages[0]["content"])
+        self.assertIn("OpenClaw prompt compacted", messages[0]["content"])
+        self.assertEqual(messages[-1], {"role": "user", "content": "Write a lengthy response about Ring sealing."})
+
     def test_readme_documents_openclaw_without_native_architecture_overclaim(self):
         readme = server.pathlib.Path(__file__).with_name("README.md").read_text(encoding="utf-8")
 
@@ -414,6 +437,61 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertEqual(response["model_used"], "local-default-generator")
         self.assertIn("429", response["provider_error"])
 
+    def test_created_session_locks_initial_persona(self):
+        with tempfile.TemporaryDirectory() as temp:
+            app = server.App(
+                server.pathlib.Path(temp),
+                server.DEFAULT_TIMECHAIN_PATH,
+                default_model=server.DEFAULT_MODEL,
+                provider="openrouter",
+                api_key="",
+                base_url="",
+                timeout=1,
+            )
+
+            session = app.create_session("OpenClaw chat", persona_id="openclaw")
+            app.use_session(session["id"])
+
+            self.assertEqual(session["persona_id"], "openclaw")
+            self.assertEqual(app.session_persona_id(), "openclaw")
+            self.assertEqual(app.bind_session_persona("companion"), "openclaw")
+
+    def test_existing_session_binds_persona_on_first_chat(self):
+        with tempfile.TemporaryDirectory() as temp:
+            app = server.App(
+                server.pathlib.Path(temp),
+                server.DEFAULT_TIMECHAIN_PATH,
+                default_model=server.DEFAULT_MODEL,
+                provider="openrouter",
+                api_key="",
+                base_url="",
+                timeout=1,
+            )
+
+            session = app.create_session("First chat")
+            app.use_session(session["id"])
+
+            self.assertEqual(app.bind_session_persona("architect"), "architect")
+            self.assertEqual(app.bind_session_persona("openclaw"), "architect")
+
+    def test_reset_chain_preserves_session_persona_lock(self):
+        with tempfile.TemporaryDirectory() as temp:
+            app = server.App(
+                server.pathlib.Path(temp),
+                server.DEFAULT_TIMECHAIN_PATH,
+                default_model=server.DEFAULT_MODEL,
+                provider="openrouter",
+                api_key="",
+                base_url="",
+                timeout=1,
+            )
+            session = app.create_session("Reset me", persona_id="openclaw")
+            app.use_session(session["id"])
+
+            app.reset_chain()
+
+            self.assertEqual(app.session_persona_id(), "openclaw")
+
     def test_provider_error_chat_response_does_not_update_chain(self):
         with tempfile.TemporaryDirectory() as temp:
             workspace = server.pathlib.Path(temp)
@@ -468,6 +546,23 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertIn("providerEndpoints", server.HTML)
         self.assertIn("localStorage.removeItem('ct_api_key')", server.HTML)
         self.assertIn("async function testProvider()", server.HTML)
+
+    def test_chat_ui_has_pending_generation_indicator_and_session_persona_lock(self):
+        self.assertIn("thinking-message", server.HTML)
+        self.assertIn("appendThinkingMessage", server.HTML)
+        self.assertIn("removeThinkingMessage", server.HTML)
+        self.assertIn("sessionPersonaLocks", server.HTML)
+        self.assertIn("Persona locked to this session", server.HTML)
+
+    def test_openclaw_free_model_warning_blocks_chat_but_paid_model_warns_only(self):
+        self.assertIn("consumes many tokens", server.HTML)
+        self.assertIn("Free models are blocked for this persona", server.HTML)
+        self.assertIn("Paid or higher-context models can run it with this warning", server.HTML)
+        self.assertIn("const warn = isFree && isOpenClaw", server.HTML)
+        self.assertIn("const block = warn", server.HTML)
+        self.assertIn("els.send.disabled = block || isSending", server.HTML)
+        self.assertIn("OpenClaw consumes many tokens on this model.", server.HTML)
+        self.assertIn("Switch to a non-free model to use OpenClaw.", server.HTML)
 
     def test_guide_topics_have_unique_required_fields(self):
         topic_ids = [topic["id"] for topic in server.GUIDE_TOPICS]

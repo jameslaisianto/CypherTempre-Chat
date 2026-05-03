@@ -24,6 +24,10 @@ This project is an interactive demonstration of the Cypher Tempre cognitive arch
 - Built-in Guide page with simple and comprehensive explanations
 - Source-grounded Guide explanations that open dedicated chat sessions
 - Small Settings gear for API key/model configuration
+- Mobile-responsive UI with bottom tab navigation (Chat / Guide / Settings)
+- Slide-out drawers for personas and Memory Inspector on phones
+- PWA support — install to your phone's home screen like a real app
+- One-click `Start CypherTempre.bat` launcher for Windows
 
 ## Step-by-step setup
 
@@ -271,6 +275,39 @@ What it adds:
 - `CypherTempre Researcher` is a lightweight researcher focused on the PoC's memory, PoQ gates, and temporal proof.
 - `Cypher Tempre OpenClaw Runtime` is the full v5.0 prompt-layer runtime with modalities, sense bank, memory commit policy, and cyber-native intelligence principles.
 - Custom Persona Studio prompts are user-generated fictional personas unrelated to the Cypher Tempre architecture.
+
+## Mobile and PWA
+
+The UI is fully responsive and works on phones.
+
+### Use it on your phone
+
+1. Make sure your phone and computer are on the same Wi-Fi.
+2. Start the server so it accepts connections from your local network:
+   ```powershell
+   python server.py --host 0.0.0.0 --port 8765
+   ```
+   Or double-click `Start CypherTempre.bat` (it does this automatically and prints your phone URL).
+3. On your phone browser, go to your computer's local IP:
+   ```text
+   http://YOUR_COMPUTER_IP:8765
+   ```
+   The batch file shows this address when it starts.
+4. If the page does not load, open port 8765 in Windows Firewall (one-time setup):
+   ```powershell
+   New-NetFirewallRule -DisplayName "CypherTempre Chat" -Direction Inbound -LocalPort 8765 -Protocol TCP -Action Allow
+   ```
+
+### Install as an app
+
+- **Android / Samsung:** Open the site in Chrome or Samsung Internet, tap the menu, and choose **"Add to Home screen"**.
+- The app runs in standalone mode (no browser address bar) and caches the page for offline loading.
+
+### Mobile navigation
+
+- **Bottom tabs:** Chat, Guide, and Settings are always one tap away.
+- **☰ Menu:** Opens the left drawer (personas, domains, sessions, persona studio).
+- **🧠 Memory:** Opens the right drawer (Self Model, Recall, Verify Chain).
 
 ## Test
 

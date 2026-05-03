@@ -73,6 +73,8 @@ You should see something like:
 CypherTempre chat PoC running at http://127.0.0.1:8765
 ```
 
+**Easy way:** Double-click `Start CypherTempre.bat`. It starts the server and shows the address to use on your phone.
+
 ## 5. Open It In Your Browser
 
 Open:
@@ -80,6 +82,30 @@ Open:
 ```text
 http://127.0.0.1:8765
 ```
+
+## Use It On Your Phone
+
+The app works on your phone too.
+
+1. Make sure your phone is on the same Wi-Fi as your computer.
+2. Use `Start CypherTempre.bat` or start the server with:
+   ```powershell
+   python server.py --host 0.0.0.0
+   ```
+3. On your phone browser, go to the address the batch file shows you.
+4. If it does not load, run this in PowerShell once:
+   ```powershell
+   New-NetFirewallRule -DisplayName "CypherTempre Chat" -Direction Inbound -LocalPort 8765 -Protocol TCP -Action Allow
+   ```
+
+### Add It To Your Home Screen
+
+In Chrome or Samsung Internet on your phone:
+
+1. Open the site.
+2. Tap the menu (the three dots).
+3. Tap **"Add to Home screen"**.
+4. It now opens like a real app with no browser bar.
 
 ## 6. Test OpenRouter
 

@@ -59,6 +59,9 @@ DEFAULT_ENV_PATH = pathlib.Path(__file__).resolve().parent / ".env.local"
 PROMPT_BUDGET_CHARS = 32000
 RECALLED_RING_SNIPPET_CHARS = 700
 TRIMMED_RECALLED_RING_SNIPPET_CHARS = 220
+MIN_COMPACTED_PERSONA_CHARS = 1600
+DEFAULT_RESPONSE_TOKENS = 900
+LONG_RESPONSE_TOKENS = 1600
 
 
 def default_provider_url(provider: str) -> str:
@@ -673,7 +676,11 @@ HTML = r"""<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0c0b">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/svg+xml" href="/icon.svg">
+  <link rel="apple-touch-icon" href="/icon.svg">
   <title>CypherTempre</title>
   <style>
     :root {
@@ -710,6 +717,7 @@ HTML = r"""<!doctype html>
     }
 
     button, input, textarea, select { font: inherit; }
+    button, a, [role="button"] { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 
     html {
       height: 100%;
@@ -1268,6 +1276,35 @@ HTML = r"""<!doctype html>
       border-color: #6a3939;
     }
 
+    .message.thinking-message .bubble {
+      border-color: #4f684f;
+      background: linear-gradient(180deg, rgba(22, 30, 24, 0.98), rgba(16, 19, 17, 0.98));
+    }
+
+    .thinking-row {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .thinking-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--green);
+      animation: thinkingPulse 1s ease-in-out infinite;
+    }
+
+    .thinking-dot:nth-child(2) { animation-delay: 0.14s; }
+    .thinking-dot:nth-child(3) { animation-delay: 0.28s; }
+
+    @keyframes thinkingPulse {
+      0%, 80%, 100% { opacity: 0.35; transform: translateY(0); }
+      40% { opacity: 1; transform: translateY(-3px); }
+    }
+
     .bubble-head {
       display: flex;
       justify-content: space-between;
@@ -1448,7 +1485,9 @@ HTML = r"""<!doctype html>
       .rail-section { padding: 10px; }
       .nav { grid-template-columns: 1fr; }
       .nav button { min-height: 42px; padding: 0; }
-      .inspector { display: none; }
+      .inspector { position: fixed; right: 0; top: 0; bottom: 0; width: min(320px, 85vw); z-index: 100; transform: translateX(101%); transition: transform .25s ease; border-left: 1px solid var(--line); background: rgba(17, 17, 15, 0.98); display: grid; grid-template-rows: auto minmax(0, 1fr); overflow-y: auto; -webkit-overflow-scrolling: touch; }
+      .inspector.open { transform: translateX(0); }
+      .mobile-only { display: inline-flex; align-items: center; justify-content: center; }
       .guide { padding: 18px; }
       .chat-top { align-items: flex-start; flex-direction: column; }
       .badges { justify-content: flex-start; }
@@ -1457,6 +1496,72 @@ HTML = r"""<!doctype html>
       .message, .message.user { grid-template-columns: 1fr; }
       .avatar { display: none; }
       .message.user .bubble { grid-column: auto; grid-row: auto; }
+    }
+
+    .mobile-nav { display: none; }
+
+    @media (max-width: 640px) {
+      .app { display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }
+      .chat { height: auto; flex: 1; min-height: 0; }
+      .guide { min-height: 0; }
+      .guide.active { flex: 1; min-height: 0; }
+      .settings { height: auto; }
+      .settings.active { flex: 1; min-height: 0; }
+      .mobile-nav { display: flex; flex: 0 0 56px; border-top: 1px solid var(--line); background: rgba(17, 17, 15, 0.98); padding-bottom: max(0px, env(safe-area-inset-bottom)); }
+      .mobile-nav button { flex: 1; background: transparent; border: 0; color: var(--muted); font-size: 13px; font-weight: 700; cursor: pointer; }
+      .mobile-nav button.active { color: var(--amber); background: rgba(214, 179, 106, 0.08); }
+      .rail { position: fixed; left: 0; top: 0; bottom: 0; width: min(280px, 80vw); z-index: 100; transform: translateX(-101%); transition: transform .25s ease; border-right: 1px solid var(--line); background: rgba(17, 17, 15, 0.98); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+      .rail.open { transform: translateX(0); }
+      .inspector { position: fixed; right: 0; top: 0; bottom: 0; width: min(320px, 85vw); z-index: 100; transform: translateX(101%); transition: transform .25s ease; border-left: 1px solid var(--line); background: rgba(17, 17, 15, 0.98); display: grid; grid-template-rows: auto minmax(0, 1fr); overflow-y: auto; -webkit-overflow-scrolling: touch; }
+      .inspector.open { transform: translateX(0); }
+      .overlay-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 99; display: none; backdrop-filter: blur(2px); }
+      .overlay-backdrop.active { display: block; }
+      .mobile-only { display: inline-flex; align-items: center; justify-content: center; }
+      .brand p, .brand h1 { display: block; }
+      .rail-section .group, .rail > .status-card { display: grid; }
+      .chat-top { flex-direction: row; align-items: center; padding: 10px 12px; gap: 8px; flex-wrap: nowrap; overflow: hidden; }
+      .chat-title { min-width: 0; overflow: hidden; }
+      .chat-title strong { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .chat-title span { font-size: 12px; }
+      .badges { justify-content: flex-end; flex: 1; gap: 6px; overflow: hidden; min-width: 0; }
+      .badge { font-size: 11px; padding: 4px 8px; }
+      #model-badge { display: none; }
+      .composer { padding: 10px 12px 14px; }
+      .composer-form { gap: 8px; }
+      .send { width: 100%; min-height: 44px; border-radius: 10px; }
+      .messages { padding: 12px; gap: 12px; }
+      .message { gap: 8px; }
+      .bubble-content { padding: 10px 12px; font-size: 15px; line-height: 1.5; }
+      .bubble-head { padding: 8px 10px; font-size: 11px; }
+      .bubble-meta { gap: 6px; padding: 0 10px 10px; }
+      .guide { padding: 12px; }
+      .guide-shell { gap: 12px; }
+      .guide-hero { padding: 14px; }
+      .guide-hero h2 { font-size: 20px; }
+      .guide-hero p { font-size: 14px; margin-top: 6px; }
+      .guide-controls button { min-height: 32px; padding: 0 12px; font-size: 13px; }
+      .settings { padding: 12px; }
+      .settings-form { gap: 14px; }
+      .settings-row { grid-template-columns: 1fr; gap: 14px; }
+      .settings-field { gap: 4px; }
+      .feature-grid { grid-template-columns: 1fr; gap: 10px; }
+      .feature-card { padding: 12px; }
+      .feature-card h3 { font-size: 15px; }
+      .feature-card p, .feature-card li { word-break: break-word; }
+      .project-attribution { padding: 12px; }
+      .empty h2 { font-size: 20px; }
+      .empty p { font-size: 14px; }
+      .brand { padding: 12px 14px; }
+      .rail-section { padding: 10px; gap: 8px; }
+      .nav button { min-height: 40px; font-size: 13px; }
+      .inspector-head { padding: 12px; }
+      .inspector-body { padding: 10px; gap: 10px; }
+      .panel { padding: 10px; }
+      .panel h2 { font-size: 11px; margin-bottom: 8px; }
+      dl { grid-template-columns: 90px minmax(0, 1fr); gap: 6px 8px; }
+      .secondary { min-height: 36px; font-size: 13px; }
+      input, select, textarea { font-size: 16px; }
+      .status-card { margin: 8px 10px 10px; padding: 10px; font-size: 12px; }
     }
   </style>
 </head>
@@ -1485,6 +1590,7 @@ HTML = r"""<!doctype html>
         <div class="group">
           <label for="persona">Persona</label>
           <select id="persona"></select>
+          <div class="hint" id="persona-lock-hint"></div>
         </div>
 
         <div class="group">
@@ -1524,6 +1630,9 @@ HTML = r"""<!doctype html>
 
     <main id="chat-view" class="chat">
       <div class="chat-top">
+        <button id="menu-toggle" class="mobile-only settings-icon" type="button" aria-label="Menu">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+        </button>
         <div class="chat-title">
           <strong id="active-title">Companion</strong>
           <span id="workspace-line">Workspace loading...</span>
@@ -1533,6 +1642,9 @@ HTML = r"""<!doctype html>
           <span class="badge" id="rings-badge">rings: -</span>
           <span class="badge" id="verify-badge">verify: -</span>
         </div>
+        <button id="inspector-toggle" class="mobile-only settings-icon" type="button" aria-label="Memory">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+        </button>
       </div>
 
       <section id="messages" class="messages" aria-live="polite">
@@ -1544,12 +1656,13 @@ HTML = r"""<!doctype html>
 
       <div class="composer">
         <div class="composer-warning" id="composer-warning">
-          <strong>CT OpenClaw Runtime is blocked on free models.</strong>
-          The free-tier backend cannot handle this persona's large system prompt (429 rate limit).
-          Switch to a non-free model, or select Companion/Architect.
+          <strong>CT OpenClaw Runtime consumes many tokens.</strong>
+          <span id="composer-warning-detail">
+            Paid or higher-context models can run it with this warning. Free models are blocked for this persona.
+          </span>
         </div>
         <form id="composer-form" class="composer-form">
-          <textarea id="message" placeholder="Ask anything..." required></textarea>
+          <textarea id="message" placeholder="Ask anything..." required enterkeyhint="send"></textarea>
           <button id="send" class="send" type="submit" aria-label="Send">→</button>
         </form>
       </div>
@@ -1838,7 +1951,13 @@ HTML = r"""<!doctype html>
         </section>
       </div>
     </aside>
+    <nav class="mobile-nav" aria-label="Mobile view">
+      <button id="mob-chat" class="active" type="button">Chat</button>
+      <button id="mob-guide" type="button">Guide</button>
+      <button id="mob-settings" type="button">Settings</button>
+    </nav>
   </div>
+  <div id="overlay-backdrop" class="overlay-backdrop"></div>
 
   <script>
     const els = {
@@ -1883,18 +2002,24 @@ HTML = r"""<!doctype html>
       guideComprehensive: document.getElementById('guide-comprehensive'),
       personaName: document.getElementById('persona-name'),
       personaSeed: document.getElementById('persona-seed'),
+      personaLockHint: document.getElementById('persona-lock-hint'),
       generatePersona: document.getElementById('generate-persona'),
       testProvider: document.getElementById('test-provider'),
       clearProviderOverride: document.getElementById('clear-provider-override'),
       sessionList: document.getElementById('session-list'),
       sessionName: document.getElementById('session-name'),
       newSession: document.getElementById('new-session'),
-      composerWarning: document.getElementById('composer-warning')
+      composerWarning: document.getElementById('composer-warning'),
+      mobChat: document.getElementById('mob-chat'),
+      mobGuide: document.getElementById('mob-guide'),
+      mobSettings: document.getElementById('mob-settings')
     };
 
     let personas = {};
     let customPersonas = {};
     let activeSession = localStorage.getItem('ct_active_session') || 'default';
+    let sessionPersonaLocks = {};
+    let isSending = false;
     const providerEndpoints = {
       openrouter: 'https://openrouter.ai/api/v1/chat/completions',
       'kimi-code': 'https://api.kimi.com/coding/v1/chat/completions',
@@ -1940,6 +2065,9 @@ HTML = r"""<!doctype html>
       els.navChat.classList.toggle('active', !guide && !settings);
       els.navGuide.classList.toggle('active', guide);
       els.navSettings.classList.toggle('active', settings);
+      if (els.mobChat) els.mobChat.classList.toggle('active', !guide && !settings);
+      if (els.mobGuide) els.mobGuide.classList.toggle('active', guide);
+      if (els.mobSettings) els.mobSettings.classList.toggle('active', settings);
       localStorage.setItem('ct_view', view);
     }
 
@@ -2028,10 +2156,15 @@ HTML = r"""<!doctype html>
         activeSession = data.active || 'default';
         localStorage.setItem('ct_active_session', activeSession);
       }
+      sessionPersonaLocks = Object.fromEntries((data.sessions || []).map(session => [session.id, {
+        id: session.persona_id || '',
+        name: session.persona_name || ''
+      }]));
       els.sessionList.innerHTML = data.sessions
         .map(session => `<option value="${esc(session.id)}">${esc(session.name)} (${session.rings})</option>`)
         .join('');
       els.sessionList.value = activeSession;
+      applySessionPersonaLock();
     }
 
     async function switchSession(sessionId) {
@@ -2039,13 +2172,18 @@ HTML = r"""<!doctype html>
       localStorage.setItem('ct_active_session', activeSession);
       await Promise.all([refreshSummary(), verifyChain(), restoreHistory()]);
       await loadSessions();
+      applySessionPersonaLock();
     }
 
     async function createSession() {
       const name = els.sessionName.value.trim() || 'New conversation';
       const data = await api('/api/sessions', {
         method: 'POST',
-        body: JSON.stringify({ name })
+        body: JSON.stringify({
+          name,
+          persona: els.persona.value,
+          customPersona: customPersonas[els.persona.value] || null
+        })
       });
       els.sessionName.value = '';
       await switchSession(data.session.id);
@@ -2086,6 +2224,21 @@ HTML = r"""<!doctype html>
       els.persona.innerHTML = builtIns + custom;
     }
 
+    function applySessionPersonaLock() {
+      const lock = sessionPersonaLocks[activeSession] || {};
+      const lockedPersonaId = lock.id || '';
+      if (lockedPersonaId && (personas[lockedPersonaId] || customPersonas[lockedPersonaId])) {
+        els.persona.value = lockedPersonaId;
+        els.persona.disabled = true;
+        els.personaLockHint.textContent = `Persona locked to this session: ${lock.name || getActivePersona()?.name || lockedPersonaId}.`;
+      } else {
+        els.persona.disabled = false;
+        els.personaLockHint.textContent = 'New sessions lock to the persona selected when they are created.';
+      }
+      updatePersonaText();
+      validatePersonaModel();
+    }
+
     function getActivePersona() {
       return customPersonas[els.persona.value] || personas[els.persona.value] || personas.companion;
     }
@@ -2107,6 +2260,7 @@ HTML = r"""<!doctype html>
       updatePersonaText();
       updateSetup(config.has_env_key);
       validatePersonaModel();
+      applySessionPersonaLock();
     }
 
     async function syncCustomPersonasToServer(config) {
@@ -2199,11 +2353,20 @@ HTML = r"""<!doctype html>
     function validatePersonaModel() {
       const isFree = (els.model.value || '').trim().endsWith(':free');
       const isOpenClaw = els.persona.value === 'openclaw';
-      const blocked = isFree && isOpenClaw;
-      els.composerWarning.classList.toggle('active', blocked);
-      els.send.disabled = blocked;
-      els.message.placeholder = blocked
-        ? 'Switch to a non-free model or another persona to chat.'
+      const warn = isFree && isOpenClaw;
+      const block = warn;
+      els.composerWarning.classList.toggle('active', isOpenClaw);
+      const warningDetail = document.getElementById('composer-warning-detail');
+      if (warningDetail) {
+        warningDetail.textContent = block
+          ? 'Free models are blocked for this persona. Switch to a non-free model to use OpenClaw.'
+          : 'Paid or higher-context models can run it with this warning. OpenClaw consumes many tokens on this model.';
+      }
+      els.send.disabled = block || isSending;
+      els.message.placeholder = block
+        ? 'Switch to a non-free model to use OpenClaw.'
+        : isOpenClaw
+        ? 'Ask anything... OpenClaw consumes many tokens on this model.'
         : 'Ask anything...';
     }
 
@@ -2276,6 +2439,29 @@ HTML = r"""<!doctype html>
       `;
       els.messages.appendChild(wrapper);
       els.messages.scrollTop = els.messages.scrollHeight;
+      return wrapper;
+    }
+
+    function appendThinkingMessage(personaName) {
+      removeThinkingMessage();
+      const wrapper = appendMessage(personaName || 'CypherTempre', '', {}, false);
+      wrapper.classList.add('thinking-message');
+      const content = wrapper.querySelector('.bubble-content');
+      if (content) {
+        content.innerHTML = `
+          <span class="thinking-row" role="status" aria-live="polite">
+            <span>Thinking and creating a response</span>
+            <span class="thinking-dot"></span>
+            <span class="thinking-dot"></span>
+            <span class="thinking-dot"></span>
+          </span>
+        `;
+      }
+      return wrapper;
+    }
+
+    function removeThinkingMessage() {
+      els.messages.querySelectorAll('.thinking-message').forEach(node => node.remove());
     }
 
     function clearRenderedMessages() {
@@ -2363,8 +2549,10 @@ HTML = r"""<!doctype html>
 
       saveLocalConfig();
       appendMessage('You', message, { domain: els.domain.value });
+      const thinkingMessage = appendThinkingMessage(getActivePersona()?.name || 'CypherTempre');
       els.message.value = '';
-      els.send.disabled = true;
+      isSending = true;
+      validatePersonaModel();
 
       try {
         const data = await api('/api/chat', {
@@ -2381,6 +2569,11 @@ HTML = r"""<!doctype html>
             baseUrl: els.baseUrl.value.trim()
           })
         });
+        removeThinkingMessage();
+        if (data.persona_id) {
+          sessionPersonaLocks[activeSession] = { id: data.persona_id, name: data.persona_name || '' };
+          applySessionPersonaLock();
+        }
         if (data.accepted) {
           appendMessage(data.persona_name || 'CypherTempre', data.content, {
             accepted: true,
@@ -2405,9 +2598,12 @@ HTML = r"""<!doctype html>
         await refreshSummary();
         await verifyChain();
       } catch (error) {
+        removeThinkingMessage();
         appendMessage('CypherTempre', error.message, { accepted: false }, true);
       } finally {
-        els.send.disabled = false;
+        if (thinkingMessage && thinkingMessage.isConnected) thinkingMessage.remove();
+        isSending = false;
+        validatePersonaModel();
         els.message.focus();
       }
     });
@@ -2461,6 +2657,9 @@ HTML = r"""<!doctype html>
     els.navChat.addEventListener('click', () => setMainView('chat'));
     els.navGuide.addEventListener('click', () => setMainView('guide'));
     els.navSettings.addEventListener('click', () => setMainView('settings'));
+    if (els.mobChat) els.mobChat.addEventListener('click', () => setMainView('chat'));
+    if (els.mobGuide) els.mobGuide.addEventListener('click', () => setMainView('guide'));
+    if (els.mobSettings) els.mobSettings.addEventListener('click', () => setMainView('settings'));
     els.guideSimple.addEventListener('click', () => setGuideDepth('simple'));
     els.guideComprehensive.addEventListener('click', () => setGuideDepth('comprehensive'));
     els.generatePersona.addEventListener('click', () => {
@@ -2485,6 +2684,35 @@ HTML = r"""<!doctype html>
       }
     });
 
+    (function setupMobileDrawers() {
+      const rail = document.querySelector('.rail');
+      const inspector = document.querySelector('.inspector');
+      const backdrop = document.getElementById('overlay-backdrop');
+      const menuToggle = document.getElementById('menu-toggle');
+      const inspectorToggle = document.getElementById('inspector-toggle');
+      function closeAll() {
+        rail && rail.classList.remove('open');
+        inspector && inspector.classList.remove('open');
+        backdrop && backdrop.classList.remove('active');
+      }
+      if (menuToggle) menuToggle.addEventListener('click', () => {
+        const wasOpen = rail && rail.classList.contains('open');
+        closeAll();
+        if (!wasOpen) { rail && rail.classList.add('open'); backdrop && backdrop.classList.add('active'); }
+      });
+      if (inspectorToggle) inspectorToggle.addEventListener('click', () => {
+        const wasOpen = inspector && inspector.classList.contains('open');
+        closeAll();
+        if (!wasOpen) { inspector && inspector.classList.add('open'); backdrop && backdrop.classList.add('active'); }
+      });
+      if (backdrop) backdrop.addEventListener('click', closeAll);
+      document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAll(); });
+      window.addEventListener('resize', () => { if (window.innerWidth > 760) closeAll(); });
+      document.querySelectorAll('.rail .nav button, .rail .secondary, .rail .settings-icon').forEach(btn => {
+        btn.addEventListener('click', () => { if (window.innerWidth <= 760) closeAll(); });
+      });
+    })();
+
     api('/api/config')
       .then(config => {
         applyLocalConfig(config);
@@ -2497,10 +2725,42 @@ HTML = r"""<!doctype html>
         setStatus(error.message, '#6b3c3c');
         appendMessage('CypherTempre', error.message, { accepted: false }, true);
       });
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    }
   </script>
 </body>
 </html>
 """
+
+MANIFEST_JSON = json.dumps({
+    "name": "CypherTempre Chat",
+    "short_name": "CypherTempre",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#0b0c0b",
+    "theme_color": "#0b0c0b",
+    "icons": [{"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml"}]
+}, indent=2)
+
+SW_JS = (
+    "const CACHE_NAME = 'cyphertempre-v1';\\n"
+    "const URLS_TO_CACHE = ['/','/manifest.json','/icon.svg'];\\n"
+    "self.addEventListener('install', e => {\\n"
+    "  e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(URLS_TO_CACHE)));\\n"
+    "});\\n"
+    "self.addEventListener('fetch', e => {\\n"
+    "  e.respondWith(caches.match(e.request).then(r => r || fetch(e.request)));\\n"
+    "});\\n"
+)
+
+ICON_SVG = (
+    '<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\">'
+    '<rect width=\"100\" height=\"100\" rx=\"20\" fill=\"#0b0c0b\"/>'
+    '<text x=\"50\" y=\"68\" font-size=\"52\" text-anchor=\"middle\" fill=\"#d6b36a\" font-family=\"ui-sans-serif,system-ui,sans-serif\">C</text>'
+    '</svg>'
+)
 
 
 def resolve_timechain_path(path: pathlib.Path) -> pathlib.Path:
@@ -2559,6 +2819,27 @@ def save_memory_model(workspace: pathlib.Path, model: dict[str, Any]) -> None:
 
 def custom_personas_path(workspace: pathlib.Path) -> pathlib.Path:
     return workspace / ".timechain" / "custom_personas.json"
+
+
+def session_metadata_path(workspace: pathlib.Path) -> pathlib.Path:
+    return workspace / ".timechain" / "session.json"
+
+
+def load_session_metadata(workspace: pathlib.Path) -> dict[str, Any]:
+    path = session_metadata_path(workspace)
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def save_session_metadata(workspace: pathlib.Path, metadata: dict[str, Any]) -> None:
+    path = session_metadata_path(workspace)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def load_custom_personas(workspace: pathlib.Path) -> dict[str, dict[str, str]]:
@@ -2932,6 +3213,28 @@ def trim_for_prompt(text: str, limit: int = 1400) -> str:
     return normalized[: limit - 3].rstrip() + "..."
 
 
+def compact_persona_system(system: str, limit: int) -> str:
+    text = (system or "").strip()
+    if limit <= 0 or len(text) <= limit:
+        return text
+    limit = max(200, limit)
+    marker = (
+        "\n\n[OpenClaw prompt compacted to fit provider context. Preserve identity, truth constraint, "
+        "Timechain orientation, PoQ discipline, correction lineage, and practical usefulness.]\n\n"
+    )
+    final_index = text.rfind("FINAL ACTIVATION")
+    if "Cypher Tempre Prompt-Layer Runtime" in text and final_index > 0:
+        head_budget = max(400, int((limit - len(marker)) * 0.62))
+        tail_budget = max(300, limit - len(marker) - head_budget)
+        compacted = text[:head_budget].rstrip() + marker + text[final_index: final_index + tail_budget].strip()
+    else:
+        head_budget = max(100, limit - len(marker) - 3)
+        compacted = text[:head_budget].rstrip() + marker.rstrip()
+    if len(compacted) > limit:
+        compacted = compacted[: limit - 3].rstrip() + "..."
+    return compacted
+
+
 def build_recent_turns(chain: list[Any], limit: int = 8) -> list[dict[str, str]]:
     interactions = [ring for ring in chain if getattr(ring, "kind", "") == "interaction"]
     selected = interactions[-max(0, min(limit, 20)):]
@@ -2944,6 +3247,13 @@ def build_recent_turns(chain: list[Any], limit: int = 8) -> list[dict[str, str]]
 
 def prompt_size(messages: list[dict[str, str]]) -> int:
     return sum(len(message.get("role", "")) + len(message.get("content", "")) for message in messages)
+
+
+def response_token_budget(query: str) -> int:
+    text = (query or "").lower()
+    if re.search(r"\b(lengthy|long|comprehensive|detailed|deep dive|in depth|in-depth)\b", text):
+        return LONG_RESPONSE_TOKENS
+    return DEFAULT_RESPONSE_TOKENS
 
 
 def build_prompt_messages(
@@ -3119,6 +3429,38 @@ def build_messages(
             now=current_time,
             model=model,
         )
+    if prompt_budget_chars > 0 and prompt_size(messages) > prompt_budget_chars:
+        overhead = prompt_size(messages) - len(persona.get("system", ""))
+        persona_budget = max(MIN_COMPACTED_PERSONA_CHARS, prompt_budget_chars - overhead - 120)
+        compacted_persona = {
+            **persona,
+            "system": compact_persona_system(persona.get("system", ""), persona_budget),
+        }
+        messages = build_prompt_messages(
+            persona=compacted_persona,
+            query=query,
+            durable_context=durable_context,
+            memory_context=memory_context,
+            recent_turns=active_recent_turns,
+            neuro_line=neuro_line,
+            covenant=covenant,
+            now=current_time,
+            model=model,
+        )
+        while prompt_budget_chars > 0 and prompt_size(messages) > prompt_budget_chars and persona_budget > 400:
+            persona_budget = max(400, persona_budget - max(200, prompt_size(messages) - prompt_budget_chars + 80))
+            compacted_persona["system"] = compact_persona_system(persona.get("system", ""), persona_budget)
+            messages = build_prompt_messages(
+                persona=compacted_persona,
+                query=query,
+                durable_context=durable_context,
+                memory_context=memory_context,
+                recent_turns=active_recent_turns,
+                neuro_line=neuro_line,
+                covenant=covenant,
+                now=current_time,
+                model=model,
+            )
     return messages
 
 
@@ -3130,6 +3472,7 @@ def call_llm(
     messages: list[dict[str, str]],
     timeout: float,
     base_url: str = "",
+    max_tokens: int = DEFAULT_RESPONSE_TOKENS,
 ) -> dict[str, Any]:
     api_key = api_key.strip()
     if not api_key:
@@ -3144,7 +3487,7 @@ def call_llm(
         "model": model or DEFAULT_MODEL,
         "messages": messages,
         "temperature": 0.7,
-        "max_tokens": 900,
+        "max_tokens": max(1, min(int(max_tokens or DEFAULT_RESPONSE_TOKENS), 4000)),
     }
     headers: dict[str, str] = {
         "Authorization": f"Bearer {api_key}",
@@ -3406,16 +3749,32 @@ class App:
         for session_id, path in [("default", self.root_workspace)]:
             chain_path = path / ".timechain" / "chain.jsonl"
             rings = sum(1 for _ in chain_path.open("r", encoding="utf-8")) if chain_path.exists() else 0
-            sessions.append({"id": session_id, "name": "Default", "rings": rings})
+            metadata = load_session_metadata(path)
+            persona_id = str(metadata.get("persona_id", "")).strip()
+            sessions.append({
+                "id": session_id,
+                "name": "Default",
+                "rings": rings,
+                "persona_id": persona_id,
+                "persona_name": self.persona_name_for_id(persona_id),
+            })
         if self.sessions_root.exists():
             for path in sorted(p for p in self.sessions_root.iterdir() if p.is_dir()):
                 session_id = sanitize_session_id(path.name)
                 chain_path = path / ".timechain" / "chain.jsonl"
                 rings = sum(1 for _ in chain_path.open("r", encoding="utf-8")) if chain_path.exists() else 0
-                sessions.append({"id": session_id, "name": session_name_from_id(session_id), "rings": rings})
+                metadata = load_session_metadata(path)
+                persona_id = str(metadata.get("persona_id", "")).strip()
+                sessions.append({
+                    "id": session_id,
+                    "name": session_name_from_id(session_id),
+                    "rings": rings,
+                    "persona_id": persona_id,
+                    "persona_name": self.persona_name_for_id(persona_id),
+                })
         return sessions
 
-    def create_session(self, name: str) -> dict[str, Any]:
+    def create_session(self, name: str, *, persona_id: str = "") -> dict[str, Any]:
         base = sanitize_session_id(name or "New conversation")
         if base == "default":
             base = "conversation"
@@ -3425,10 +3784,43 @@ class App:
             session_id = f"{base}-{index}"
             index += 1
         self.use_session(session_id)
-        return {"id": session_id, "name": session_name_from_id(session_id), "rings": len(self.agent.chain)}
+        if persona_id:
+            self.bind_session_persona(persona_id)
+        metadata = load_session_metadata(self.workspace)
+        locked_persona = str(metadata.get("persona_id", "")).strip()
+        return {
+            "id": session_id,
+            "name": session_name_from_id(session_id),
+            "rings": len(self.agent.chain),
+            "persona_id": locked_persona,
+            "persona_name": self.persona_name_for_id(locked_persona),
+        }
 
     def reload_agent(self) -> None:
         self.agent = self.timechain.TimechainAgent(workspace=self.workspace)
+
+    def persona_name_for_id(self, persona_id: str) -> str:
+        persona_id = sanitize_session_id(persona_id or "")
+        persona = self.get_custom_persona(persona_id) or PERSONAS.get(persona_id)
+        return persona.get("name", "") if persona else ""
+
+    def session_persona_id(self) -> str:
+        metadata = load_session_metadata(self.workspace)
+        return str(metadata.get("persona_id", "")).strip()
+
+    def bind_session_persona(self, persona_id: str) -> str:
+        metadata = load_session_metadata(self.workspace)
+        locked = str(metadata.get("persona_id", "")).strip()
+        if locked:
+            return locked
+        persona_id = sanitize_session_id(persona_id or "companion")
+        if not self.get_custom_persona(persona_id) and persona_id not in PERSONAS:
+            persona_id = "companion"
+        metadata["persona_id"] = persona_id
+        metadata["persona_name"] = self.persona_name_for_id(persona_id)
+        metadata["created_at"] = metadata.get("created_at") or dt.datetime.now(dt.timezone.utc).isoformat()
+        save_session_metadata(self.workspace, metadata)
+        return persona_id
 
     def memory_model(self) -> dict[str, Any]:
         model = load_memory_model(self.workspace)
@@ -3476,9 +3868,12 @@ class App:
         workspace = self.workspace.resolve()
         if workspace not in root.parents:
             raise RuntimeError(f"Refusing to reset unexpected path: {root}")
+        metadata = load_session_metadata(self.workspace)
         if root.exists():
             shutil.rmtree(root)
         self.reload_agent()
+        if metadata:
+            save_session_metadata(self.workspace, metadata)
         self.save_memory_model(empty_memory_model())
         return {
             "workspace": str(self.workspace),
@@ -3503,6 +3898,7 @@ class App:
                     messages=messages,
                     timeout=self.timeout,
                     base_url=base_url,
+                    max_tokens=response_token_budget(f"Explain {topic['title']}"),
                 )
                 content = llm["content"]
                 model_used = llm.get("model_used", model or self.default_model)
@@ -3546,6 +3942,7 @@ class App:
         provider: str = "",
         base_url: str = "",
     ) -> dict[str, Any]:
+        persona_id = self.bind_session_persona(persona_id)
         persona = custom_persona or self.get_custom_persona(persona_id) or PERSONAS.get(persona_id) or PERSONAS["companion"]
         memory_model = self.memory_model()
         durable_hits = recall_memory_facts(memory_model, query, limit=6)
@@ -3601,6 +3998,7 @@ class App:
                 messages=messages,
                 timeout=self.timeout,
                 base_url=base_url,
+                max_tokens=response_token_budget(query),
             )
         except RuntimeError as exc:
             return local_fallback(str(exc))
@@ -3615,6 +4013,7 @@ class App:
                     messages=build_retry_messages(messages, reason=retry_reason, facts=durable_hits),
                     timeout=self.timeout,
                     base_url=base_url,
+                    max_tokens=response_token_budget(query),
                 )
                 llm = repaired
                 retry["attempted"] = True
@@ -3768,6 +4167,30 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                     ok, status = app.timechain.verify_chain(app.agent.chain)
                     self.send_json({"ok": ok, "status": status, "rings": len(app.agent.chain)})
                     return
+                if path == "/manifest.json":
+                    encoded = MANIFEST_JSON.encode("utf-8")
+                    self.send_response(HTTPStatus.OK)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.send_header("Content-Length", str(len(encoded)))
+                    self.end_headers()
+                    self.wfile.write(encoded)
+                    return
+                if path == "/sw.js":
+                    encoded = SW_JS.encode("utf-8")
+                    self.send_response(HTTPStatus.OK)
+                    self.send_header("Content-Type", "application/javascript; charset=utf-8")
+                    self.send_header("Content-Length", str(len(encoded)))
+                    self.end_headers()
+                    self.wfile.write(encoded)
+                    return
+                if path == "/icon.svg":
+                    encoded = ICON_SVG.encode("utf-8")
+                    self.send_response(HTTPStatus.OK)
+                    self.send_header("Content-Type", "image/svg+xml")
+                    self.send_header("Content-Length", str(len(encoded)))
+                    self.end_headers()
+                    self.wfile.write(encoded)
+                    return
                 self.send_error(HTTPStatus.NOT_FOUND, "Not found")
             except Exception as exc:
                 self.send_exception(exc)
@@ -3808,6 +4231,8 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
             custom_persona = normalize_custom_persona(payload.get("customPersona"))
             if custom_persona:
                 app.save_custom_persona(persona_id, custom_persona)
+            persona_id = app.bind_session_persona(persona_id)
+            custom_persona = None
             persona = custom_persona or app.get_custom_persona(persona_id) or PERSONAS.get(persona_id) or PERSONAS["companion"]
             requested_domain = str(payload.get("domain", "auto")).strip() or "auto"
             domain = classify_domain(message, persona, requested_domain)
@@ -3828,7 +4253,7 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 provider=str(payload.get("provider", "")).strip(),
                 base_url=str(payload.get("baseUrl", "")).strip() or app.base_url,
             )
-            self.send_json(finalize_chat_response(
+            response = finalize_chat_response(
                 app=app,
                 message=message,
                 domain=domain,
@@ -3836,7 +4261,9 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 model=model,
                 llm=llm,
                 persona_name=persona["name"],
-            ))
+            )
+            response["persona_id"] = persona_id
+            self.send_json(response)
 
         def handle_recall(self) -> None:
             payload = self.read_json()
@@ -3895,7 +4322,14 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
 
         def handle_create_session(self) -> None:
             payload = self.read_json()
-            session = app.create_session(str(payload.get("name", "")).strip() or "New conversation")
+            persona_id = str(payload.get("persona", "")).strip()
+            custom_persona = normalize_custom_persona(payload.get("customPersona"))
+            if persona_id and custom_persona:
+                app.save_custom_persona(persona_id, custom_persona)
+            session = app.create_session(
+                str(payload.get("name", "")).strip() or "New conversation",
+                persona_id=persona_id,
+            )
             self.send_json({"ok": True, "session": session, "sessions": app.list_sessions()})
 
         def handle_provider_test(self) -> None:
@@ -3910,6 +4344,7 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 messages=[{"role": "user", "content": "Reply with exactly: ok"}],
                 timeout=min(app.timeout, 20.0),
                 base_url=str(payload.get("baseUrl", "")).strip(),
+                max_tokens=16,
             )
             self.send_json({
                 "ok": True,
