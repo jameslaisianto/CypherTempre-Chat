@@ -4,6 +4,14 @@ Standalone local browser UI for testing `timechain.py` with LLM-backed chat, per
 
 This project is an interactive demonstration of the Cypher Tempre cognitive architecture. See [LICENSE](LICENSE) for the Cypher Tempre Open Intelligence License (CTOIL), attribution to Michael Joseph / CyberphysicsAI, and the Architecture disclaimer.
 
+Chat Session
+<img width="2532" height="1327" alt="image" src="https://github.com/user-attachments/assets/5fdbec2c-8bd6-47e1-8073-28c82a247592" />
+Guide to understand Cypher Tempre Architecture
+<img width="1377" height="1341" alt="image" src="https://github.com/user-attachments/assets/8f3e9468-7442-40c9-b787-783c2458ae8c" />
+Settings to configure llm provider
+<img width="1357" height="707" alt="image" src="https://github.com/user-attachments/assets/10441aab-56d4-4a33-9700-9dae8c51134f" />
+
+
 ## Features
 
 - ChatGPT-style local chat UI
