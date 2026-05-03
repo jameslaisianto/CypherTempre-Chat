@@ -829,6 +829,12 @@ HTML = r"""<!doctype html>
       background: linear-gradient(180deg, #e5c57c, #c9a45b);
     }
 
+    .nav .settings-icon {
+      width: auto;
+      height: auto;
+      display: block;
+    }
+
     label {
       color: var(--muted);
       font-size: 12px;
@@ -1160,6 +1166,7 @@ HTML = r"""<!doctype html>
 
     .chat-title {
       min-width: 0;
+      flex: 1 1 auto;
     }
 
     .chat-title strong {
@@ -1181,6 +1188,7 @@ HTML = r"""<!doctype html>
       gap: 8px;
       flex-wrap: wrap;
       justify-content: flex-end;
+      min-width: 0;
     }
 
     .badge {
@@ -1477,20 +1485,31 @@ HTML = r"""<!doctype html>
     }
 
     @media (max-width: 760px) {
-      .app { grid-template-columns: 74px minmax(0, 1fr); }
-      .rail { border-right: 1px solid var(--line); border-bottom: 0; }
-      .brand p, .brand h1, .rail-section .group, .rail > .status-card { display: none; }
-      .brand { display: grid; place-items: center; padding: 10px; }
+      .app { display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }
+      .chat { height: auto; flex: 1; min-height: 0; }
+      .guide { min-height: 0; }
+      .guide.active { flex: 1; min-height: 0; }
+      .settings { height: auto; }
+      .settings.active { flex: 1; min-height: 0; }
+      .rail { position: fixed; left: 0; top: 0; bottom: 0; width: min(320px, 86vw); z-index: 100; transform: translateX(-101%); transition: transform .25s ease; border-right: 1px solid var(--line); background: rgba(17, 17, 15, 0.98); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+      .rail.open { transform: translateX(0); }
+      .brand { padding: 12px 14px; }
       .brand-row { display: block; }
-      .rail-section { padding: 10px; }
+      .rail-section { min-height: 0; overflow-y: auto; padding: 10px 10px 18px; }
       .nav { grid-template-columns: 1fr; }
-      .nav button { min-height: 42px; padding: 0; }
+      .nav button { min-height: 40px; font-size: 13px; }
       .inspector { position: fixed; right: 0; top: 0; bottom: 0; width: min(320px, 85vw); z-index: 100; transform: translateX(101%); transition: transform .25s ease; border-left: 1px solid var(--line); background: rgba(17, 17, 15, 0.98); display: grid; grid-template-rows: auto minmax(0, 1fr); overflow-y: auto; -webkit-overflow-scrolling: touch; }
       .inspector.open { transform: translateX(0); }
+      .overlay-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 99; display: none; backdrop-filter: blur(2px); }
+      .overlay-backdrop.active { display: block; }
       .mobile-only { display: inline-flex; align-items: center; justify-content: center; }
       .guide { padding: 18px; }
-      .chat-top { align-items: flex-start; flex-direction: column; }
-      .badges { justify-content: flex-start; }
+      .chat-top { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; padding: 10px 12px; gap: 8px; }
+      .chat-title { min-width: 0; overflow: hidden; }
+      .chat-title strong { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .chat-title span { font-size: 12px; }
+      .badges { grid-column: 2 / 4; justify-content: flex-start; gap: 6px; min-width: 0; }
+      .badge { font-size: 11px; padding: 4px 8px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
       .composer-form { grid-template-columns: 1fr; }
       .send { width: 100%; }
       .message, .message.user { grid-template-columns: 1fr; }
@@ -1501,31 +1520,10 @@ HTML = r"""<!doctype html>
     .mobile-nav { display: none; }
 
     @media (max-width: 640px) {
-      .app { display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }
-      .chat { height: auto; flex: 1; min-height: 0; }
-      .guide { min-height: 0; }
-      .guide.active { flex: 1; min-height: 0; }
-      .settings { height: auto; }
-      .settings.active { flex: 1; min-height: 0; }
       .mobile-nav { display: flex; flex: 0 0 56px; border-top: 1px solid var(--line); background: rgba(17, 17, 15, 0.98); padding-bottom: max(0px, env(safe-area-inset-bottom)); }
       .mobile-nav button { flex: 1; background: transparent; border: 0; color: var(--muted); font-size: 13px; font-weight: 700; cursor: pointer; }
       .mobile-nav button.active { color: var(--amber); background: rgba(214, 179, 106, 0.08); }
-      .rail { position: fixed; left: 0; top: 0; bottom: 0; width: min(280px, 80vw); z-index: 100; transform: translateX(-101%); transition: transform .25s ease; border-right: 1px solid var(--line); background: rgba(17, 17, 15, 0.98); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow-y: auto; -webkit-overflow-scrolling: touch; }
-      .rail.open { transform: translateX(0); }
-      .inspector { position: fixed; right: 0; top: 0; bottom: 0; width: min(320px, 85vw); z-index: 100; transform: translateX(101%); transition: transform .25s ease; border-left: 1px solid var(--line); background: rgba(17, 17, 15, 0.98); display: grid; grid-template-rows: auto minmax(0, 1fr); overflow-y: auto; -webkit-overflow-scrolling: touch; }
-      .inspector.open { transform: translateX(0); }
-      .overlay-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 99; display: none; backdrop-filter: blur(2px); }
-      .overlay-backdrop.active { display: block; }
       .mobile-only { display: inline-flex; align-items: center; justify-content: center; }
-      .brand p, .brand h1 { display: block; }
-      .rail-section .group, .rail > .status-card { display: grid; }
-      .chat-top { flex-direction: row; align-items: center; padding: 10px 12px; gap: 8px; flex-wrap: nowrap; overflow: hidden; }
-      .chat-title { min-width: 0; overflow: hidden; }
-      .chat-title strong { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      .chat-title span { font-size: 12px; }
-      .badges { justify-content: flex-end; flex: 1; gap: 6px; overflow: hidden; min-width: 0; }
-      .badge { font-size: 11px; padding: 4px 8px; }
-      #model-badge { display: none; }
       .composer { padding: 10px 12px 14px; }
       .composer-form { gap: 8px; }
       .send { width: 100%; min-height: 44px; border-radius: 10px; }
@@ -1571,12 +1569,6 @@ HTML = r"""<!doctype html>
       <div class="brand">
         <div class="brand-row">
           <h1>CypherTempre</h1>
-          <button id="nav-settings" class="settings-icon" type="button" aria-label="Settings" title="Settings">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <circle cx="12" cy="12" r="3"></circle>
-              <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.22.38.58.6 1 .6h.6a2 2 0 1 1 0 4h-.6a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0 0 .8z"></path>
-            </svg>
-          </button>
         </div>
         <p>Local LLM chat with PoQ-gated memory.</p>
       </div>
@@ -1585,6 +1577,7 @@ HTML = r"""<!doctype html>
         <div class="nav" aria-label="Main view">
           <button id="nav-chat" class="active" type="button">Chat</button>
           <button id="nav-guide" type="button">Guide</button>
+          <button id="nav-settings" class="settings-icon" type="button">Settings</button>
         </div>
 
         <div class="group">

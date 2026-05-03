@@ -639,6 +639,27 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertNotIn('id="model"', rail_html)
         self.assertNotIn('id="test-provider"', rail_html)
 
+    def test_mobile_layout_keeps_session_creation_and_header_badges_visible(self):
+        rail_start = server.HTML.index('<aside class="rail">')
+        rail_end = server.HTML.index('</aside>', rail_start)
+        rail_html = server.HTML[rail_start:rail_end]
+        nav_start = rail_html.index('<div class="nav"')
+        nav_end = rail_html.index('</div>', nav_start)
+        nav_html = rail_html[nav_start:nav_end]
+        brand_start = rail_html.index('<div class="brand">')
+        brand_end = rail_html.index('</div>', brand_start)
+        brand_html = rail_html[brand_start:brand_end]
+
+        self.assertIn('id="session-name"', rail_html)
+        self.assertIn('id="new-session"', rail_html)
+        self.assertIn('id="nav-settings"', nav_html)
+        self.assertNotIn('id="nav-settings"', brand_html)
+        self.assertIn("@media (max-width: 760px)", server.HTML)
+        self.assertIn(".rail { position: fixed;", server.HTML)
+        self.assertIn(".rail-section { min-height: 0; overflow-y: auto;", server.HTML)
+        self.assertIn(".badges { grid-column: 2 / 4;", server.HTML)
+        self.assertNotIn("#model-badge { display: none; }", server.HTML)
+
     def test_thought_styling_is_inline_and_unlabeled(self):
         self.assertNotIn('content: "thought"', server.HTML)
         self.assertIn(".thought-segment {", server.HTML)
