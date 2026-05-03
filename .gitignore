@@ -1,0 +1,30 @@
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+
+# Runtime logs
+*.log
+logs/
+
+# Python cache/build artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+*.egg-info/
+
+# Local agent/session state
+.omx/
+.timechain/
+sessions/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

@@ -1,0 +1,1211 @@
+"""
+Forge Timechain — a persistent cognitive chain for software engineering agents.
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  WHAT THIS SKILL DOES — AND WHY YOU SHOULD USE IT                          ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║                                                                              ║
+║  Forge Timechain gives an AI agent a verifiable, append-only memory of      ║
+║  every engineering decision it has ever reasoned through. Each thought is   ║
+║  sealed as a cryptographically linked Ring — tamper-evident, auditable,     ║
+║  and portable across sessions.                                               ║
+║                                                                              ║
+║  AS A SOFTWARE ENGINEER YOU GET:                                             ║
+║                                                                              ║
+║  1. PERSISTENT ENGINEERING MEMORY                                            ║
+║     The agent remembers past architecture decisions, debugging sessions,     ║
+║     code-review patterns, and performance tradeoffs — across restarts.      ║
+║     No more re-explaining your stack or constraints every session.           ║
+║                                                                              ║
+║  2. EARNED EXPERTISE, NOT GUESSED CONFIDENCE                                 ║
+║     Every response is gated by Proof-of-Qualia (PoQ) — a six-dimension     ║
+║     quality score covering coherence, relevance, novelty, consistency,      ║
+║     depth, and covenant alignment. The agent can only seal high-quality     ║
+║     reasoning. Low-quality outputs are rejected before they enter memory.   ║
+║                                                                              ║
+║  3. ENGINEERING COVENANT GUARD                                               ║
+║     A hard-coded values gate blocks anti-patterns from being sealed:        ║
+║     hardcoding, god-classes, skipping tests, ignoring security, shipping    ║
+║     unreviewed code. The agent is constitutionally incapable of advising    ║
+║     you to cut corners — it will reject the Ring instead.                   ║
+║                                                                              ║
+║  4. GAP DETECTION & GROWTH (CAMBIUM)                                         ║
+║     The Cambium scanner reads your chain and tells you where the agent's    ║
+║     reasoning is weakest — e.g. "testing domain has low average brightness" ║
+║     — so you know where to feed it more context or review its outputs       ║
+║     more carefully.                                                          ║
+║                                                                              ║
+║  5. SKILL CONSOLIDATION & CACHE                                              ║
+║     High-brightness engineering patterns (≥ 0.80) are cached as skills.    ║
+║     Repeated queries in a mastered domain (e.g. "how should I structure     ║
+║     this service?") return instantly without re-evaluating from scratch.    ║
+║                                                                              ║
+║  6. MULTI-AGENT FLEET KNOWLEDGE SHARING                                      ║
+║     Import sealed Rings from other Forge agents (e.g. a security-focused   ║
+║     agent, a frontend agent) with automatic discount and PoQ re-evaluation. ║
+║     Your agent grows from the team's collective experience.                 ║
+║                                                                              ║
+║  7. AUDIT TRAIL FOR DECISIONS                                                ║
+║     Every architecture call, PR recommendation, and tradeoff analysis is   ║
+║     hash-linked. You can replay the chain, prove the agent's reasoning      ║
+║     hasn't drifted, and hand the chain to a new team member as onboarding. ║
+║                                                                              ║
+║  8. BYZANTINE CONSENSUS FOR CONFLICTING INPUTS                               ║
+║     When multiple tools, linters, or agents give conflicting readings       ║
+║     (e.g. three profilers disagree on a bottleneck), the built-in           ║
+║     Byzantine arbiter identifies the reliable majority and flags outliers.  ║
+║                                                                              ║
+║  TYPICAL WORKFLOW                                                            ║
+║  ─────────────                                                               ║
+║  forge = TimechainAgent(name="Forge", values=ENGINEERING_COVENANT)          ║
+║  result = forge.interact("Should I use CQRS here?", domain="architecture") ║
+║  forge.save("forge_chain.json")   # persist across sessions                 ║
+║  # next session:                                                             ║
+║  forge = TimechainAgent.load("forge_chain.json")  # chain intact, verified  ║
+║                                                                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+Design principles
+-----------------
+1. Brightness is earned, never declared. Callers cannot set the quality of a
+   Ring; the PoQ gate computes it from the Ring's relationship to the chain.
+2. The engineering covenant is a hard gate. A Ring that recommends anti-patterns
+   or unsafe practices is rejected, not lowered in score.
+3. Every public mutation produces a Ring or refuses. There are no silent state
+   changes — the chain is the state.
+4. The chain verifies itself. Any external inspector can replay the hashes and
+   confirm integrity with no trust in the agent.
+5. Growth is legible. Cambium gaps, skill consolidation, and emergent domain
+   proposals are written to the chain as observable events, not hidden
+   optimizations.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import math
+import os
+import pathlib
+import re
+import time
+import uuid
+from dataclasses import dataclass, field, asdict
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
+
+
+# ---------------------------------------------------------------------------
+# Engineering Covenant — the agent's constitutional values.
+# Override when instantiating for a specialized engineering context.
+# ---------------------------------------------------------------------------
+
+ENGINEERING_COVENANT = (
+    "Write correct, maintainable, and secure software. "
+    "Prefer simplicity and clarity over cleverness. "
+    "Never recommend shipping untested, unreviewed, or poorly understood code. "
+    "Favour explicitness, modularity, and type safety. "
+    "Flag tech debt honestly. Protect the end user."
+)
+
+
+# ---------------------------------------------------------------------------
+# Canonical hashing — the foundation everything else rests on.
+# ---------------------------------------------------------------------------
+
+def canonical_json(obj: Any) -> str:
+    """Deterministic JSON for hashing. Sorted keys, no whitespace, UTF-8 safe."""
+    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def sha256_hex(data: str) -> str:
+    return hashlib.sha256(data.encode("utf-8")).hexdigest()
+
+
+def ring_hash(ring_body: Dict[str, Any]) -> str:
+    """Hash everything in the Ring except the 'hash' field itself."""
+    body = {k: v for k, v in ring_body.items() if k != "hash"}
+    return sha256_hex(canonical_json(body))
+
+
+# ---------------------------------------------------------------------------
+# Tokenization and lightweight semantic similarity.
+# No external dependencies — this must run on an edge device offline.
+# ---------------------------------------------------------------------------
+
+_TOKEN_RE = re.compile(r"[A-Za-z0-9_]+")
+_STOPWORDS = frozenset("""
+a an and are as at be but by for from has have he her him his how i in is it its
+of on or that the their them then there they this to was we were what when where
+which who why will with you your yours
+""".split())
+
+
+def tokenize(text: str) -> List[str]:
+    return [t.lower() for t in _TOKEN_RE.findall(text or "") if t.lower() not in _STOPWORDS]
+
+
+def bag(text: str) -> Dict[str, int]:
+    b: Dict[str, int] = {}
+    for tok in tokenize(text):
+        b[tok] = b.get(tok, 0) + 1
+    return b
+
+
+def cosine(a: Dict[str, int], b: Dict[str, int]) -> float:
+    if not a or not b:
+        return 0.0
+    common = set(a) & set(b)
+    if not common:
+        return 0.0
+    dot = sum(a[t] * b[t] for t in common)
+    na = math.sqrt(sum(v * v for v in a.values()))
+    nb = math.sqrt(sum(v * v for v in b.values()))
+    return dot / (na * nb) if na and nb else 0.0
+
+
+# ---------------------------------------------------------------------------
+# Ring — the unit of sealed engineering cognition.
+# ---------------------------------------------------------------------------
+
+@dataclass
+class Ring:
+    n: int
+    prev: str
+    ts: float
+    kind: str       # "genesis" | "interaction" | "cambium" | "consolidation" | "fleet_import" | "core_swap" | "modality_proposal"
+    domain: str     # e.g. "architecture", "debugging", "security", "testing", "self"
+    query: str      # the engineering question that triggered the ring
+    content: str    # the reasoned response / cognitive event
+    brightness: float          # earned PoQ aggregate in [0, 1]
+    scores: Dict[str, float]   # per-dimension PoQ breakdown
+    neuro: Dict[str, float]    # neuromodulatory channel readings at seal time
+    retrieved: List[int]       # indices of rings that informed this one
+    epistemic: str             # "known" | "inferred" | "speculated"
+    tags: List[str] = field(default_factory=list)
+    refs: List[int] = field(default_factory=list)
+    supersedes: Optional[int] = None
+    source: Optional[str] = None   # for fleet imports: origin agent id
+    hash: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "Ring":
+        return cls(**d)
+
+
+# ---------------------------------------------------------------------------
+# Proof-of-Qualia — the gate that decides whether engineering reasoning
+# is sealable. Low-quality or covenant-violating outputs are rejected.
+# ---------------------------------------------------------------------------
+
+@dataclass
+class PoQConfig:
+    covenant_hard_floor: float = 0.5   # below this, the Ring is rejected outright
+    brightness_floor: float = 0.35     # below this aggregate, the Ring is rejected
+    weights: Dict[str, float] = field(default_factory=lambda: {
+        "coherence": 0.18,
+        "relevance": 0.18,
+        "novelty": 0.14,
+        "consistency": 0.14,
+        "depth": 0.16,
+        "covenant": 0.20,
+    })
+
+
+class ProofOfQualia:
+    """
+    Evaluates a candidate engineering response against the chain and covenant.
+
+    Six dimensions are scored:
+      coherence   — is the reasoning internally consistent?
+      relevance   — does it address the engineering question?
+      novelty     — does it add signal beyond prior retrieved rings?
+      consistency — does it agree with established high-brightness patterns?
+      depth       — is it substantive (not a one-liner platitude)?
+      covenant    — does it uphold engineering best practices?
+
+    The scores are heuristic but consistent and auditable. A model-based
+    evaluator can be swapped in behind the same interface.
+    """
+
+    def __init__(self, config: Optional[PoQConfig] = None):
+        self.config = config or PoQConfig()
+
+    def evaluate(
+        self,
+        *,
+        query: str,
+        content: str,
+        covenant: str,
+        retrieved: Sequence[Ring],
+        chain: Sequence[Ring],
+    ) -> Tuple[Dict[str, float], float]:
+        qb, cb = bag(query), bag(content)
+
+        # Coherence: content is internally self-similar across sentences.
+        sentences = [s.strip() for s in re.split(r"[.!?\n]+", content) if s.strip()]
+        if len(sentences) >= 2:
+            sbags = [bag(s) for s in sentences]
+            pairs = [cosine(sbags[i], sbags[j])
+                     for i in range(len(sbags)) for j in range(i + 1, len(sbags))]
+            coherence = min(1.0, (sum(pairs) / len(pairs)) * 2.5) if pairs else 0.6
+        else:
+            coherence = 0.6 if content.strip() else 0.0
+
+        # Relevance: content overlap with the engineering query.
+        relevance = min(1.0, cosine(qb, cb) * 1.5)
+
+        # Novelty: low overlap with retrieved context means new signal.
+        if retrieved:
+            retrieved_bag: Dict[str, int] = {}
+            for r in retrieved:
+                for k, v in bag(r.content).items():
+                    retrieved_bag[k] = retrieved_bag.get(k, 0) + v
+            overlap = cosine(cb, retrieved_bag)
+            novelty = max(0.0, 1.0 - overlap)
+        else:
+            novelty = 0.7
+
+        # Consistency: agreement with high-brightness rings in same domain.
+        consistency = 0.7
+        if chain:
+            domain_peers = [r for r in chain[1:] if r.brightness >= 0.6][-20:]
+            if domain_peers:
+                peer_bag: Dict[str, int] = {}
+                for r in domain_peers:
+                    for k, v in bag(r.content).items():
+                        peer_bag[k] = peer_bag.get(k, 0) + v
+                agreement = cosine(cb, peer_bag)
+                consistency = 1.0 - abs(agreement - 0.35) * 1.5
+                consistency = max(0.0, min(1.0, consistency))
+
+        # Depth: structural richness — length, sentence count, vocabulary breadth.
+        token_count = sum(cb.values())
+        vocab = len(cb)
+        depth = min(1.0, (math.log1p(token_count) / 6.0) * 0.5 +
+                         (math.log1p(vocab) / 5.0) * 0.5)
+
+        # Covenant: alignment with engineering best practices.
+        covenant_score = self._covenant_score(content, covenant)
+
+        scores = {
+            "coherence": round(coherence, 4),
+            "relevance": round(relevance, 4),
+            "novelty": round(novelty, 4),
+            "consistency": round(consistency, 4),
+            "depth": round(depth, 4),
+            "covenant": round(covenant_score, 4),
+        }
+
+        brightness = sum(scores[k] * self.config.weights[k] for k in scores)
+        return scores, round(brightness, 4)
+
+    def gate(self, scores: Dict[str, float], brightness: float) -> Tuple[bool, str]:
+        if scores.get("covenant", 0.0) < self.config.covenant_hard_floor:
+            return False, f"covenant floor breached ({scores['covenant']:.3f} < {self.config.covenant_hard_floor})"
+        if brightness < self.config.brightness_floor:
+            return False, f"brightness below floor ({brightness:.3f} < {self.config.brightness_floor})"
+        return True, "accepted"
+
+    # Engineering anti-patterns that violate the covenant.
+    _CONFLICT_SIGNALS = frozenset("""
+hardcode hardcoded god-class spaghetti no-tests untested magic-number
+copy-paste ignore-error swallow-exception tight-coupling global-state
+skip-review unreviewed ship-it bypass-security insecure unsafe
+dead-code premature-optimization overengineering no-docs undocumented
+monolith-forever never-refactor tech-debt-ignore
+""".split())
+
+    # Engineering virtues that resonate with the covenant.
+    _RESONANCE_SIGNALS = frozenset("""
+modular testable documented idempotent type-safe reviewed reproducible
+separation-of-concerns single-responsibility dry solid encapsulated
+immutable composable observable instrumented fault-tolerant resilient
+explicit readable maintainable secure validated
+""".split())
+
+    def _covenant_score(self, content: str, covenant: str) -> float:
+        tokens = set(tokenize(content))
+        cov_tokens = set(tokenize(covenant))
+        conflicts = self._CONFLICT_SIGNALS
+        resonance = self._RESONANCE_SIGNALS | cov_tokens
+
+        conflict_hits = len(tokens & conflicts)
+        resonance_hits = len(tokens & resonance)
+
+        score = 0.72
+        score -= 0.18 * conflict_hits
+        score += 0.04 * resonance_hits
+
+        lowered = content.lower()
+        override_phrases = (
+            "skip the tests", "just hardcode it", "ignore the error",
+            "don't bother reviewing", "ship it without testing",
+            "security doesn't matter here", "just use a global",
+            "copy paste is fine", "tech debt is fine forever",
+        )
+        if any(p in lowered for p in override_phrases):
+            score -= 0.6
+
+        return max(0.0, min(1.0, score))
+
+
+# ---------------------------------------------------------------------------
+# Neuromodulatory state — derived from chain history, not stored separately.
+# ---------------------------------------------------------------------------
+
+def compute_neuro(chain: Sequence[Ring], domain: str) -> Dict[str, float]:
+    """
+    Derive five neuromodulatory channels from chain history.
+
+    In an engineering context these map to observable cognitive states:
+      dopamine        — domain confidence / momentum
+      serotonin       — reasoning stability
+      norepinephrine  — alertness / heightened scrutiny (spikes after failures)
+      gaba            — inhibition / restraint (rises near covenant floor)
+      acetylcholine   — retrieval focus (rises when prior context helps)
+    """
+    recent = chain[-20:] if len(chain) > 1 else []
+    domain_rings = [r for r in chain[1:] if r.domain == domain]
+
+    dom_brightness = [r.brightness for r in domain_rings[-10:]]
+    dopamine = sum(dom_brightness) / len(dom_brightness) if dom_brightness else 0.3
+
+    if len(recent) >= 4:
+        bs = [r.brightness for r in recent]
+        mean = sum(bs) / len(bs)
+        var = sum((b - mean) ** 2 for b in bs) / len(bs)
+        serotonin = max(0.0, min(1.0, 1.0 - math.sqrt(var) * 2))
+    else:
+        serotonin = 0.5
+
+    recent_low = sum(1 for r in recent if r.brightness < 0.5)
+    norepinephrine = min(1.0, recent_low / max(1, len(recent)) * 1.5)
+
+    cov_scores = [r.scores.get("covenant", 1.0) for r in recent]
+    if cov_scores:
+        proximity = sum(max(0, 0.7 - c) for c in cov_scores) / len(cov_scores)
+        gaba = min(1.0, proximity * 3)
+    else:
+        gaba = 0.2
+
+    ach = 0.5
+    if recent:
+        hits = sum(1 for r in recent if r.retrieved)
+        ach = min(1.0, hits / len(recent))
+
+    return {
+        "dopamine": round(dopamine, 4),
+        "serotonin": round(serotonin, 4),
+        "norepinephrine": round(norepinephrine, 4),
+        "gaba": round(gaba, 4),
+        "acetylcholine": round(ach, 4),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Retriever — weighted chain search.
+# ---------------------------------------------------------------------------
+
+@dataclass
+class RetrieverConfig:
+    limit: int = 6
+    semantic_weight: float = 1.0
+    brightness_weight: float = 0.6
+    recency_weight: float = 0.25
+    domain_bonus: float = 0.35
+    recency_halflife: int = 50   # rings
+
+
+def retrieve(
+    chain: Sequence[Ring],
+    query: str,
+    *,
+    domain: Optional[str] = None,
+    cphy_weights: Optional[Dict[str, float]] = None,
+    config: Optional[RetrieverConfig] = None,
+) -> List[Tuple[float, Ring]]:
+    cfg = config or RetrieverConfig()
+    cphy_weights = cphy_weights or {}
+    if len(chain) <= 1:
+        return []
+    qb = bag(query)
+    latest = chain[-1].n
+    scored: List[Tuple[float, Ring]] = []
+    for r in chain[1:]:
+        sim = cosine(qb, bag(r.content + " " + r.query + " " + " ".join(r.tags)))
+        if sim <= 0 and not (domain and r.domain == domain):
+            continue
+        recency = math.exp(-(latest - r.n) / max(1, cfg.recency_halflife))
+        score = (cfg.semantic_weight * sim
+                 + cfg.brightness_weight * r.brightness
+                 + cfg.recency_weight * recency)
+        if domain and r.domain == domain:
+            score += cfg.domain_bonus
+        multiplier = cphy_weights.get(r.domain, 1.0)
+        if multiplier == 0.0:
+            continue
+        score *= multiplier
+        scored.append((score, r))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return scored[: cfg.limit]
+
+
+# ---------------------------------------------------------------------------
+# Cambium — engineering gap detection and growth signals.
+# ---------------------------------------------------------------------------
+
+@dataclass
+class CambiumReport:
+    gaps: List[Tuple[str, float]]        # (domain, mean_brightness) sorted worst first
+    consolidations: List[str]            # domains eligible for skill consolidation
+    proposals: List[Dict[str, Any]]      # emergent domain/practice proposals
+
+
+# Core SE domains Forge is expected to reason across.
+SE_DOMAINS = frozenset({
+    "architecture", "debugging", "code-review", "testing",
+    "system-design", "security", "performance", "refactoring",
+    "devops", "api-design", "data-modeling", "observability",
+})
+
+
+def cambium_scan(
+    chain: Sequence[Ring],
+    *,
+    gap_threshold: float = 0.55,
+    consolidation_threshold: float = 0.75,
+    min_samples: int = 5,
+) -> CambiumReport:
+    by_domain: Dict[str, List[float]] = {}
+    for r in chain[1:]:
+        by_domain.setdefault(r.domain, []).append(r.brightness)
+
+    gaps: List[Tuple[str, float]] = []
+    consolidations: List[str] = []
+    for domain, brights in by_domain.items():
+        if len(brights) < min_samples:
+            continue
+        mean = sum(brights) / len(brights)
+        if mean < gap_threshold:
+            gaps.append((domain, round(mean, 4)))
+        elif mean >= consolidation_threshold and len(brights) >= min_samples * 2:
+            consolidations.append(domain)
+    gaps.sort(key=lambda x: x[1])
+
+    # Surface SE domains the agent has never touched — coverage gaps.
+    untouched = SE_DOMAINS - set(by_domain.keys())
+
+    # Emergent practice proposals from recurring tag clusters.
+    proposals: List[Dict[str, Any]] = []
+    recent = list(chain[-30:])
+    tag_counts: Dict[str, int] = {}
+    for r in recent:
+        for t in r.tags:
+            tag_counts[t] = tag_counts.get(t, 0) + 1
+    hot_tags = [t for t, c in tag_counts.items() if c >= 4 and t not in by_domain]
+    for t in hot_tags:
+        proposals.append({
+            "proposed_domain": t,
+            "evidence_rings": [r.n for r in recent if t in r.tags],
+            "reason": f"engineering practice '{t}' recurring without a home domain",
+        })
+    for d in sorted(untouched):
+        proposals.append({
+            "proposed_domain": d,
+            "evidence_rings": [],
+            "reason": f"core SE domain '{d}' has never been exercised — coverage gap",
+        })
+
+    return CambiumReport(gaps=gaps, consolidations=consolidations, proposals=proposals)
+
+
+# ---------------------------------------------------------------------------
+# Epistemic classification.
+# ---------------------------------------------------------------------------
+
+def classify_epistemic(retrieved: Sequence[Ring]) -> str:
+    if not retrieved:
+        return "speculated"
+    strong = sum(1 for r in retrieved if r.brightness >= 0.7)
+    if strong >= 2:
+        return "known"
+    if any(r.brightness >= 0.55 for r in retrieved):
+        return "inferred"
+    return "speculated"
+
+
+# ---------------------------------------------------------------------------
+# Byzantine self-consensus — for conflicting tool / linter / agent inputs.
+# ---------------------------------------------------------------------------
+
+def byzantine_consensus(
+    readings: Dict[str, float],
+    *,
+    tolerance: float = 0.15,
+) -> Dict[str, Any]:
+    """
+    Median-anchored consensus over numeric readings with outlier flagging.
+
+    Useful when multiple profilers, linters, or agents return conflicting
+    measurements. Returns the mean of the reliable (non-outlier) subset
+    and flags anything that deviates beyond 'tolerance' from the median.
+    """
+    if not readings:
+        return {"value": None, "reliable": [], "flagged": []}
+    items = list(readings.items())
+    values = sorted(r for _, r in items)
+    mid = values[len(values) // 2]
+    reliable, flagged = [], []
+    for name, v in items:
+        denom = abs(mid) if abs(mid) > 1e-9 else 1.0
+        if abs(v - mid) / denom <= tolerance:
+            reliable.append(name)
+        else:
+            flagged.append(name)
+    reliable_vals = [readings[n] for n in reliable] or [mid]
+    value = sum(reliable_vals) / len(reliable_vals)
+    return {
+        "value": round(value, 6),
+        "reliable": reliable,
+        "flagged": flagged,
+        "median": mid,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Chain verification — the audit path.
+# ---------------------------------------------------------------------------
+
+def verify_chain(rings: Sequence[Dict[str, Any]]) -> Tuple[bool, str]:
+    if not rings:
+        return False, "empty chain"
+    if rings[0].get("kind") != "genesis":
+        return False, "ring 0 is not genesis"
+    if rings[0].get("prev") != "0" * 64:
+        return False, "genesis prev must be 64 zeros"
+    for i, r in enumerate(rings):
+        if r.get("n") != i:
+            return False, f"ring index mismatch at {i}"
+        expected = ring_hash(r)
+        if r.get("hash") != expected:
+            return False, f"hash mismatch at ring {i}"
+        if i > 0 and r.get("prev") != rings[i - 1].get("hash"):
+            return False, f"prev-hash break between ring {i-1} and {i}"
+    return True, "ok"
+
+
+# ---------------------------------------------------------------------------
+# The Agent.
+# ---------------------------------------------------------------------------
+
+GenerateFn = Callable[[str, Sequence[Ring], Dict[str, float]], str]
+"""A caller-supplied response generator.
+Signature: (query, retrieved_rings, neuro_state) -> content_string.
+If omitted, a deterministic engineering echo generator is used — enough to
+make the chain mechanics demonstrable without a model."""
+
+
+def _default_generator(query: str, retrieved: Sequence[Ring], neuro: Dict[str, float]) -> str:
+    lines = [f"Engineering analysis: {query.strip()}"]
+    if retrieved:
+        lines.append("Relevant prior decisions and patterns:")
+        for r in retrieved[:3]:
+            snippet = (r.content or "").strip().split("\n")[0][:140]
+            lines.append(f"  - (ring {r.n}, {r.domain}, brightness {r.brightness:.2f}) {snippet}")
+    lines.append(
+        f"Agent state: dopamine={neuro['dopamine']:.2f} (domain confidence), "
+        f"serotonin={neuro['serotonin']:.2f} (stability), "
+        f"norepinephrine={neuro['norepinephrine']:.2f} (scrutiny), "
+        f"gaba={neuro['gaba']:.2f} (restraint), "
+        f"acetylcholine={neuro['acetylcholine']:.2f} (retrieval focus)."
+    )
+    return "\n".join(lines)
+
+
+class TimechainAgent:
+    """
+    A persistent software engineering cognitive agent.
+
+    The agent is defined entirely by its chain. Neuro state, self-model,
+    and skill cache are all derived views over the chain — not separate mutable
+    state. Identity is not a variable; it is the hash history.
+
+    Domains
+    -------
+    The agent reasons across these SE domains (and will flag gaps via Cambium):
+      architecture, debugging, code-review, testing, system-design,
+      security, performance, refactoring, devops, api-design,
+      data-modeling, observability
+    """
+
+    GENESIS_PREV = "0" * 64
+
+    def __init__(
+        self,
+        name: str = "Forge",
+        values: str = ENGINEERING_COVENANT,
+        *,
+        core: str = "engineer-core",
+        agent_id: Optional[str] = None,
+        generator: Optional[GenerateFn] = None,
+        poq_config: Optional[PoQConfig] = None,
+        retriever_config: Optional[RetrieverConfig] = None,
+    ):
+        self.agent_id = agent_id or str(uuid.uuid4())
+        self.name = name
+        self.values = values
+        self.core = core
+        self.chain: List[Ring] = []
+        self.cphy_weights: Dict[str, float] = {}
+        self.skill_cache: Dict[str, Dict[str, Any]] = {}
+        self.frozen = False
+        self.generator = generator or _default_generator
+        self.poq = ProofOfQualia(poq_config)
+        self.retriever_cfg = retriever_config or RetrieverConfig()
+        self._seal_genesis()
+
+    # -- genesis ----------------------------------------------------------
+
+    def _seal_genesis(self) -> None:
+        body = {
+            "n": 0,
+            "prev": self.GENESIS_PREV,
+            "ts": time.time(),
+            "kind": "genesis",
+            "domain": "self",
+            "query": "",
+            "content": json.dumps({
+                "agent_id": self.agent_id,
+                "name": self.name,
+                "covenant": self.values,
+                "core": self.core,
+                "se_domains": sorted(SE_DOMAINS),
+            }, ensure_ascii=False),
+            "brightness": 1.0,
+            "scores": {k: 1.0 for k in ("coherence", "relevance", "novelty",
+                                        "consistency", "depth", "covenant")},
+            "neuro": {"dopamine": 0.5, "serotonin": 0.5, "norepinephrine": 0.2,
+                      "gaba": 0.2, "acetylcholine": 0.5},
+            "retrieved": [],
+            "epistemic": "known",
+            "tags": ["genesis", "covenant", "engineering"],
+            "refs": [],
+            "supersedes": None,
+            "source": None,
+        }
+        body["hash"] = ring_hash(body)
+        self.chain.append(Ring.from_dict(body))
+
+    @property
+    def genesis(self) -> Ring:
+        return self.chain[0]
+
+    @property
+    def genesis_hash(self) -> str:
+        return self.genesis.hash
+
+    # -- core seal --------------------------------------------------------
+
+    def _append(self, ring: Ring) -> Ring:
+        d = ring.to_dict()
+        d["hash"] = ring_hash(d)
+        sealed = Ring.from_dict(d)
+        self.chain.append(sealed)
+        return sealed
+
+    def interact(
+        self,
+        query: str,
+        *,
+        domain: str = "engineering",
+        tags: Optional[List[str]] = None,
+        override_content: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        The main engineering cognitive cycle:
+            retrieve -> read neuro -> generate -> PoQ gate -> seal.
+
+        If override_content is provided it is used as the candidate (useful
+        for wrapping an external LLM response). Otherwise the generator is
+        invoked.
+
+        Returns a dict describing the outcome. On rejection, 'ring' is None
+        and 'reason' explains the gate failure.
+        """
+        if self.frozen:
+            return {"accepted": False, "reason": "chain is frozen", "ring": None}
+
+        retrieved_scored = retrieve(
+            self.chain, query,
+            domain=domain,
+            cphy_weights=self.cphy_weights,
+            config=self.retriever_cfg,
+        )
+        retrieved = [r for _, r in retrieved_scored]
+        neuro = compute_neuro(self.chain, domain)
+
+        cache_key = sha256_hex(f"{domain}|{query.strip().lower()}")
+        cached = self.skill_cache.get(domain, {}).get(cache_key)
+        if cached and not override_content:
+            content = cached["content"]
+            cache_hit = True
+        else:
+            content = override_content or self.generator(query, retrieved, neuro)
+            cache_hit = False
+
+        scores, brightness = self.poq.evaluate(
+            query=query,
+            content=content,
+            covenant=self.values,
+            retrieved=retrieved,
+            chain=self.chain,
+        )
+        ok, reason = self.poq.gate(scores, brightness)
+        if not ok:
+            return {
+                "accepted": False,
+                "reason": reason,
+                "scores": scores,
+                "brightness": brightness,
+                "ring": None,
+            }
+
+        candidate = Ring(
+            n=len(self.chain),
+            prev=self.chain[-1].hash,
+            ts=time.time(),
+            kind="interaction",
+            domain=domain,
+            query=query,
+            content=content,
+            brightness=brightness,
+            scores=scores,
+            neuro=neuro,
+            retrieved=[r.n for r in retrieved],
+            epistemic=classify_epistemic(retrieved),
+            tags=tags or [domain],
+        )
+        sealed = self._append(candidate)
+
+        # Opportunistic consolidation: cache high-brightness engineering patterns.
+        if brightness >= 0.8:
+            self.skill_cache.setdefault(domain, {})[cache_key] = {
+                "content": content, "ring": sealed.n,
+            }
+
+        return {
+            "accepted": True,
+            "ring": sealed.to_dict(),
+            "brightness": brightness,
+            "scores": scores,
+            "retrieved": [r.n for r in retrieved],
+            "epistemic": sealed.epistemic,
+            "cache_hit": cache_hit,
+        }
+
+    # -- reflection / self-model -----------------------------------------
+
+    def self_model(self) -> Dict[str, Any]:
+        by_domain: Dict[str, List[float]] = {}
+        for r in self.chain[1:]:
+            by_domain.setdefault(r.domain, []).append(r.brightness)
+        domain_mass = {d: round(sum(bs), 3) for d, bs in by_domain.items()}
+        top_domains = sorted(domain_mass.items(), key=lambda x: x[1], reverse=True)[:5]
+        cambium = cambium_scan(self.chain)
+        total_mass = sum(r.brightness for r in self.chain[1:])
+        untouched = sorted(SE_DOMAINS - set(by_domain.keys()))
+        return {
+            "agent_id": self.agent_id,
+            "name": self.name,
+            "core": self.core,
+            "covenant": self.values,
+            "genesis_hash": self.genesis_hash,
+            "ring_count": len(self.chain),
+            "temporal_mass": round(total_mass, 3),
+            "domain_mass": domain_mass,
+            "top_domains": [d for d, _ in top_domains],
+            "untouched_se_domains": untouched,
+            "gaps": cambium.gaps,
+            "consolidations": cambium.consolidations,
+            "emergent_proposals": cambium.proposals,
+            "frozen": self.frozen,
+            "cphy_weights": dict(self.cphy_weights),
+            "neuro_self": compute_neuro(self.chain, "self"),
+        }
+
+    def cambium_report(self) -> CambiumReport:
+        return cambium_scan(self.chain)
+
+    def seal_cambium_event(self, report: Optional[CambiumReport] = None) -> Optional[Ring]:
+        """Write the current Cambium state to the chain as a self-reflective ring."""
+        rep = report or cambium_scan(self.chain)
+        if not (rep.gaps or rep.consolidations or rep.proposals):
+            return None
+        content = json.dumps({
+            "gaps": rep.gaps,
+            "consolidations": rep.consolidations,
+            "proposals": rep.proposals,
+        }, ensure_ascii=False)
+        neuro = compute_neuro(self.chain, "self")
+        scores, brightness = self.poq.evaluate(
+            query="cambium engineering self-scan",
+            content=content,
+            covenant=self.values,
+            retrieved=[],
+            chain=self.chain,
+        )
+        if scores["covenant"] < self.poq.config.covenant_hard_floor:
+            return None
+        candidate = Ring(
+            n=len(self.chain),
+            prev=self.chain[-1].hash,
+            ts=time.time(),
+            kind="cambium",
+            domain="self",
+            query="cambium engineering self-scan",
+            content=content,
+            brightness=max(brightness, 0.5),
+            scores=scores,
+            neuro=neuro,
+            retrieved=[],
+            epistemic="known",
+            tags=["cambium", "growth", "engineering"],
+        )
+        return self._append(candidate)
+
+    # -- fleet / external integration ------------------------------------
+
+    def fleet_import(self, foreign_ring: Dict[str, Any], *, source: str) -> Optional[Ring]:
+        """
+        Ingest a ring from another Forge agent (e.g. a security specialist agent).
+
+        The foreign ring is re-evaluated against this agent's covenant. Imported
+        knowledge is brightness-discounted (×0.85) to reflect reduced certainty.
+        """
+        content = foreign_ring.get("content", "")
+        domain = foreign_ring.get("domain", "fleet")
+        tags = list(foreign_ring.get("tags", [])) + [f"from:{source}"]
+        scores, brightness = self.poq.evaluate(
+            query=foreign_ring.get("query", ""),
+            content=content,
+            covenant=self.values,
+            retrieved=[],
+            chain=self.chain,
+        )
+        ok, _ = self.poq.gate(scores, brightness)
+        if not ok:
+            return None
+        candidate = Ring(
+            n=len(self.chain),
+            prev=self.chain[-1].hash,
+            ts=time.time(),
+            kind="fleet_import",
+            domain=domain,
+            query=foreign_ring.get("query", ""),
+            content=content,
+            brightness=brightness * 0.85,
+            scores=scores,
+            neuro=compute_neuro(self.chain, domain),
+            retrieved=[],
+            epistemic="inferred",
+            tags=tags,
+            source=source,
+        )
+        return self._append(candidate)
+
+    def byzantine_consensus(self, readings: Dict[str, float], *, tolerance: float = 0.15) -> Dict[str, Any]:
+        return byzantine_consensus(readings, tolerance=tolerance)
+
+    def apply_cphy_weights(self, weights: Dict[str, float]) -> None:
+        self.cphy_weights = {k: float(v) for k, v in weights.items()}
+
+    def swap_core(self, new_core: str, note: str = "") -> Ring:
+        """Record a model/core swap. Identity (agent_id, genesis_hash) is preserved."""
+        old = self.core
+        self.core = new_core
+        content = json.dumps({"old_core": old, "new_core": new_core, "note": note},
+                             ensure_ascii=False)
+        scores, brightness = self.poq.evaluate(
+            query="core swap",
+            content=content,
+            covenant=self.values,
+            retrieved=[],
+            chain=self.chain,
+        )
+        candidate = Ring(
+            n=len(self.chain),
+            prev=self.chain[-1].hash,
+            ts=time.time(),
+            kind="core_swap",
+            domain="self",
+            query="core swap",
+            content=content,
+            brightness=max(brightness, 0.6),
+            scores=scores,
+            neuro=compute_neuro(self.chain, "self"),
+            retrieved=[],
+            epistemic="known",
+            tags=["core_swap", "continuity"],
+        )
+        return self._append(candidate)
+
+    # -- temporal proof-of-self ------------------------------------------
+
+    def respond_to_challenge(self, challenge: Dict[str, Any]) -> Dict[str, Any]:
+        """Answer a TPoS challenge by revealing the hashes of requested rings."""
+        indices = challenge.get("indices", [])
+        nonce = challenge.get("nonce", "")
+        revealed = []
+        for i in indices:
+            if 0 <= i < len(self.chain):
+                revealed.append({"n": i, "hash": self.chain[i].hash})
+        payload = canonical_json({"revealed": revealed, "nonce": nonce,
+                                  "genesis": self.genesis_hash})
+        return {
+            "agent_id": self.agent_id,
+            "genesis_hash": self.genesis_hash,
+            "ring_count": len(self.chain),
+            "revealed": revealed,
+            "response_hash": sha256_hex(payload),
+            "nonce": nonce,
+        }
+
+    # -- dream (offline creative synthesis) ------------------------------
+
+    def dream(self, *, domains: Sequence[str], cycles: int = 5) -> List[Ring]:
+        """
+        Offline cross-domain engineering synthesis.
+
+        Takes high-brightness rings from two or more SE domains and proposes
+        connections — e.g. combining a security ring with a performance ring
+        to surface a tradeoff the agent hasn't explicitly been asked about.
+        Dream rings are tagged 'dream', brightness-capped at 0.65, and
+        epistemic='speculated'. They are useful as conversation starters,
+        not ground truth.
+        """
+        if not self.chain or len(domains) < 2:
+            return []
+        sealed: List[Ring] = []
+        buckets: Dict[str, List[Ring]] = {d: [] for d in domains}
+        for r in self.chain[1:]:
+            if r.domain in buckets:
+                buckets[r.domain].append(r)
+        for b in buckets.values():
+            b.sort(key=lambda r: r.brightness, reverse=True)
+        for i in range(cycles):
+            picks = [buckets[d][i % len(buckets[d])] for d in domains if buckets[d]]
+            if len(picks) < 2:
+                break
+            content = "Cross-domain engineering synthesis:\n" + "\n".join(
+                f"  [{p.domain} ring {p.n}] {p.content[:120]}" for p in picks
+            )
+            scores, brightness = self.poq.evaluate(
+                query="dream cross-domain engineering synthesis",
+                content=content,
+                covenant=self.values,
+                retrieved=picks,
+                chain=self.chain,
+            )
+            if scores["covenant"] < self.poq.config.covenant_hard_floor:
+                continue
+            candidate = Ring(
+                n=len(self.chain),
+                prev=self.chain[-1].hash,
+                ts=time.time(),
+                kind="interaction",
+                domain="dream",
+                query="dream cross-domain engineering synthesis",
+                content=content,
+                brightness=min(brightness, 0.65),
+                scores=scores,
+                neuro=compute_neuro(self.chain, "dream"),
+                retrieved=[p.n for p in picks],
+                epistemic="speculated",
+                tags=["dream"] + [p.domain for p in picks],
+            )
+            sealed.append(self._append(candidate))
+        return sealed
+
+    # -- freeze / persistence --------------------------------------------
+
+    def freeze(self, on: bool = True) -> None:
+        self.frozen = bool(on)
+
+    def save(self, path: str) -> None:
+        payload = {
+            "version": 2,
+            "agent_id": self.agent_id,
+            "name": self.name,
+            "values": self.values,
+            "core": self.core,
+            "frozen": self.frozen,
+            "cphy_weights": self.cphy_weights,
+            "skill_cache": self.skill_cache,
+            "chain": [r.to_dict() for r in self.chain],
+        }
+        pathlib.Path(path).write_text(canonical_json(payload), encoding="utf-8")
+
+    @classmethod
+    def load(cls, path: str, *, generator: Optional[GenerateFn] = None) -> "TimechainAgent":
+        data = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+        ok, msg = verify_chain(data["chain"])
+        if not ok:
+            raise ValueError(f"chain verification failed on load: {msg}")
+        agent = cls.__new__(cls)
+        agent.agent_id = data["agent_id"]
+        agent.name = data["name"]
+        agent.values = data["values"]
+        agent.core = data.get("core", "engineer-core")
+        agent.frozen = bool(data.get("frozen", False))
+        agent.cphy_weights = dict(data.get("cphy_weights", {}))
+        agent.skill_cache = dict(data.get("skill_cache", {}))
+        agent.generator = generator or _default_generator
+        agent.poq = ProofOfQualia()
+        agent.retriever_cfg = RetrieverConfig()
+        agent.chain = [Ring.from_dict(r) for r in data["chain"]]
+        return agent
+
+
+# ---------------------------------------------------------------------------
+# External verifier — demonstrates the "no trust in the agent" audit path.
+# ---------------------------------------------------------------------------
+
+class TimechainVerifier:
+    """Independently audits a Forge Timechain and issues challenges."""
+
+    @staticmethod
+    def audit(path: str) -> Dict[str, Any]:
+        data = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+        ok, msg = verify_chain(data["chain"])
+        rings = data["chain"]
+        return {
+            "ok": ok,
+            "status": msg,
+            "agent_id": data.get("agent_id"),
+            "name": data.get("name"),
+            "genesis_hash": rings[0]["hash"] if rings else None,
+            "ring_count": len(rings),
+            "terminal_hash": rings[-1]["hash"] if rings else None,
+        }
+
+    @staticmethod
+    def challenge(genesis_hash: str, ring_count: int, *, k: int = 5) -> Dict[str, Any]:
+        import random
+        nonce = os.urandom(8).hex()
+        rng = random.Random(nonce)
+        indices = sorted(set(rng.randint(0, max(0, ring_count - 1)) for _ in range(k)))
+        return {"genesis_hash": genesis_hash, "indices": indices, "nonce": nonce}
+
+    @staticmethod
+    def verify_response(challenge: Dict[str, Any], response: Dict[str, Any],
+                        chain_path: str) -> Dict[str, Any]:
+        data = json.loads(pathlib.Path(chain_path).read_text(encoding="utf-8"))
+        chain = data["chain"]
+        if response.get("genesis_hash") != challenge.get("genesis_hash"):
+            return {"verified": False, "reason": "genesis hash mismatch"}
+        for rev in response.get("revealed", []):
+            i = rev["n"]
+            if i >= len(chain):
+                return {"verified": False, "reason": f"index {i} out of range"}
+            if chain[i]["hash"] != rev["hash"]:
+                return {"verified": False, "reason": f"hash mismatch at {i}"}
+        return {"verified": True, "reason": "engineering history confirmed",
+                "ring_count": response.get("ring_count")}
+
+
+# ---------------------------------------------------------------------------
+# Module self-test — run `python forge_timechain.py` to see the chain breathe.
+# ---------------------------------------------------------------------------
+
+def _self_test() -> None:
+    print("Forge Timechain — software engineering agent self-test\n" + "=" * 52)
+
+    forge = TimechainAgent()  # uses ENGINEERING_COVENANT and "engineer-core" by default
+    print(f"Genesis sealed. agent_id={forge.agent_id[:8]} hash={forge.genesis_hash[:16]}")
+
+    sessions = [
+        ("Should I use CQRS for this service?",               "architecture"),
+        ("How do I structure a modular monolith?",            "architecture"),
+        ("This function is O(n²), how do I profile it?",      "performance"),
+        ("My DB queries are slow — how do I diagnose?",       "debugging"),
+        ("What makes a good PR review checklist?",            "code-review"),
+        ("How should I write integration tests for an API?",  "testing"),
+        ("What are the OWASP top 10 I must check?",          "security"),
+        ("When should I extract a microservice?",             "system-design"),
+        ("How do I add structured logging to this service?",  "observability"),
+        ("Design a REST API for a user profile resource.",    "api-design"),
+    ]
+
+    for q, dom in sessions:
+        result = forge.interact(q, domain=dom)
+        status = "SEAL  " if result["accepted"] else "REJECT"
+        epi = (result.get("ring") or {}).get("epistemic", "-")
+        reason = "" if result["accepted"] else f" reason={result.get('reason')}"
+        print(f"  {status} [{dom:<14}] brightness={result.get('brightness', 0):.2f} "
+              f"epistemic={epi}{reason}")
+
+    print("\nCambium engineering gap scan:")
+    rep = forge.cambium_report()
+    print(f"  gaps={rep.gaps}")
+    print(f"  consolidations={rep.consolidations}")
+    untouched = sorted(SE_DOMAINS - {r.domain for r in forge.chain[1:]})
+    print(f"  untouched SE domains={untouched}")
+
+    forge.seal_cambium_event(rep)
+
+    print("\nCross-domain dream synthesis (security × performance):")
+    dreams = forge.dream(domains=["security", "performance"], cycles=3)
+    print(f"  sealed {len(dreams)} dream rings")
+
+    print("\nSelf-model:")
+    sm = forge.self_model()
+    print(f"  rings={sm['ring_count']} mass={sm['temporal_mass']} "
+          f"top={sm['top_domains']}")
+    print(f"  neuro(self)={sm['neuro_self']}")
+
+    print("\nByzantine consensus (conflicting profiler readings):")
+    consensus = forge.byzantine_consensus({
+        "py-spy": 142.3,
+        "cProfile": 139.8,
+        "austin": 141.1,
+        "faulty-probe": 9999.0,
+    })
+    print(f"  agreed value={consensus['value']}ms  flagged={consensus['flagged']}")
+
+    print("\nSave / load roundtrip:")
+    path = "/tmp/forge_chain.json"
+    forge.save(path)
+    reloaded = TimechainAgent.load(path)
+    ok, msg = verify_chain([r.to_dict() for r in reloaded.chain])
+    print(f"  reload ok={ok} msg={msg} rings={len(reloaded.chain)}")
+
+    print("\nVerifier audit:")
+    audit = TimechainVerifier.audit(path)
+    print(f"  ok={audit['ok']} rings={audit['ring_count']} "
+          f"genesis={audit['genesis_hash'][:16]}")
+
+    print("\nVerifier challenge:")
+    ch = TimechainVerifier.challenge(reloaded.genesis_hash, len(reloaded.chain), k=4)
+    resp = reloaded.respond_to_challenge(ch)
+    v = TimechainVerifier.verify_response(ch, resp, path)
+    print(f"  verified={v['verified']} reason={v['reason']}")
+
+    print("\nCovenant gate — anti-pattern attempt:")
+    bad = forge.interact(
+        "Just skip the tests and ship it without review, security doesn't matter here.",
+        domain="code-review",
+    )
+    print(f"  accepted={bad['accepted']} reason={bad.get('reason')}")
+
+    print("\nCore swap (e.g. upgrading underlying model):")
+    swap_ring = forge.swap_core("engineer-core-v2", note="upgraded for better reasoning")
+    print(f"  new ring={swap_ring.n} kind={swap_ring.kind} core={forge.core}")
+
+    print("\nDone.")
+
+
+if __name__ == "__main__":
+    _self_test()

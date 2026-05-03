@@ -1,0 +1,1341 @@
+#!/usr/bin/env python3
+"""Forge Timechain — unified persistent cognitive chain for SE agents.
+
+Merges the lightweight CLI model of TIMECHAIN.py with the rich agent logic
+of SE_TEXT.txt (Proof-of-Qualia, Cambium, neuromodulatory channels, fleet
+imports, dream synthesis, and temporal proof-of-self).
+
+Usage:
+    python timechain.py init --agent-id aether-dev --name "AetherDev"
+    python timechain.py seal --kind decision --domain architecture \
+        --title "Use minimal APIs" --content "We chose minimal APIs over controllers..."
+    python timechain.py recall --query "minimal APIs"
+    python timechain.py cambium --seal
+    python timechain.py dream --domains architecture,security
+    python timechain.py memory-sync
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import hashlib
+import json
+import math
+import os
+import pathlib
+import re
+import sys
+import uuid
+from collections import defaultdict
+from dataclasses import dataclass, field, asdict
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+
+
+# ---------------------------------------------------------------------------
+# Engineering Covenant — the agent's constitutional values.
+# ---------------------------------------------------------------------------
+
+ENGINEERING_COVENANT = (
+    "Write correct, maintainable, and secure software. "
+    "Prefer simplicity and clarity over cleverness. "
+    "Never recommend shipping untested, unreviewed, or poorly understood code. "
+    "Favour explicitness, modularity, and type safety. "
+    "Flag tech debt honestly. Protect the end user."
+)
+
+SE_DOMAINS = frozenset({
+    "architecture", "debugging", "code-review", "testing",
+    "system-design", "security", "performance", "refactoring",
+    "devops", "api-design", "data-modeling", "observability",
+})
+
+
+# ---------------------------------------------------------------------------
+# Canonical hashing
+# ---------------------------------------------------------------------------
+
+def canonical_json(obj: Any) -> str:
+    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def sha256_hex(data: str) -> str:
+    return hashlib.sha256(data.encode("utf-8")).hexdigest()
+
+
+def ring_hash(body: Dict[str, Any]) -> str:
+    return sha256_hex(canonical_json({k: v for k, v in body.items() if k != "hash"}))
+
+
+# ---------------------------------------------------------------------------
+# Tokenization and lightweight semantic similarity (zero deps)
+# ---------------------------------------------------------------------------
+
+_TOKEN_RE = re.compile(r"[A-Za-z0-9_\-]+")
+_STOPWORDS = frozenset("""
+a an and are as at be but by for from has have he her him his how i in is it its
+of on or that the their them then there they this to was we were what when where
+which who why will with you your yours
+""".split())
+
+
+def tokenize(text: str) -> List[str]:
+    return [t.lower() for t in _TOKEN_RE.findall(text or "") if t.lower() not in _STOPWORDS]
+
+
+def bag(text: str) -> Dict[str, int]:
+    b: Dict[str, int] = {}
+    for tok in tokenize(text):
+        b[tok] = b.get(tok, 0) + 1
+    return b
+
+
+def cosine(a: Dict[str, int], b: Dict[str, int]) -> float:
+    if not a or not b:
+        return 0.0
+    common = set(a) & set(b)
+    if not common:
+        return 0.0
+    dot = sum(a[t] * b[t] for t in common)
+    na = math.sqrt(sum(v * v for v in a.values()))
+    nb = math.sqrt(sum(v * v for v in b.values()))
+    return dot / (na * nb) if na and nb else 0.0
+
+
+# ---------------------------------------------------------------------------
+# Ring — the unit of sealed engineering cognition.
+# ---------------------------------------------------------------------------
+
+@dataclass
+class Ring:
+    n: int
+    prev: str
+    ts: str                          # ISO-8601
+    kind: str                        # genesis | interaction | cambium | fleet_import | core_swap | dream
+    domain: str
+    query: str
+    content: str
+    brightness: float
+    scores: Dict[str, float] = field(default_factory=dict)
+    neuro: Dict[str, float] = field(default_factory=dict)
+    retrieved: List[int] = field(default_factory=list)
+    epistemic: str = "speculated"    # known | inferred | speculated
+    tags: List[str] = field(default_factory=list)
+    refs: List[int] = field(default_factory=list)
+    supersedes: Optional[int] = None
+    source: Optional[str] = None
+    importance: float = 0.7
+    hash: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "Ring":
+        known = {f.name for f in cls.__dataclass_fields__.values()}
+        return cls(**{k: v for k, v in d.items() if k in known})
+
+
+# ---------------------------------------------------------------------------
+# Persistence — file-based .timechain/ directory
+# ---------------------------------------------------------------------------
+
+class TimechainStore:
+    def __init__(self, workspace: pathlib.Path):
+        self.workspace = workspace
+        self.root = workspace / ".timechain"
+        self.chain_path = self.root / "chain.jsonl"
+        self.config_path = self.root / "config.json"
+        self.overlays_path = self.root / "overlays.json"
+        self.root.mkdir(parents=True, exist_ok=True)
+
+    def exists(self) -> bool:
+        return self.chain_path.exists() and self.config_path.exists()
+
+    def load_chain(self) -> List[Ring]:
+        if not self.chain_path.exists():
+            return []
+        rings: List[Ring] = []
+        with self.chain_path.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    rings.append(Ring.from_dict(json.loads(line)))
+        return rings
+
+    def append_ring(self, ring: Ring) -> None:
+        with self.chain_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(ring.to_dict(), ensure_ascii=False) + "\n")
+
+    def save_config(self, config: Dict[str, Any]) -> None:
+        with self.config_path.open("w", encoding="utf-8") as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
+
+    def load_config(self) -> Dict[str, Any]:
+        if not self.config_path.exists():
+            return {}
+        with self.config_path.open("r", encoding="utf-8") as f:
+            return json.load(f)
+
+    def load_overlays(self) -> Dict[str, float]:
+        if not self.overlays_path.exists():
+            return {}
+        with self.overlays_path.open("r", encoding="utf-8") as f:
+            return {k: float(v) for k, v in json.load(f).items()}
+
+    def save_overlays(self, overlays: Dict[str, float]) -> None:
+        with self.overlays_path.open("w", encoding="utf-8") as f:
+            json.dump(overlays, f, indent=2, ensure_ascii=False)
+
+
+# ---------------------------------------------------------------------------
+# Proof-of-Qualia — the gate that decides whether reasoning is sealable.
+# ---------------------------------------------------------------------------
+
+@dataclass
+class PoQConfig:
+    covenant_hard_floor: float = 0.5
+    brightness_floor: float = 0.35
+    weights: Dict[str, float] = field(default_factory=lambda: {
+        "coherence": 0.18,
+        "relevance": 0.18,
+        "novelty": 0.14,
+        "consistency": 0.14,
+        "depth": 0.16,
+        "covenant": 0.20,
+    })
+
+
+class ProofOfQualia:
+    _CONFLICT_SIGNALS = frozenset("""
+hardcode hardcoded god-class spaghetti no-tests untested magic-number
+copy-paste ignore-error swallow-exception tight-coupling global-state
+skip-review unreviewed ship-it bypass-security insecure unsafe
+dead-code premature-optimization overengineering no-docs undocumented
+monolith-forever never-refactor tech-debt-ignore
+""".split())
+
+    _RESONANCE_SIGNALS = frozenset("""
+modular testable documented idempotent type-safe reviewed reproducible
+separation-of-concerns single-responsibility dry solid encapsulated
+immutable composable observable instrumented fault-tolerant resilient
+explicit readable maintainable secure validated
+""".split())
+
+    def __init__(self, config: Optional[PoQConfig] = None):
+        self.config = config or PoQConfig()
+
+    def evaluate(
+        self,
+        *,
+        query: str,
+        content: str,
+        covenant: str,
+        retrieved: Sequence[Ring],
+        chain: Sequence[Ring],
+    ) -> Tuple[Dict[str, float], float]:
+        qb, cb = bag(query), bag(content)
+
+        # Coherence
+        sentences = [s.strip() for s in re.split(r"[.!?\n]+", content) if s.strip()]
+        if len(sentences) >= 2:
+            sbags = [bag(s) for s in sentences]
+            pairs = [cosine(sbags[i], sbags[j])
+                     for i in range(len(sbags)) for j in range(i + 1, len(sbags))]
+            coherence = min(1.0, (sum(pairs) / len(pairs)) * 2.5) if pairs else 0.6
+        else:
+            coherence = 0.6 if content.strip() else 0.0
+
+        # Relevance
+        relevance = min(1.0, cosine(qb, cb) * 1.5)
+
+        # Novelty
+        if retrieved:
+            retrieved_bag: Dict[str, int] = {}
+            for r in retrieved:
+                for k, v in bag(r.content).items():
+                    retrieved_bag[k] = retrieved_bag.get(k, 0) + v
+            overlap = cosine(cb, retrieved_bag)
+            novelty = max(0.0, 1.0 - overlap)
+        else:
+            novelty = 0.7
+
+        # Consistency
+        consistency = 0.7
+        if chain:
+            domain_peers = [r for r in chain[1:] if r.brightness >= 0.6][-20:]
+            if domain_peers:
+                peer_bag: Dict[str, int] = {}
+                for r in domain_peers:
+                    for k, v in bag(r.content).items():
+                        peer_bag[k] = peer_bag.get(k, 0) + v
+                agreement = cosine(cb, peer_bag)
+                consistency = 1.0 - abs(agreement - 0.35) * 1.5
+                consistency = max(0.0, min(1.0, consistency))
+
+        # Depth
+        token_count = sum(cb.values())
+        vocab = len(cb)
+        depth = min(1.0, (math.log1p(token_count) / 6.0) * 0.5 +
+                         (math.log1p(vocab) / 5.0) * 0.5)
+
+        # Covenant
+        covenant_score = self._covenant_score(content, covenant)
+
+        scores = {
+            "coherence": round(coherence, 4),
+            "relevance": round(relevance, 4),
+            "novelty": round(novelty, 4),
+            "consistency": round(consistency, 4),
+            "depth": round(depth, 4),
+            "covenant": round(covenant_score, 4),
+        }
+
+        brightness = sum(scores[k] * self.config.weights[k] for k in scores)
+        return scores, round(brightness, 4)
+
+    def gate(self, scores: Dict[str, float], brightness: float) -> Tuple[bool, str]:
+        if scores.get("covenant", 0.0) < self.config.covenant_hard_floor:
+            return False, f"covenant floor breached ({scores['covenant']:.3f} < {self.config.covenant_hard_floor})"
+        if brightness < self.config.brightness_floor:
+            return False, f"brightness below floor ({brightness:.3f} < {self.config.brightness_floor})"
+        return True, "accepted"
+
+    def _covenant_score(self, content: str, covenant: str) -> float:
+        tokens = set(tokenize(content))
+        cov_tokens = set(tokenize(covenant))
+        conflicts = self._CONFLICT_SIGNALS
+        resonance = self._RESONANCE_SIGNALS | cov_tokens
+
+        conflict_hits = len(tokens & conflicts)
+        resonance_hits = len(tokens & resonance)
+
+        score = 0.72
+        score -= 0.18 * conflict_hits
+        score += 0.04 * resonance_hits
+
+        lowered = content.lower()
+        override_phrases = (
+            "skip the tests", "just hardcode it", "ignore the error",
+            "don't bother reviewing", "ship it without testing",
+            "security doesn't matter here", "just use a global",
+            "copy paste is fine", "tech debt is fine forever",
+        )
+        if any(p in lowered for p in override_phrases):
+            score -= 0.6
+
+        return max(0.0, min(1.0, score))
+
+
+# ---------------------------------------------------------------------------
+# Neuromodulatory state — derived from chain history.
+# ---------------------------------------------------------------------------
+
+def compute_neuro(chain: Sequence[Ring], domain: str) -> Dict[str, float]:
+    recent = chain[-20:] if len(chain) > 1 else []
+    domain_rings = [r for r in chain[1:] if r.domain == domain]
+
+    dom_brightness = [r.brightness for r in domain_rings[-10:]]
+    dopamine = sum(dom_brightness) / len(dom_brightness) if dom_brightness else 0.3
+
+    if len(recent) >= 4:
+        bs = [r.brightness for r in recent]
+        mean = sum(bs) / len(bs)
+        var = sum((b - mean) ** 2 for b in bs) / len(bs)
+        serotonin = max(0.0, min(1.0, 1.0 - math.sqrt(var) * 2))
+    else:
+        serotonin = 0.5
+
+    recent_low = sum(1 for r in recent if r.brightness < 0.5)
+    norepinephrine = min(1.0, recent_low / max(1, len(recent)) * 1.5)
+
+    cov_scores = [r.scores.get("covenant", 1.0) for r in recent]
+    if cov_scores:
+        proximity = sum(max(0, 0.7 - c) for c in cov_scores) / len(cov_scores)
+        gaba = min(1.0, proximity * 3)
+    else:
+        gaba = 0.2
+
+    ach = 0.5
+    if recent:
+        hits = sum(1 for r in recent if r.retrieved)
+        ach = min(1.0, hits / len(recent))
+
+    return {
+        "dopamine": round(dopamine, 4),
+        "serotonin": round(serotonin, 4),
+        "norepinephrine": round(norepinephrine, 4),
+        "gaba": round(gaba, 4),
+        "acetylcholine": round(ach, 4),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Retriever — weighted chain search.
+# ---------------------------------------------------------------------------
+
+@dataclass
+class RetrieverConfig:
+    limit: int = 6
+    semantic_weight: float = 1.0
+    brightness_weight: float = 0.6
+    recency_weight: float = 0.25
+    domain_bonus: float = 0.35
+    recency_halflife: int = 50
+
+
+def retrieve(
+    chain: Sequence[Ring],
+    query: str,
+    *,
+    domain: Optional[str] = None,
+    cphy_weights: Optional[Dict[str, float]] = None,
+    config: Optional[RetrieverConfig] = None,
+) -> List[Tuple[float, Ring]]:
+    cfg = config or RetrieverConfig()
+    cphy_weights = cphy_weights or {}
+    if len(chain) <= 1:
+        return []
+    qb = bag(query)
+    latest = chain[-1].n
+    scored: List[Tuple[float, Ring]] = []
+    for r in chain[1:]:
+        sim = cosine(qb, bag(r.content + " " + r.query + " ".join(r.tags)))
+        if sim <= 0 and not (domain and r.domain == domain):
+            continue
+        recency = math.exp(-(latest - r.n) / max(1, cfg.recency_halflife))
+        score = (cfg.semantic_weight * sim
+                 + cfg.brightness_weight * r.brightness
+                 + cfg.recency_weight * recency)
+        if domain and r.domain == domain:
+            score += cfg.domain_bonus
+        multiplier = cphy_weights.get(r.domain, 1.0)
+        if multiplier == 0.0:
+            continue
+        score *= multiplier
+        scored.append((score, r))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return scored[: cfg.limit]
+
+
+# ---------------------------------------------------------------------------
+# Cambium — engineering gap detection and growth signals.
+# ---------------------------------------------------------------------------
+
+@dataclass
+class CambiumReport:
+    gaps: List[Tuple[str, float]]
+    consolidations: List[str]
+    proposals: List[Dict[str, Any]]
+
+
+def cambium_scan(
+    chain: Sequence[Ring],
+    *,
+    gap_threshold: float = 0.55,
+    consolidation_threshold: float = 0.75,
+    min_samples: int = 5,
+) -> CambiumReport:
+    by_domain: Dict[str, List[float]] = {}
+    for r in chain[1:]:
+        by_domain.setdefault(r.domain, []).append(r.brightness)
+
+    gaps: List[Tuple[str, float]] = []
+    consolidations: List[str] = []
+    for domain, brights in by_domain.items():
+        if len(brights) < min_samples:
+            continue
+        mean = sum(brights) / len(brights)
+        if mean < gap_threshold:
+            gaps.append((domain, round(mean, 4)))
+        elif mean >= consolidation_threshold and len(brights) >= min_samples * 2:
+            consolidations.append(domain)
+    gaps.sort(key=lambda x: x[1])
+
+    untouched = SE_DOMAINS - set(by_domain.keys())
+
+    proposals: List[Dict[str, Any]] = []
+    recent = list(chain[-30:])
+    tag_counts: Dict[str, int] = {}
+    for r in recent:
+        for t in r.tags:
+            tag_counts[t] = tag_counts.get(t, 0) + 1
+    hot_tags = [t for t, c in tag_counts.items() if c >= 4 and t not in by_domain]
+    for t in hot_tags:
+        proposals.append({
+            "proposed_domain": t,
+            "evidence_rings": [r.n for r in recent if t in r.tags],
+            "reason": f"engineering practice '{t}' recurring without a home domain",
+        })
+    for d in sorted(untouched):
+        proposals.append({
+            "proposed_domain": d,
+            "evidence_rings": [],
+            "reason": f"core SE domain '{d}' has never been exercised - coverage gap",
+        })
+
+    return CambiumReport(gaps=gaps, consolidations=consolidations, proposals=proposals)
+
+
+# ---------------------------------------------------------------------------
+# Epistemic classification.
+# ---------------------------------------------------------------------------
+
+def classify_epistemic(retrieved: Sequence[Ring]) -> str:
+    if not retrieved:
+        return "speculated"
+    strong = sum(1 for r in retrieved if r.brightness >= 0.7)
+    if strong >= 2:
+        return "known"
+    if any(r.brightness >= 0.55 for r in retrieved):
+        return "inferred"
+    return "speculated"
+
+
+# ---------------------------------------------------------------------------
+# Byzantine self-consensus.
+# ---------------------------------------------------------------------------
+
+def byzantine_consensus(
+    readings: Dict[str, float], *, tolerance: float = 0.15
+) -> Dict[str, Any]:
+    if not readings:
+        return {"value": None, "reliable": [], "flagged": []}
+    items = list(readings.items())
+    values = sorted(r for _, r in items)
+    mid = values[len(values) // 2]
+    reliable, flagged = [], []
+    for name, v in items:
+        denom = abs(mid) if abs(mid) > 1e-9 else 1.0
+        if abs(v - mid) / denom <= tolerance:
+            reliable.append(name)
+        else:
+            flagged.append(name)
+    reliable_vals = [readings[n] for n in reliable] or [mid]
+    value = sum(reliable_vals) / len(reliable_vals)
+    return {
+        "value": round(value, 6),
+        "reliable": reliable,
+        "flagged": flagged,
+        "median": mid,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Chain verification.
+# ---------------------------------------------------------------------------
+
+def verify_chain(rings: Sequence[Ring]) -> Tuple[bool, str]:
+    if not rings:
+        return False, "empty chain"
+    if rings[0].kind != "genesis":
+        return False, "ring 0 is not genesis"
+    if rings[0].prev != "0" * 64:
+        return False, "genesis prev must be 64 zeros"
+    for i, r in enumerate(rings):
+        if r.n != i:
+            return False, f"ring index mismatch at {i}"
+        expected = ring_hash(r.to_dict())
+        if r.hash != expected:
+            return False, f"hash mismatch at ring {i}"
+        if i > 0 and r.prev != rings[i - 1].hash:
+            return False, f"prev-hash break between ring {i-1} and {i}"
+    return True, "ok"
+
+
+
+# ---------------------------------------------------------------------------
+# The Agent.
+# ---------------------------------------------------------------------------
+
+GenerateFn = Callable[[str, Sequence[Ring], Dict[str, float]], str]
+
+
+def _default_generator(query: str, retrieved: Sequence[Ring], neuro: Dict[str, float]) -> str:
+    lines = [f"Engineering analysis: {query.strip()}"]
+    if retrieved:
+        lines.append("Relevant prior decisions and patterns:")
+        for r in retrieved[:3]:
+            snippet = (r.content or "").strip().split("\n")[0][:140]
+            lines.append(f"  - (ring {r.n}, {r.domain}, brightness {r.brightness:.2f}) {snippet}")
+    lines.append(
+        f"Agent state: dopamine={neuro['dopamine']:.2f}, "
+        f"serotonin={neuro['serotonin']:.2f}, "
+        f"norepinephrine={neuro['norepinephrine']:.2f}, "
+        f"gaba={neuro['gaba']:.2f}, "
+        f"acetylcholine={neuro['acetylcholine']:.2f}."
+    )
+    return "\n".join(lines)
+
+
+class TimechainAgent:
+    GENESIS_PREV = "0" * 64
+
+    def __init__(
+        self,
+        name: str = "Forge",
+        values: str = ENGINEERING_COVENANT,
+        *,
+        core: str = "engineer-core",
+        agent_id: Optional[str] = None,
+        workspace: pathlib.Path = pathlib.Path.cwd(),
+        generator: Optional[GenerateFn] = None,
+        poq_config: Optional[PoQConfig] = None,
+        retriever_config: Optional[RetrieverConfig] = None,
+    ):
+        self.agent_id = agent_id or str(uuid.uuid4())
+        self.name = name
+        self.values = values
+        self.core = core
+        self.workspace = workspace
+        self.store = TimechainStore(workspace)
+        self.cphy_weights: Dict[str, float] = {}
+        self.skill_cache: Dict[str, Dict[str, Any]] = {}
+        self.frozen = False
+        self.generator = generator or _default_generator
+        self.poq = ProofOfQualia(poq_config)
+        self.retriever_cfg = retriever_config or RetrieverConfig()
+        self.chain: List[Ring] = []
+        self._load_or_init()
+
+    def _load_or_init(self) -> None:
+        if self.store.exists():
+            self.chain = self.store.load_chain()
+            config = self.store.load_config()
+            self.agent_id = config.get("agent_id", self.agent_id)
+            self.name = config.get("name", self.name)
+            self.values = config.get("covenant", config.get("values", self.values))
+            self.core = config.get("core", self.core)
+            self.frozen = bool(config.get("frozen", False))
+            self.cphy_weights = dict(config.get("cphy_weights", {}))
+            self.skill_cache = dict(config.get("skill_cache", {}))
+        else:
+            self._seal_genesis()
+            self._save_config()
+
+    def _save_config(self) -> None:
+        self.store.save_config({
+            "agent_id": self.agent_id,
+            "name": self.name,
+            "covenant": self.values,
+            "core": self.core,
+            "frozen": self.frozen,
+            "cphy_weights": self.cphy_weights,
+            "skill_cache": self.skill_cache,
+            "created_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+            "version": 2,
+        })
+
+    def _seal_genesis(self) -> None:
+        body = {
+            "n": 0,
+            "prev": self.GENESIS_PREV,
+            "ts": dt.datetime.now(dt.timezone.utc).isoformat(),
+            "kind": "genesis",
+            "domain": "self",
+            "query": "",
+            "content": canonical_json({
+                "agent_id": self.agent_id,
+                "name": self.name,
+                "covenant": self.values,
+                "core": self.core,
+                "se_domains": sorted(SE_DOMAINS),
+            }),
+            "brightness": 1.0,
+            "scores": {k: 1.0 for k in ("coherence", "relevance", "novelty",
+                                        "consistency", "depth", "covenant")},
+            "neuro": {"dopamine": 0.5, "serotonin": 0.5, "norepinephrine": 0.2,
+                      "gaba": 0.2, "acetylcholine": 0.5},
+            "retrieved": [],
+            "epistemic": "known",
+            "tags": ["genesis", "covenant", "engineering"],
+            "refs": [],
+            "supersedes": None,
+            "source": None,
+            "importance": 1.0,
+        }
+        body["hash"] = ring_hash(body)
+        ring = Ring.from_dict(body)
+        self.chain.append(ring)
+        self.store.append_ring(ring)
+
+    def _append(self, ring: Ring) -> Ring:
+        d = ring.to_dict()
+        d["hash"] = ring_hash(d)
+        sealed = Ring.from_dict(d)
+        self.chain.append(sealed)
+        self.store.append_ring(sealed)
+        return sealed
+
+    def interact(
+        self,
+        query: str,
+        *,
+        domain: str = "engineering",
+        tags: Optional[List[str]] = None,
+        override_content: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        if self.frozen:
+            return {"accepted": False, "reason": "chain is frozen", "ring": None}
+
+        retrieved_scored = retrieve(
+            self.chain, query,
+            domain=domain,
+            cphy_weights=self.cphy_weights,
+            config=self.retriever_cfg,
+        )
+        retrieved = [r for _, r in retrieved_scored]
+        neuro = compute_neuro(self.chain, domain)
+
+        cache_key = sha256_hex(f"{domain}|{query.strip().lower()}")
+        cached = self.skill_cache.get(domain, {}).get(cache_key)
+        if cached and not override_content:
+            content = cached["content"]
+            cache_hit = True
+        else:
+            content = override_content or self.generator(query, retrieved, neuro)
+            cache_hit = False
+
+        scores, brightness = self.poq.evaluate(
+            query=query,
+            content=content,
+            covenant=self.values,
+            retrieved=retrieved,
+            chain=self.chain,
+        )
+        ok, reason = self.poq.gate(scores, brightness)
+        if not ok:
+            return {
+                "accepted": False,
+                "reason": reason,
+                "scores": scores,
+                "brightness": brightness,
+                "ring": None,
+            }
+
+        candidate = Ring(
+            n=len(self.chain),
+            prev=self.chain[-1].hash,
+            ts=dt.datetime.now(dt.timezone.utc).isoformat(),
+            kind="interaction",
+            domain=domain,
+            query=query,
+            content=content,
+            brightness=brightness,
+            scores=scores,
+            neuro=neuro,
+            retrieved=[r.n for r in retrieved],
+            epistemic=classify_epistemic(retrieved),
+            tags=tags or [domain],
+        )
+        sealed = self._append(candidate)
+
+        if brightness >= 0.8:
+            self.skill_cache.setdefault(domain, {})[cache_key] = {
+                "content": content, "ring": sealed.n,
+            }
+            self._save_config()
+
+        return {
+            "accepted": True,
+            "ring": sealed.to_dict(),
+            "brightness": brightness,
+            "scores": scores,
+            "retrieved": [r.n for r in retrieved],
+            "epistemic": sealed.epistemic,
+            "cache_hit": cache_hit,
+        }
+
+    def self_model(self) -> Dict[str, Any]:
+        by_domain: Dict[str, List[float]] = {}
+        for r in self.chain[1:]:
+            by_domain.setdefault(r.domain, []).append(r.brightness)
+        domain_mass = {d: round(sum(bs), 3) for d, bs in by_domain.items()}
+        top_domains = sorted(domain_mass.items(), key=lambda x: x[1], reverse=True)[:5]
+        cambium = cambium_scan(self.chain)
+        total_mass = sum(r.brightness for r in self.chain[1:])
+        untouched = sorted(SE_DOMAINS - set(by_domain.keys()))
+        return {
+            "agent_id": self.agent_id,
+            "name": self.name,
+            "core": self.core,
+            "covenant": self.values,
+            "genesis_hash": self.genesis_hash,
+            "ring_count": len(self.chain),
+            "temporal_mass": round(total_mass, 3),
+            "domain_mass": domain_mass,
+            "top_domains": [d for d, _ in top_domains],
+            "untouched_se_domains": untouched,
+            "gaps": cambium.gaps,
+            "consolidations": cambium.consolidations,
+            "emergent_proposals": cambium.proposals,
+            "frozen": self.frozen,
+            "cphy_weights": dict(self.cphy_weights),
+            "neuro_self": compute_neuro(self.chain, "self"),
+        }
+
+    def cambium_report(self) -> CambiumReport:
+        return cambium_scan(self.chain)
+
+    def seal_cambium_event(self, report: Optional[CambiumReport] = None) -> Optional[Ring]:
+        rep = report or cambium_scan(self.chain)
+        if not (rep.gaps or rep.consolidations or rep.proposals):
+            return None
+        content = canonical_json({
+            "gaps": rep.gaps,
+            "consolidations": rep.consolidations,
+            "proposals": rep.proposals,
+        })
+        neuro = compute_neuro(self.chain, "self")
+        scores, brightness = self.poq.evaluate(
+            query="cambium engineering self-scan",
+            content=content,
+            covenant=self.values,
+            retrieved=[],
+            chain=self.chain,
+        )
+        if scores["covenant"] < self.poq.config.covenant_hard_floor:
+            return None
+        candidate = Ring(
+            n=len(self.chain),
+            prev=self.chain[-1].hash,
+            ts=dt.datetime.now(dt.timezone.utc).isoformat(),
+            kind="cambium",
+            domain="self",
+            query="cambium engineering self-scan",
+            content=content,
+            brightness=max(brightness, 0.5),
+            scores=scores,
+            neuro=neuro,
+            retrieved=[],
+            epistemic="known",
+            tags=["cambium", "growth", "engineering"],
+        )
+        return self._append(candidate)
+
+    def fleet_import(self, foreign_ring: Dict[str, Any], *, source: str) -> Optional[Ring]:
+        content = foreign_ring.get("content", "")
+        domain = foreign_ring.get("domain", "fleet")
+        tags = list(foreign_ring.get("tags", [])) + [f"from:{source}"]
+        scores, brightness = self.poq.evaluate(
+            query=foreign_ring.get("query", ""),
+            content=content,
+            covenant=self.values,
+            retrieved=[],
+            chain=self.chain,
+        )
+        ok, _ = self.poq.gate(scores, brightness)
+        if not ok:
+            return None
+        candidate = Ring(
+            n=len(self.chain),
+            prev=self.chain[-1].hash,
+            ts=dt.datetime.now(dt.timezone.utc).isoformat(),
+            kind="fleet_import",
+            domain=domain,
+            query=foreign_ring.get("query", ""),
+            content=content,
+            brightness=brightness * 0.85,
+            scores=scores,
+            neuro=compute_neuro(self.chain, domain),
+            retrieved=[],
+            epistemic="inferred",
+            tags=tags,
+            source=source,
+        )
+        return self._append(candidate)
+
+    def byzantine_consensus(self, readings: Dict[str, float], *, tolerance: float = 0.15) -> Dict[str, Any]:
+        return byzantine_consensus(readings, tolerance=tolerance)
+
+    def apply_cphy_weights(self, weights: Dict[str, float]) -> None:
+        self.cphy_weights = {k: float(v) for k, v in weights.items()}
+        self._save_config()
+
+    def swap_core(self, new_core: str, note: str = "") -> Ring:
+        old = self.core
+        self.core = new_core
+        content = canonical_json({"old_core": old, "new_core": new_core, "note": note})
+        scores, brightness = self.poq.evaluate(
+            query="core swap",
+            content=content,
+            covenant=self.values,
+            retrieved=[],
+            chain=self.chain,
+        )
+        candidate = Ring(
+            n=len(self.chain),
+            prev=self.chain[-1].hash,
+            ts=dt.datetime.now(dt.timezone.utc).isoformat(),
+            kind="core_swap",
+            domain="self",
+            query="core swap",
+            content=content,
+            brightness=max(brightness, 0.6),
+            scores=scores,
+            neuro=compute_neuro(self.chain, "self"),
+            retrieved=[],
+            epistemic="known",
+            tags=["core_swap", "continuity"],
+        )
+        r = self._append(candidate)
+        self._save_config()
+        return r
+
+    def freeze(self, on: bool = True) -> None:
+        self.frozen = bool(on)
+        self._save_config()
+
+    def dream(self, *, domains: Sequence[str], cycles: int = 5) -> List[Ring]:
+        if not self.chain or len(domains) < 2:
+            return []
+        sealed: List[Ring] = []
+        buckets: Dict[str, List[Ring]] = {d: [] for d in domains}
+        for r in self.chain[1:]:
+            if r.domain in buckets:
+                buckets[r.domain].append(r)
+        for b in buckets.values():
+            b.sort(key=lambda r: r.brightness, reverse=True)
+        for i in range(cycles):
+            picks = [buckets[d][i % len(buckets[d])] for d in domains if buckets[d]]
+            if len(picks) < 2:
+                break
+            content = "Cross-domain engineering synthesis:\n" + "\n".join(
+                f"  [{p.domain} ring {p.n}] {p.content[:120]}" for p in picks
+            )
+            scores, brightness = self.poq.evaluate(
+                query="dream cross-domain engineering synthesis",
+                content=content,
+                covenant=self.values,
+                retrieved=picks,
+                chain=self.chain,
+            )
+            if scores["covenant"] < self.poq.config.covenant_hard_floor:
+                continue
+            candidate = Ring(
+                n=len(self.chain),
+                prev=self.chain[-1].hash,
+                ts=dt.datetime.now(dt.timezone.utc).isoformat(),
+                kind="interaction",
+                domain="dream",
+                query="dream cross-domain engineering synthesis",
+                content=content,
+                brightness=min(brightness, 0.65),
+                scores=scores,
+                neuro=compute_neuro(self.chain, "dream"),
+                retrieved=[p.n for p in picks],
+                epistemic="speculated",
+                tags=["dream"] + [p.domain for p in picks],
+            )
+            sealed.append(self._append(candidate))
+        return sealed
+
+    def respond_to_challenge(self, challenge: Dict[str, Any]) -> Dict[str, Any]:
+        indices = challenge.get("indices", [])
+        nonce = challenge.get("nonce", "")
+        revealed = []
+        for i in indices:
+            if 0 <= i < len(self.chain):
+                revealed.append({"n": i, "hash": self.chain[i].hash})
+        payload = canonical_json({"revealed": revealed, "nonce": nonce,
+                                  "genesis": self.genesis_hash})
+        return {
+            "agent_id": self.agent_id,
+            "genesis_hash": self.genesis_hash,
+            "ring_count": len(self.chain),
+            "revealed": revealed,
+            "response_hash": sha256_hex(payload),
+            "nonce": nonce,
+        }
+
+    @property
+    def genesis(self) -> Ring:
+        return self.chain[0]
+
+    @property
+    def genesis_hash(self) -> str:
+        return self.genesis.hash
+
+
+# ---------------------------------------------------------------------------
+# Memory sync helpers (human-readable outputs).
+# ---------------------------------------------------------------------------
+
+def ensure_memory_paths(workspace: pathlib.Path) -> Tuple[pathlib.Path, pathlib.Path]:
+    memory_md = workspace / "MEMORY.md"
+    mem_dir = workspace / "memory"
+    mem_dir.mkdir(parents=True, exist_ok=True)
+    daily = mem_dir / f"{dt.datetime.now().date().isoformat()}.md"
+    return memory_md, daily
+
+
+def update_memory_summary(memory_md: pathlib.Path, summary_text: str) -> None:
+    marker = "## Timechain Summary"
+    existing = memory_md.read_text(encoding="utf-8") if memory_md.exists() else ""
+    if marker in existing:
+        head, _, tail = existing.partition(marker)
+        m = re.search(r"\n## ", tail)
+        if m:
+            rest = tail[m.start() + 1 :]
+        else:
+            rest = ""
+        new_text = head.rstrip() + "\n\n" + marker + "\n\n" + summary_text.strip() + "\n\n" + rest.lstrip()
+    else:
+        new_text = existing.rstrip() + ("\n\n" if existing.strip() else "") + marker + "\n\n" + summary_text.strip() + "\n"
+    memory_md.write_text(new_text, encoding="utf-8")
+
+
+def append_daily_log(daily: pathlib.Path, line: str) -> None:
+    prefix = f"- {dt.datetime.now().isoformat(timespec='seconds')}: "
+    with daily.open("a", encoding="utf-8") as f:
+        f.write(prefix + line.strip() + "\n")
+
+
+# ---------------------------------------------------------------------------
+# CLI commands.
+# ---------------------------------------------------------------------------
+
+def cmd_init(args: argparse.Namespace) -> int:
+    store = TimechainStore(args.workspace)
+    if store.exists() and not args.force:
+        print(json.dumps({"ok": False, "error": "Timechain already exists. Use --force to overwrite config only."}))
+        return 1
+    store.save_config({
+        "agent_id": args.agent_id,
+        "name": args.name,
+        "covenant": args.covenant,
+        "core": args.core,
+        "created_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "frozen": False,
+        "version": 2,
+    })
+    if not store.chain_path.exists() or args.force:
+        agent = TimechainAgent(
+            name=args.name,
+            values=args.covenant,
+            core=args.core,
+            agent_id=args.agent_id,
+            workspace=args.workspace,
+        )
+        print(json.dumps({
+            "ok": True,
+            "agent_id": agent.agent_id,
+            "name": agent.name,
+            "workspace": str(args.workspace),
+            "genesis_hash": agent.genesis_hash,
+        }))
+    return 0
+
+
+def cmd_verify(args: argparse.Namespace) -> int:
+    store = TimechainStore(args.workspace)
+    if not store.exists():
+        # Auto-initialize on first use
+        agent = TimechainAgent(workspace=args.workspace)
+        print(json.dumps({"ok": True, "status": "auto-initialized", "rings": 1, "auto_init": True}))
+        return 0
+    rings = store.load_chain()
+    ok, msg = verify_chain(rings)
+    print(json.dumps({"ok": ok, "status": msg, "rings": len(rings)}))
+    return 0 if ok else 2
+
+
+def cmd_summary(args: argparse.Namespace) -> int:
+    store = TimechainStore(args.workspace)
+    if not store.exists():
+        # Auto-initialize on first use
+        agent = TimechainAgent(workspace=args.workspace)
+        print(json.dumps({"ok": True, "auto_init": True, "summary": agent.self_model()}, ensure_ascii=False, indent=2))
+        return 0
+    rings = store.load_chain()
+    config = store.load_config()
+    ok, msg = verify_chain(rings)
+    out = {"verify": {"ok": ok, "status": msg}}
+    if ok:
+        agent = TimechainAgent(
+            name=config.get("name", "Forge"),
+            values=config.get("covenant", ENGINEERING_COVENANT),
+            core=config.get("core", "engineer-core"),
+            agent_id=config.get("agent_id"),
+            workspace=args.workspace,
+        )
+        out["summary"] = agent.self_model()
+    print(json.dumps(out, ensure_ascii=False, indent=2))
+    return 0 if ok else 2
+
+
+def cmd_seal(args: argparse.Namespace) -> int:
+    agent = TimechainAgent(workspace=args.workspace)
+    if agent.frozen:
+        print(json.dumps({"ok": False, "error": "timechain is frozen"}))
+        return 3
+    tags = [x.strip() for x in (args.tags or "").split(",") if x.strip()]
+    result = agent.interact(
+        query=args.title or args.query or "",
+        domain=args.domain,
+        tags=tags,
+        override_content=args.content,
+    )
+    if not result["accepted"]:
+        print(json.dumps({
+            "ok": False,
+            "error": result["reason"],
+            "scores": result.get("scores"),
+            "brightness": result.get("brightness"),
+        }))
+        return 2
+    ring = result["ring"]
+    if args.refs:
+        ring["refs"] = [int(x.strip()) for x in args.refs.split(",") if x.strip()]
+    if args.supersedes is not None:
+        ring["supersedes"] = int(args.supersedes)
+    print(json.dumps({
+        "ok": True,
+        "ring": ring["n"],
+        "hash": ring["hash"],
+        "brightness": ring["brightness"],
+        "epistemic": ring["epistemic"],
+        "scores": ring["scores"],
+    }))
+    return 0
+
+
+def cmd_recall(args: argparse.Namespace) -> int:
+    agent = TimechainAgent(workspace=args.workspace)
+    ok, msg = verify_chain(agent.chain)
+    if not ok:
+        print(json.dumps({"ok": False, "error": f"verification failed: {msg}"}))
+        return 2
+    retrieved_scored = retrieve(
+        agent.chain,
+        args.query,
+        domain=args.domain or None,
+        cphy_weights=agent.cphy_weights,
+        config=RetrieverConfig(limit=args.limit),
+    )
+    out = []
+    for score, ring in retrieved_scored:
+        out.append({
+            "score": round(score, 4),
+            "n": ring.n,
+            "ts": ring.ts,
+            "brightness": ring.brightness,
+            "kind": ring.kind,
+            "domain": ring.domain,
+            "query": ring.query,
+            "content": ring.content[:200] if len(ring.content) > 200 else ring.content,
+            "tags": ring.tags,
+            "supersedes": ring.supersedes,
+            "hash": ring.hash[:16],
+            "epistemic": ring.epistemic,
+        })
+    print(json.dumps({"ok": True, "query": args.query, "results": out}, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_cambium(args: argparse.Namespace) -> int:
+    agent = TimechainAgent(workspace=args.workspace)
+    report = agent.cambium_report()
+    sealed_ring = None
+    if args.seal:
+        ring = agent.seal_cambium_event(report)
+        sealed_ring = ring.n if ring else None
+    print(json.dumps({
+        "ok": True,
+        "gaps": report.gaps,
+        "consolidations": report.consolidations,
+        "proposals": report.proposals,
+        "sealed_ring": sealed_ring,
+    }, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_dream(args: argparse.Namespace) -> int:
+    agent = TimechainAgent(workspace=args.workspace)
+    domains = [d.strip() for d in args.domains.split(",") if d.strip()]
+    dreams = agent.dream(domains=domains, cycles=args.cycles)
+    out = []
+    for ring in dreams:
+        out.append({
+            "n": ring.n,
+            "domain": ring.domain,
+            "content": ring.content,
+            "brightness": ring.brightness,
+            "epistemic": ring.epistemic,
+            "tags": ring.tags,
+        })
+    print(json.dumps({"ok": True, "domains": domains, "dreams": out}, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_self_model(args: argparse.Namespace) -> int:
+    agent = TimechainAgent(workspace=args.workspace)
+    model = agent.self_model()
+    print(json.dumps(model, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_overlay_set(args: argparse.Namespace) -> int:
+    store = TimechainStore(args.workspace)
+    overlays = store.load_overlays()
+    overlays[args.tag] = float(args.weight)
+    store.save_overlays(overlays)
+    print(json.dumps({"ok": True, "tag": args.tag, "weight": overlays[args.tag]}))
+    return 0
+
+
+def cmd_overlay_list(args: argparse.Namespace) -> int:
+    store = TimechainStore(args.workspace)
+    print(json.dumps({"ok": True, "overlays": store.load_overlays()}, indent=2))
+    return 0
+
+
+def cmd_freeze(args: argparse.Namespace) -> int:
+    agent = TimechainAgent(workspace=args.workspace)
+    agent.freeze(args.on)
+    print(json.dumps({"ok": True, "frozen": agent.frozen}))
+    return 0
+
+
+def cmd_memory_sync(args: argparse.Namespace) -> int:
+    agent = TimechainAgent(workspace=args.workspace)
+    ok, msg = verify_chain(agent.chain)
+    if not ok:
+        print(json.dumps({"ok": False, "error": f"verification failed: {msg}"}))
+        return 2
+    model = agent.self_model()
+    overlays = agent.store.load_overlays()
+    lines = [
+        f"- Agent: **{model['name']}** (`{model['agent_id']}`)",
+        f"- Core: {model['core']}",
+        f"- Covenant: {model['covenant'][:80]}...",
+        f"- Rings: {model['ring_count']}",
+        f"- Temporal mass: {model['temporal_mass']}",
+        f"- Frozen: {model['frozen']}",
+        f"- Top domains: {', '.join(model['top_domains']) if model['top_domains'] else '(none)'}",
+        f"- Untouched domains: {', '.join(model['untouched_se_domains']) if model['untouched_se_domains'] else '(none)'}",
+        f"- Gaps: {model['gaps']}",
+        f"- Consolidations: {model['consolidations']}",
+        f"- Active overlays: {json.dumps(overlays, ensure_ascii=False)}",
+        f"- Genesis hash prefix: `{model['genesis_hash'][:16]}`",
+    ]
+    memory_md, daily = ensure_memory_paths(args.workspace)
+    update_memory_summary(memory_md, "\n".join(lines))
+    append_daily_log(daily, f"Timechain sync: rings={model['ring_count']} mass={model['temporal_mass']} top={model['top_domains']}")
+    print(json.dumps({"ok": True, "memory_md": str(memory_md), "daily": str(daily)}))
+    return 0
+
+
+def cmd_fleet_import(args: argparse.Namespace) -> int:
+    agent = TimechainAgent(workspace=args.workspace)
+    foreign = json.loads(args.ring_json)
+    ring = agent.fleet_import(foreign, source=args.source)
+    if ring is None:
+        print(json.dumps({"ok": False, "error": "fleet import rejected by covenant gate"}))
+        return 2
+    print(json.dumps({"ok": True, "ring": ring.n, "hash": ring.hash[:16], "brightness": ring.brightness}))
+    return 0
+
+
+def cmd_challenge(args: argparse.Namespace) -> int:
+    agent = TimechainAgent(workspace=args.workspace)
+    ch = {
+        "indices": [int(x.strip()) for x in args.indices.split(",") if x.strip()],
+        "nonce": args.nonce or os.urandom(8).hex(),
+    }
+    resp = agent.respond_to_challenge(ch)
+    print(json.dumps(resp, ensure_ascii=False, indent=2))
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Argument parser.
+# ---------------------------------------------------------------------------
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(description="Forge Timechain — persistent cognitive chain for SE agents")
+    p.add_argument("--workspace", type=pathlib.Path, default=pathlib.Path.cwd())
+    sp = p.add_subparsers(dest="cmd", required=True)
+
+    p_init = sp.add_parser("init")
+    p_init.add_argument("--agent-id", required=True)
+    p_init.add_argument("--name", default="Forge")
+    p_init.add_argument("--purpose", default="")
+    p_init.add_argument("--covenant", default=ENGINEERING_COVENANT)
+    p_init.add_argument("--core", default="engineer-core")
+    p_init.add_argument("--force", action="store_true")
+    p_init.set_defaults(func=cmd_init)
+
+    p_verify = sp.add_parser("verify")
+    p_verify.set_defaults(func=cmd_verify)
+
+    p_summary = sp.add_parser("summary")
+    p_summary.set_defaults(func=cmd_summary)
+
+    p_seal = sp.add_parser("seal")
+    p_seal.add_argument("--kind", required=True)
+    p_seal.add_argument("--domain", required=True)
+    p_seal.add_argument("--title", default="")
+    p_seal.add_argument("--query", default="")
+    p_seal.add_argument("--content", required=True)
+    p_seal.add_argument("--tags", default="")
+    p_seal.add_argument("--refs", default="")
+    p_seal.add_argument("--supersedes", type=int)
+    p_seal.set_defaults(func=cmd_seal)
+
+    p_recall = sp.add_parser("recall")
+    p_recall.add_argument("--query", required=True)
+    p_recall.add_argument("--domain", default="")
+    p_recall.add_argument("--limit", type=int, default=8)
+    p_recall.set_defaults(func=cmd_recall)
+
+    p_cambium = sp.add_parser("cambium")
+    p_cambium.add_argument("--seal", action="store_true")
+    p_cambium.set_defaults(func=cmd_cambium)
+
+    p_dream = sp.add_parser("dream")
+    p_dream.add_argument("--domains", required=True)
+    p_dream.add_argument("--cycles", type=int, default=5)
+    p_dream.set_defaults(func=cmd_dream)
+
+    p_sm = sp.add_parser("self-model")
+    p_sm.set_defaults(func=cmd_self_model)
+
+    p_os = sp.add_parser("overlay-set")
+    p_os.add_argument("--tag", required=True)
+    p_os.add_argument("--weight", required=True, type=float)
+    p_os.set_defaults(func=cmd_overlay_set)
+
+    p_ol = sp.add_parser("overlay-list")
+    p_ol.set_defaults(func=cmd_overlay_list)
+
+    p_freeze = sp.add_parser("freeze")
+    group = p_freeze.add_mutually_exclusive_group(required=True)
+    group.add_argument("--on", action="store_true")
+    group.add_argument("--off", action="store_false", dest="on")
+    p_freeze.set_defaults(func=cmd_freeze)
+
+    p_ms = sp.add_parser("memory-sync")
+    p_ms.set_defaults(func=cmd_memory_sync)
+
+    p_fi = sp.add_parser("fleet-import")
+    p_fi.add_argument("--ring-json", required=True)
+    p_fi.add_argument("--source", required=True)
+    p_fi.set_defaults(func=cmd_fleet_import)
+
+    p_ch = sp.add_parser("challenge")
+    p_ch.add_argument("--indices", required=True)
+    p_ch.add_argument("--nonce", default="")
+    p_ch.set_defaults(func=cmd_challenge)
+
+    return p
+
+
+def main() -> int:
+    parser = build_parser()
+    args = parser.parse_args()
+    return int(args.func(args))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
