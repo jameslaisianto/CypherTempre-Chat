@@ -10,15 +10,45 @@ Timechain is a local, append-only memory chain for an AI agent. It stores accept
 
 ## Proof of Qualia
 
-Proof of Qualia is the quality gate used before a response becomes memory. It scores a response against the user query, recalled context, existing chain, and covenant. A response that fails the gate is shown but not sealed into memory.
+Proof of Qualia is the quality gate used before an assistant response becomes a sealed Timechain ring. It scores a response against the user query, recalled context, existing chain, and covenant. A response that fails the gate is shown but not sealed into the hash-linked chain.
+
+PoQ acceptance is not the same as accepting every extracted user-continuity fact. After a response is sealed, CypherTempre may propose durable memory candidates for review. Those candidates remain pending until the user accepts them in the Memory Inspector.
+
+## Memory Review Queue
+
+The chat PoC separates sealed conversation rings from reviewed durable continuity memories.
+
+- Accepted chat responses become hash-linked rings in `.timechain/chain.jsonl`.
+- Candidate memories are proposed after accepted responses and stored in `.timechain/memory_model.json`.
+- Candidate extraction is hybrid: deterministic rules handle high-confidence basics such as names and explicit preferences, and the configured LLM may propose richer continuity memories when a provider key is available.
+- Proposed memories are pending by default. Pending memories are visible in the Memory Inspector but are not injected into prompts and are not returned by durable-memory recall.
+- The user can accept, reject, edit, or forget memory candidates.
+- Corrections supersede older accepted facts instead of deleting them silently.
+
+Durable memory records include scope, kind, key, value, confidence, source ring, evidence, status, and optional supersession lineage.
+
+Supported statuses:
+
+- `pending`: proposed but not yet trusted for recall or prompts
+- `accepted`: approved for recall and prompt context
+- `rejected`: reviewed and declined
+- `superseded`: replaced by a newer correction
+- `forgotten`: removed from active use without rewriting sealed rings
+
+Supported scopes:
+
+- `global`: stable user profile facts such as identity, durable preferences, boundaries, style, and persona naming
+- `session`: conversation-local goals, temporary context, or notes that should not automatically apply everywhere
 
 ## Recall
 
-Recall searches previously accepted rings and returns the most relevant local memories. Guide and chat explanations should treat recalled rings as local memory, not as live external facts.
+Recall searches accepted durable memories and previously accepted rings, then returns the most relevant local context. Accepted global profile facts outrank ordinary rings for direct continuity questions. Active session notes outrank unrelated global facts when they match the current conversation.
+
+Pending, rejected, superseded, and forgotten memories are not used in prompt assembly. Guide and chat explanations should treat recalled rings and accepted durable memories as local memory, not as live external facts.
 
 ## Self Model
 
-The self model summarizes the local chain: ring count, temporal mass, top domains, gaps, and current verification state. It is a diagnostic view of local memory state.
+The self model summarizes the local chain: ring count, temporal mass, top domains, gaps, current verification state, accepted durable memory count, and pending memory count. It is a diagnostic view of local memory state.
 
 ## Chain Verification
 

@@ -15,10 +15,12 @@ This project is an interactive demonstration of the Cypher Tempre cognitive arch
 - Automatic memory-domain classification
 - PoQ accepted/rejected response gating
 - Persistent local memory in `.timechain/chain.jsonl`
-- Session-local durable memory facts in `.timechain/memory_model.json`
+- Reviewable durable memory candidates in `.timechain/memory_model.json`
+- Global user profile memories plus session-local notes
 - Multiple local sessions with separate memory chains
 - Recall over durable facts and prior accepted rings
 - LLM retry/repair for direct memory misses
+- Memory Inspector review controls for accepting, rejecting, editing, and forgetting proposed memories
 - Self-model and chain verification panels
 - One-click reset for local chain memory
 - Built-in Guide page with simple and comprehensive explanations
@@ -155,6 +157,7 @@ This deletes and recreates the local `.timechain` chain for the PoC workspace. I
 - `Enter` sends the message.
 - `Shift+Enter` inserts a new line.
 - The current model, resolved domain, ring number, brightness, retry status, memory-hit count, and epistemic status appear under accepted responses.
+- Accepted responses can create pending memory candidates. Review them in Memory Inspector before they become active durable memories.
 - Persona Studio has a required `Persona name` field plus a seed/style field. The generated persona uses the supplied name.
 - API key and model selection live behind the Settings gear; emptying the browser key removes the saved browser key.
 
@@ -175,23 +178,30 @@ Use the `Sessions` control in the left sidebar to create and switch conversation
 cyphertempre-chat-poc/sessions/<session-id>/.timechain/chain.jsonl
 ```
 
-- Each session has its own Timechain memory and durable memory model.
-- Switching sessions reloads chat history, recall, self-model, and verify state.
+- Each session has its own Timechain memory and session-local memory notes.
+- Stable global user profile memories are shared from the main workspace memory model.
+- Switching sessions reloads chat history, memory review state, recall, self-model, and verify state.
 - `Reset Chain Memory` clears only the active session.
 - Provider settings and custom personas are shared across sessions.
 
 ## Persistence model
 
-Accepted memories are stored here:
+Accepted conversation rings are stored here:
 
 ```text
 cyphertempre-chat-poc/.timechain/chain.jsonl
 ```
 
-Durable extracted facts are stored beside the chain:
+Durable memory candidates and accepted continuity memories are stored beside the chain:
 
 ```text
 cyphertempre-chat-poc/.timechain/memory_model.json
+```
+
+Session-local memory notes live under the active session workspace:
+
+```text
+cyphertempre-chat-poc/sessions/<session-id>/.timechain/memory_model.json
 ```
 
 Custom personas are stored in the main PoC workspace and mirrored to browser storage:
@@ -200,13 +210,14 @@ Custom personas are stored in the main PoC workspace and mirrored to browser sto
 cyphertempre-chat-poc/.timechain/custom_personas.json
 ```
 
-Server restarts and browser reloads keep accepted memories and custom personas. The UI reconstructs visible chat from the Timechain rings through `/api/history`, and the Memory Inspector shows durable facts through `/api/self-model` and `/api/recall`.
+Server restarts and browser reloads keep sealed rings, reviewed durable memories, pending memory candidates, and custom personas. The UI reconstructs visible chat from the Timechain rings through `/api/history`, and the Memory Inspector shows pending and accepted memories through `/api/memories`, `/api/self-model`, and `/api/recall`.
 
-The memory model is intentionally generic rather than a hardcoded name fix. It extracts identity facts, persona naming, preferences, corrections, and uncertainties with source-ring references. Direct memory questions prioritize high-confidence durable facts before ordinary ring recall.
+The memory model is intentionally generic rather than a hardcoded name fix. It proposes identity facts, persona naming, preferences, corrections, goals, boundaries, style notes, and uncertainties with source-ring references. Proposed memories are pending by default; pending, rejected, superseded, and forgotten memories are not used in prompts or durable recall. Direct memory questions prioritize accepted high-confidence durable facts before ordinary ring recall.
 
 Not persisted as rings:
 
 - rejected PoQ responses
+- pending memory candidates
 - unsent drafts
 - temporary UI state
 

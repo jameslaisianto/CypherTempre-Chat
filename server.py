@@ -509,7 +509,7 @@ GUIDE_TOPICS: list[dict[str, Any]] = [
             "The chat composer sends your message, selected domain, persona, model, and optional browser API key to the local server.\n"
             "The server recalls relevant rings before the LLM call.\n"
             "The response is scored by PoQ before it is saved.\n"
-            "Accepted replies appear with ring metadata."
+            "Accepted replies appear with ring metadata and may create pending memory candidates for review."
         ),
         "sources": ["Guide: Chat", "README.md"],
     },
@@ -564,14 +564,28 @@ GUIDE_TOPICS: list[dict[str, Any]] = [
     {
         "id": "recall",
         "title": "Recall",
-        "summary": "Search prior accepted rings from the local Timechain.",
+        "summary": "Search accepted durable memories and prior accepted rings from the local Timechain.",
         "details": (
             "Recall uses the same lightweight retrieval primitives as the Timechain CLI.\n"
-            "Results include score, ring number, brightness, domain, and content.\n"
+            "Results include accepted durable memories, score, ring number, brightness, domain, and content.\n"
+            "Pending, rejected, superseded, and forgotten memories are excluded from prompt recall.\n"
             "Recent relevant rings are injected into future LLM prompts.\n"
-            "Recall reads from .timechain/chain.jsonl."
+            "Recall reads accepted rings from .timechain/chain.jsonl and accepted continuity memories from .timechain/memory_model.json."
         ),
         "sources": ["Guide: Recall", "README.md", "SKILLS/README.md"],
+    },
+    {
+        "id": "memory-review",
+        "title": "Memory Review",
+        "summary": "Approve or reject proposed durable user-continuity memories before they affect future answers.",
+        "details": (
+            "Accepted chat responses can produce memory candidates after PoQ sealing.\n"
+            "Candidate extraction is hybrid: deterministic rules cover basics, and the configured LLM may propose richer continuity memories.\n"
+            "Pending memories are visible in Memory Inspector but are not used in prompts or durable recall.\n"
+            "The user can accept, reject, edit, or forget memory records.\n"
+            "Accepted memories have global or session scope, confidence, source ring, evidence, status, and supersession lineage."
+        ),
+        "sources": ["Guide: Memory Review", "README.md", "SKILLS/README.md"],
     },
     {
         "id": "self-model",
@@ -580,6 +594,7 @@ GUIDE_TOPICS: list[dict[str, Any]] = [
         "details": (
             "The self model summarizes local Timechain state.\n"
             "Ring count shows accepted memory size.\n"
+            "Memory counts distinguish accepted durable facts from pending review candidates.\n"
             "Temporal mass is accumulated brightness.\n"
             "Top domains show where the system has experience."
         ),
@@ -600,12 +615,13 @@ GUIDE_TOPICS: list[dict[str, Any]] = [
     {
         "id": "persistence",
         "title": "Persistence",
-        "summary": "Accepted memory survives browser reloads and server restarts.",
+        "summary": "Sealed rings, reviewed memories, pending candidates, and custom personas survive browser reloads and server restarts.",
         "details": (
             "Persistence comes from local append-only Timechain files.\n"
-            "Memory lives in cyphertempre-chat-poc/.timechain/chain.jsonl.\n"
+            "Accepted conversation rings live in cyphertempre-chat-poc/.timechain/chain.jsonl.\n"
+            "Durable memory candidates and accepted continuity memories live in .timechain/memory_model.json.\n"
             "The UI restores accepted exchanges from /api/history.\n"
-            "Unsent drafts and rejected responses are not saved as rings."
+            "Unsent drafts, rejected PoQ responses, and pending memory candidates are not saved as rings."
         ),
         "sources": ["Guide: Persistence", "README.md"],
     },
@@ -615,7 +631,8 @@ GUIDE_TOPICS: list[dict[str, Any]] = [
         "summary": "Create separate conversations with separate local memory chains.",
         "details": (
             "Each session stores its Timechain in a separate workspace under the PoC sessions folder.\n"
-            "Switching sessions reloads chat history, recall, self-model, and verification state.\n"
+            "Stable global user profile memories are shared from the main workspace, while session notes stay local.\n"
+            "Switching sessions reloads chat history, memory review state, recall, self-model, and verification state.\n"
             "Reset Chain Memory clears only the active session.\n"
             "Personas and provider settings remain shared across sessions."
         ),
@@ -1421,7 +1438,7 @@ HTML = r"""<!doctype html>
     }
 
     .inspector-body {
-      overflow: hidden;
+      overflow: auto;
       padding: 14px;
       display: grid;
       gap: 14px;
@@ -1476,6 +1493,50 @@ HTML = r"""<!doctype html>
       white-space: pre-wrap;
       overflow-wrap: anywhere;
       font-size: 13px;
+    }
+
+    .memory-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .memory-card {
+      border: 1px solid var(--line-soft);
+      border-radius: 8px;
+      background: rgba(16, 17, 15, 0.72);
+      padding: 9px;
+      display: grid;
+      gap: 7px;
+    }
+
+    .memory-card strong {
+      color: var(--text);
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+
+    .memory-meta {
+      color: var(--faint);
+      font-size: 11px;
+      overflow-wrap: anywhere;
+    }
+
+    .memory-actions {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .memory-actions button {
+      min-height: 30px;
+      padding: 0 9px;
+      border-radius: 7px;
+      border: 1px solid var(--line);
+      background: var(--surface-2);
+      color: var(--text);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 800;
     }
 
     @media (max-width: 1120px) {
@@ -1677,12 +1738,12 @@ HTML = r"""<!doctype html>
           <article class="feature-card">
             <h3>Chat</h3>
             <p class="simple-only">Send messages and receive assistant replies through the selected persona and model.</p>
-            <div class="comprehensive-only hidden">
-              <p>The chat composer sends your message, selected domain, persona, model, and optional browser API key to the local server.</p>
-              <ul>
+          <div class="comprehensive-only hidden">
+            <p>The chat composer sends your message, selected domain, persona, model, and optional browser API key to the local server.</p>
+            <ul>
                 <li>The server recalls relevant rings before the LLM call.</li>
                 <li>The response is scored by PoQ before it is saved.</li>
-                <li>Accepted replies appear with ring metadata.</li>
+                <li>Accepted replies appear with ring metadata and may create pending memory candidates for review.</li>
               </ul>
             </div>
           </article>
@@ -1758,13 +1819,28 @@ HTML = r"""<!doctype html>
 
           <article class="feature-card">
             <h3>Recall</h3>
-            <p class="simple-only">Search prior accepted rings from the local Timechain.</p>
+            <p class="simple-only">Search accepted durable memories and prior accepted rings from the local Timechain.</p>
             <div class="comprehensive-only hidden">
               <p>Recall uses the same lightweight retrieval primitives as the Timechain CLI.</p>
               <ul>
-                <li>Results include score, ring number, brightness, domain, and content.</li>
+                <li>Results include accepted durable memories, score, ring number, brightness, domain, and content.</li>
+                <li>Pending, rejected, superseded, and forgotten memories are excluded from prompt recall.</li>
                 <li>Recent relevant rings are injected into future LLM prompts.</li>
-                <li>Recall reads from `.timechain/chain.jsonl`.</li>
+                <li>Recall reads from `.timechain/chain.jsonl` and `.timechain/memory_model.json`.</li>
+              </ul>
+            </div>
+          </article>
+
+          <article class="feature-card">
+            <h3>Memory Review</h3>
+            <p class="simple-only">Approve or reject proposed durable memories before they affect future answers.</p>
+            <div class="comprehensive-only hidden">
+              <p>Accepted chat responses can propose user-continuity memories after PoQ sealing.</p>
+              <ul>
+                <li>Deterministic extraction handles basics, and the configured LLM may propose richer memories.</li>
+                <li>Pending memories are visible in Memory Inspector but are not used in prompts or durable recall.</li>
+                <li>You can accept, reject, edit, or forget memory records.</li>
+                <li>Accepted memories carry global or session scope, confidence, source ring, evidence, and supersession lineage.</li>
               </ul>
             </div>
           </article>
@@ -1776,6 +1852,7 @@ HTML = r"""<!doctype html>
               <p>The self model summarizes local Timechain state.</p>
               <ul>
                 <li>Ring count shows accepted memory size.</li>
+                <li>Memory counts distinguish accepted durable facts from pending review candidates.</li>
                 <li>Temporal mass is accumulated brightness.</li>
                 <li>Top domains show where the system has experience.</li>
               </ul>
@@ -1797,13 +1874,14 @@ HTML = r"""<!doctype html>
 
           <article class="feature-card">
             <h3>Persistence</h3>
-            <p class="simple-only">Accepted memory survives browser reloads and server restarts.</p>
+            <p class="simple-only">Sealed rings, reviewed memories, pending candidates, and custom personas survive browser reloads and server restarts.</p>
             <div class="comprehensive-only hidden">
               <p>Persistence comes from the local append-only Timechain files.</p>
               <ul>
-                <li>Memory lives in `cyphertempre-chat-poc/.timechain/chain.jsonl`.</li>
+                <li>Accepted conversation rings live in `cyphertempre-chat-poc/.timechain/chain.jsonl`.</li>
+                <li>Durable memory candidates and accepted continuity memories live in `.timechain/memory_model.json`.</li>
                 <li>The UI restores accepted exchanges from `/api/history`.</li>
-                <li>Unsent drafts and rejected responses are not saved as rings.</li>
+                <li>Unsent drafts, rejected PoQ responses, and pending memory candidates are not saved as rings.</li>
               </ul>
             </div>
           </article>
@@ -1814,7 +1892,8 @@ HTML = r"""<!doctype html>
             <div class="comprehensive-only hidden">
               <p>Each session stores its Timechain in a separate workspace under the PoC sessions folder.</p>
               <ul>
-                <li>Switching sessions reloads chat history, recall, self-model, and verification state.</li>
+                <li>Stable global user profile memories are shared from the main workspace, while session notes stay local.</li>
+                <li>Switching sessions reloads chat history, memory review state, recall, self-model, and verification state.</li>
                 <li>Reset Chain Memory clears only the active session.</li>
                 <li>Personas and provider settings remain shared across sessions.</li>
               </ul>
@@ -1926,6 +2005,16 @@ HTML = r"""<!doctype html>
         </section>
 
         <section class="panel">
+          <h2>Pending Memories</h2>
+          <div id="pending-memories" class="memory-list">No pending memories.</div>
+        </section>
+
+        <section class="panel">
+          <h2>Accepted Memories</h2>
+          <div id="accepted-memories" class="memory-list">No accepted memories.</div>
+        </section>
+
+        <section class="panel">
           <h2>Recall</h2>
           <form id="recall-form" class="stack">
             <input id="recall-query" placeholder="Search prior rings" required>
@@ -1970,6 +2059,8 @@ HTML = r"""<!doctype html>
       message: document.getElementById('message'),
       send: document.getElementById('send'),
       summary: document.getElementById('summary'),
+      pendingMemories: document.getElementById('pending-memories'),
+      acceptedMemories: document.getElementById('accepted-memories'),
       recallForm: document.getElementById('recall-form'),
       recallQuery: document.getElementById('recall-query'),
       recallResults: document.getElementById('recall-results'),
@@ -2163,7 +2254,7 @@ HTML = r"""<!doctype html>
     async function switchSession(sessionId) {
       activeSession = sessionId || 'default';
       localStorage.setItem('ct_active_session', activeSession);
-      await Promise.all([refreshSummary(), verifyChain(), restoreHistory()]);
+      await Promise.all([refreshSummary(), refreshMemories(), verifyChain(), restoreHistory()]);
       await loadSessions();
       applySessionPersonaLock();
     }
@@ -2509,6 +2600,58 @@ HTML = r"""<!doctype html>
       renderSummary(data.model);
     }
 
+    function memoryMeta(memory) {
+      const scope = memory.scope || 'legacy';
+      const confidence = Number(memory.confidence || 0).toFixed(2);
+      const source = memory.source_ring || '?';
+      const session = memory.scope === 'session' ? ` · ${memory.session_id || activeSession}` : '';
+      return `${scope} · ${memory.kind || 'memory'} · confidence ${confidence} · ring #${source}${session}`;
+    }
+
+    function renderMemoryCard(memory, pending) {
+      const actions = pending
+        ? `<button class="accept-memory" type="button" data-action="accept" data-id="${esc(memory.id)}">Accept</button>
+           <button class="reject-memory" type="button" data-action="reject" data-id="${esc(memory.id)}">Reject</button>
+           <button class="edit-memory" type="button" data-action="edit" data-id="${esc(memory.id)}">Edit</button>`
+        : `<button class="forget-memory" type="button" data-action="forget" data-id="${esc(memory.id)}">Forget</button>
+           <button class="edit-memory" type="button" data-action="edit" data-id="${esc(memory.id)}">Edit</button>`;
+      return `
+        <article class="memory-card">
+          <strong>${esc(memory.key || 'memory')}: ${esc(memory.value || '')}</strong>
+          <div class="memory-meta">${esc(memoryMeta(memory))}</div>
+          ${memory.evidence ? `<div class="memory-meta">source: ${esc(memory.evidence)}</div>` : ''}
+          <div class="memory-actions">${actions}</div>
+        </article>
+      `;
+    }
+
+    function renderMemories(data) {
+      const pending = data.pending || [];
+      const accepted = data.accepted || [];
+      els.pendingMemories.innerHTML = pending.length
+        ? pending.map(memory => renderMemoryCard(memory, true)).join('')
+        : 'No pending memories.';
+      els.acceptedMemories.innerHTML = accepted.length
+        ? accepted.slice(0, 16).map(memory => renderMemoryCard(memory, false)).join('')
+        : 'No accepted memories.';
+    }
+
+    async function refreshMemories() {
+      const data = await api(`/api/memories${sessionQuery()}`);
+      renderMemories(data);
+    }
+
+    async function updateMemory(id, action, memory = null) {
+      const payload = { id, action, session: activeSession };
+      if (memory) payload.memory = memory;
+      const data = await api('/api/memories', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+      renderMemories(data);
+      await refreshSummary();
+    }
+
     async function verifyChain() {
       const data = await api(`/api/verify${sessionQuery()}`);
       els.verifyResult.textContent = `${data.ok ? 'OK' : 'FAILED'}: ${data.status} | rings=${data.rings}`;
@@ -2532,6 +2675,7 @@ HTML = r"""<!doctype html>
       els.recallResults.textContent = 'Memory reset. No recall query yet.';
       els.verifyResult.textContent = `Reset complete. New genesis chain created. rings=${data.rings}`;
       await refreshSummary();
+      await refreshMemories();
       await verifyChain();
     }
 
@@ -2589,6 +2733,7 @@ HTML = r"""<!doctype html>
           }, true);
         }
         await refreshSummary();
+        await refreshMemories();
         await verifyChain();
       } catch (error) {
         removeThinkingMessage();
@@ -2630,6 +2775,21 @@ HTML = r"""<!doctype html>
     });
     els.resetChain.addEventListener('click', () => {
       resetChainMemory().catch(error => { els.verifyResult.textContent = error.message; });
+    });
+    document.querySelector('.inspector')?.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-action][data-id]');
+      if (!button) return;
+      const action = button.dataset.action;
+      const id = button.dataset.id;
+      let memory = null;
+      if (action === 'edit') {
+        const card = button.closest('.memory-card');
+        const current = card?.querySelector('strong')?.textContent?.split(':').slice(1).join(':').trim() || '';
+        const value = window.prompt('Memory value', current);
+        if (value === null) return;
+        memory = { value };
+      }
+      updateMemory(id, action, memory).catch(error => { els.verifyResult.textContent = error.message; });
     });
 
     els.persona.addEventListener('change', () => { updatePersonaText(); saveLocalConfig(); validatePersonaModel(); });
@@ -2711,7 +2871,7 @@ HTML = r"""<!doctype html>
         applyLocalConfig(config);
         return syncCustomPersonasToServer(config).then(() => {
           setMainView(localStorage.getItem('ct_view') || 'chat');
-          return loadGuideTopics().then(() => loadSessions().then(() => Promise.all([refreshSummary(), verifyChain(), restoreHistory()])));
+          return loadGuideTopics().then(() => loadSessions().then(() => Promise.all([refreshSummary(), refreshMemories(), verifyChain(), restoreHistory()])));
         });
       })
       .catch(error => {
@@ -2782,8 +2942,15 @@ def load_timechain_module(path: pathlib.Path) -> Any:
     return module
 
 
+MEMORY_SCOPES = {"global", "session"}
+MEMORY_KINDS = {"identity", "preference", "goal", "correction", "boundary", "style", "uncertainty", "persona"}
+MEMORY_ACCEPTED_STATUSES = {"accepted", "known", "uncertain"}
+MEMORY_INACTIVE_STATUSES = {"pending", "rejected", "superseded", "forgotten"}
+GLOBAL_MEMORY_KINDS = {"identity", "preference", "boundary", "style", "persona"}
+
+
 def empty_memory_model() -> dict[str, Any]:
-    return {"version": 1, "facts": []}
+    return {"version": 2, "facts": []}
 
 
 def memory_model_path(workspace: pathlib.Path) -> pathlib.Path:
@@ -2800,7 +2967,7 @@ def load_memory_model(workspace: pathlib.Path) -> dict[str, Any]:
         return empty_memory_model()
     if not isinstance(model, dict) or not isinstance(model.get("facts"), list):
         return empty_memory_model()
-    model.setdefault("version", 1)
+    model.setdefault("version", 2)
     return model
 
 
@@ -2908,6 +3075,192 @@ def _fact(
         "status": status,
         "supersedes": None,
     }
+
+
+def _memory_scope_for_fact(fact: dict[str, Any], *, session_id: str = "default") -> str:
+    scope = str(fact.get("scope", "")).strip().lower()
+    if scope in MEMORY_SCOPES:
+        return scope
+    kind = str(fact.get("kind", "")).strip().lower()
+    key = str(fact.get("key", "")).strip().lower()
+    if kind in GLOBAL_MEMORY_KINDS or key in {"user.name", "assistant.persona_name"}:
+        return "global"
+    return "session" if session_id != "default" else "global"
+
+
+def _memory_kind_for_key(kind: str, key: str) -> str:
+    kind = (kind or "").strip().lower()
+    if kind in MEMORY_KINDS:
+        return kind
+    key = (key or "").strip().lower()
+    if key.startswith("user.preference"):
+        return "preference"
+    if key in {"user.name", "user.description"}:
+        return "identity"
+    if key.startswith("assistant."):
+        return "persona"
+    if "uncertainty" in key:
+        return "uncertainty"
+    return "preference"
+
+
+def _memory_key(kind: str, raw_key: str, value: str) -> str:
+    key = re.sub(r"[^a-z0-9_.-]+", ".", (raw_key or "").strip().lower()).strip(".")
+    if key:
+        return key[:80]
+    slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")[:24] or uuid.uuid4().hex[:8]
+    return f"user.{kind}.{slug}"
+
+
+def normalize_memory_candidate(
+    raw: dict[str, Any],
+    *,
+    source_ring: int,
+    evidence: str,
+    session_id: str = "default",
+    source: str = "deterministic",
+) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    value = _clean_fact_value(str(raw.get("value", "")), max_words=28)
+    if not value:
+        return None
+    kind = _memory_kind_for_key(str(raw.get("kind", "")), str(raw.get("key", "")))
+    key = _memory_key(kind, str(raw.get("key", "")), value)
+    try:
+        confidence = float(raw.get("confidence", 0.6))
+    except (TypeError, ValueError):
+        confidence = 0.6
+    confidence = max(0.1, min(0.98, confidence))
+    if source == "llm":
+        confidence = min(confidence, 0.82)
+    scope = _memory_scope_for_fact({"scope": raw.get("scope"), "kind": kind, "key": key}, session_id=session_id)
+    return {
+        "id": str(raw.get("id") or uuid.uuid4().hex),
+        "kind": kind,
+        "key": key,
+        "value": value,
+        "confidence": round(confidence, 3),
+        "source_ring": int(raw.get("source_ring") or source_ring or 0),
+        "evidence": trim_for_prompt(str(raw.get("evidence") or evidence), 280),
+        "status": "pending",
+        "scope": scope,
+        "session_id": sanitize_session_id(str(raw.get("session_id") or session_id or "default")),
+        "supersedes": raw.get("supersedes"),
+        "source": source,
+    }
+
+
+def _memory_duplicate(facts: list[dict[str, Any]], candidate: dict[str, Any]) -> dict[str, Any] | None:
+    for fact in facts:
+        if fact.get("status") not in {"pending", "accepted", "known", "uncertain"}:
+            continue
+        if str(fact.get("key", "")).lower() != str(candidate.get("key", "")).lower():
+            continue
+        if str(fact.get("value", "")).lower() != str(candidate.get("value", "")).lower():
+            continue
+        if str(fact.get("scope", "global")) != str(candidate.get("scope", "global")):
+            continue
+        if str(fact.get("scope", "global")) == "session" and str(fact.get("session_id", "")) != str(candidate.get("session_id", "")):
+            continue
+        return fact
+    return None
+
+
+def stage_memory_candidates(
+    model: dict[str, Any],
+    ring: Any,
+    *,
+    persona_name: str,
+    session_id: str = "default",
+    llm_candidates: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    model.setdefault("version", 2)
+    facts = model.setdefault("facts", [])
+    source_ring = int(getattr(ring, "n", 0) or 0)
+    evidence = str(getattr(ring, "query", "") or "")
+    staged: list[dict[str, Any]] = []
+    raw_candidates: list[tuple[dict[str, Any], str]] = [
+        (fact, "deterministic") for fact in extract_memory_facts(ring, persona_name=persona_name)
+    ]
+    raw_candidates.extend((candidate, "llm") for candidate in (llm_candidates or []))
+    for raw, source in raw_candidates:
+        candidate = normalize_memory_candidate(
+            raw,
+            source_ring=source_ring,
+            evidence=evidence,
+            session_id=session_id,
+            source=source,
+        )
+        if not candidate:
+            continue
+        duplicate = _memory_duplicate(facts, candidate)
+        if duplicate:
+            if duplicate.get("status") == "pending":
+                duplicate["confidence"] = max(float(duplicate.get("confidence", 0)), candidate["confidence"])
+                duplicate["evidence"] = candidate["evidence"]
+                staged.append(duplicate)
+            continue
+        facts.append(candidate)
+        staged.append(candidate)
+    return staged
+
+
+def _find_memory(model: dict[str, Any], memory_id: str) -> dict[str, Any]:
+    memory_id = str(memory_id or "").strip()
+    for fact in model.setdefault("facts", []):
+        if str(fact.get("id", "")) == memory_id:
+            return fact
+    raise KeyError(f"Unknown memory: {memory_id}")
+
+
+def accept_memory(model: dict[str, Any], memory_id: str) -> dict[str, Any]:
+    fact = _find_memory(model, memory_id)
+    previous_status = str(fact.get("status", "pending"))
+    fact["status"] = "accepted"
+    fact.setdefault("scope", _memory_scope_for_fact(fact))
+    fact.setdefault("session_id", "default")
+    if previous_status != "accepted":
+        for existing in model.setdefault("facts", []):
+            if existing is fact or existing.get("status") not in MEMORY_ACCEPTED_STATUSES:
+                continue
+            if str(existing.get("key", "")).lower() != str(fact.get("key", "")).lower():
+                continue
+            if str(existing.get("scope", "global")) != str(fact.get("scope", "global")):
+                continue
+            if str(fact.get("scope", "global")) == "session" and str(existing.get("session_id", "")) != str(fact.get("session_id", "")):
+                continue
+            existing["status"] = "superseded"
+            fact["supersedes"] = existing.get("id")
+    return fact
+
+
+def reject_memory(model: dict[str, Any], memory_id: str) -> dict[str, Any]:
+    fact = _find_memory(model, memory_id)
+    fact["status"] = "rejected"
+    return fact
+
+
+def forget_memory(model: dict[str, Any], memory_id: str) -> dict[str, Any]:
+    fact = _find_memory(model, memory_id)
+    fact["status"] = "forgotten"
+    return fact
+
+
+def edit_memory(model: dict[str, Any], memory_id: str, patch: dict[str, Any]) -> dict[str, Any]:
+    fact = _find_memory(model, memory_id)
+    updated = normalize_memory_candidate(
+        {**fact, **(patch or {})},
+        source_ring=int(fact.get("source_ring", 0) or 0),
+        evidence=str(fact.get("evidence", "")),
+        session_id=str(fact.get("session_id", "default")),
+        source=str(fact.get("source", "manual")),
+    )
+    if not updated:
+        raise ValueError("Memory edit requires a non-empty value.")
+    for key in ("kind", "key", "value", "confidence", "scope", "session_id", "evidence"):
+        fact[key] = updated[key]
+    return fact
 
 
 def extract_memory_facts(ring: Any, *, persona_name: str) -> list[dict[str, Any]]:
@@ -3032,23 +3385,32 @@ def update_memory_model(model: dict[str, Any], ring: Any, *, persona_name: str) 
     return extracted
 
 
-def recall_memory_facts(model: dict[str, Any], query: str, *, limit: int = 6) -> list[dict[str, Any]]:
+def recall_memory_facts(model: dict[str, Any], query: str, *, limit: int = 6, session_id: str = "default") -> list[dict[str, Any]]:
     query_tokens = set(re.findall(r"[A-Za-z0-9_-]+", query.lower()))
     wants_name = bool(re.search(r"\b(?:my name|call me|who am i|what is my name)\b", query, re.I))
     wants_persona = bool(re.search(r"\b(?:who are you|your name|what is your name)\b", query, re.I))
+    active_session = sanitize_session_id(session_id or "default")
     scored: list[tuple[float, dict[str, Any]]] = []
     for fact in model.get("facts", []):
-        if fact.get("status") not in {"known", "uncertain"}:
+        status = str(fact.get("status", "known"))
+        if status not in MEMORY_ACCEPTED_STATUSES:
+            continue
+        scope = str(fact.get("scope", "global"))
+        if scope == "session" and str(fact.get("session_id", "")) not in {"", active_session}:
             continue
         fact_text = f"{fact.get('key', '')} {fact.get('value', '')} {fact.get('kind', '')}".lower()
         fact_tokens = set(re.findall(r"[A-Za-z0-9_-]+", fact_text))
         overlap = len(query_tokens & fact_tokens) / max(1, len(query_tokens))
         score = overlap + float(fact.get("confidence", 0.0))
+        if scope == "global":
+            score += 0.1
+        if scope == "session":
+            score += 0.35
         if wants_name and fact.get("key") == "user.name":
             score += 2.0
         if wants_persona and fact.get("key") == "assistant.persona_name":
             score += 1.4
-        if fact.get("status") == "uncertain":
+        if status == "uncertain" or fact.get("kind") == "uncertainty":
             score -= 0.25
         if score > 0.3:
             hit = dict(fact)
@@ -3059,16 +3421,26 @@ def recall_memory_facts(model: dict[str, Any], query: str, *, limit: int = 6) ->
 
 
 def build_memory_fact_context(facts: list[dict[str, Any]] | None) -> str:
-    if not facts:
+    active_facts = [
+        fact for fact in (facts or [])
+        if str(fact.get("status", "known")) in MEMORY_ACCEPTED_STATUSES
+    ]
+    if not active_facts:
         return "No durable memories matched this query."
     lines = []
-    for fact in facts[:8]:
+    for fact in active_facts[:8]:
         status = fact.get("status", "known")
         key = fact.get("key", "memory")
         value = fact.get("value", "")
         confidence = float(fact.get("confidence", 0.0))
         source = fact.get("source_ring", "?")
-        prefix = "Uncertain" if status == "uncertain" else "Known"
+        scope = str(fact.get("scope", "")).strip().lower()
+        if scope == "global":
+            prefix = "Global"
+        elif scope == "session":
+            prefix = "Session"
+        else:
+            prefix = "Uncertain" if status == "uncertain" else "Known"
         lines.append(f"- {prefix} {key}: {value} (confidence={confidence:.2f}, source ring #{source})")
     return "\n".join(lines)
 
@@ -3120,6 +3492,77 @@ def build_retry_messages(
         "content": instruction,
     })
     return retry
+
+
+def parse_memory_candidate_json(content: str) -> list[dict[str, Any]]:
+    text = (content or "").strip()
+    if not text:
+        return []
+    if "```" in text:
+        text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.I).strip()
+        text = re.sub(r"\s*```$", "", text).strip()
+    start = text.find("[")
+    end = text.rfind("]")
+    if start >= 0 and end > start:
+        text = text[start:end + 1]
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [item for item in parsed if isinstance(item, dict)][:6]
+
+
+def build_memory_candidate_messages(query: str, content: str, persona_name: str) -> list[dict[str, str]]:
+    return [
+        {
+            "role": "system",
+            "content": (
+                "Extract only stable user-continuity memories from this exchange. "
+                "Return JSON only: an array of objects with scope, kind, key, value, confidence, evidence. "
+                "Allowed scopes: global, session. Allowed kinds: identity, preference, goal, correction, boundary, style, uncertainty. "
+                "Use global for stable identity/preferences/style/boundaries. Use session for temporary goals or local conversation context. "
+                "Do not invent facts. Return [] if there is nothing worth remembering."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Active persona: {persona_name}\n"
+                f"User message:\n{query}\n\n"
+                f"Assistant response:\n{content}"
+            ),
+        },
+    ]
+
+
+def generate_llm_memory_candidates(
+    *,
+    provider: str,
+    api_key: str,
+    model: str,
+    query: str,
+    content: str,
+    persona_name: str,
+    timeout: float,
+    base_url: str = "",
+) -> list[dict[str, Any]]:
+    if not api_key.strip() or not query.strip() or not content.strip():
+        return []
+    try:
+        result = call_llm(
+            provider=provider,
+            api_key=api_key,
+            model=model,
+            messages=build_memory_candidate_messages(query, content, persona_name),
+            timeout=min(timeout, 20.0),
+            base_url=base_url,
+            max_tokens=500,
+        )
+    except RuntimeError:
+        return []
+    return parse_memory_candidate_json(str(result.get("content", "")))
 
 
 def generate_persona_from_seed(name: str, seed: str) -> dict[str, str]:
@@ -3176,6 +3619,31 @@ def relative_time_label(value: Any, *, now: dt.datetime | None = None) -> str:
         amount, unit = seconds // 86400, "day"
     suffix = "" if amount == 1 else "s"
     return f"{amount} {unit}{suffix} {tense}"
+
+
+def utc_offset_label(value: dt.datetime) -> str:
+    offset = value.utcoffset()
+    if offset is None:
+        return "UTC offset unknown"
+    minutes = int(offset.total_seconds() // 60)
+    sign = "+" if minutes >= 0 else "-"
+    minutes = abs(minutes)
+    hours, remainder = divmod(minutes, 60)
+    return f"UTC{sign}{hours:02d}:{remainder:02d}"
+
+
+def current_time_context(now: dt.datetime) -> str:
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=dt.timezone.utc)
+    utc_now = now.astimezone(dt.timezone.utc)
+    local_now = utc_now.astimezone()
+    local_label = local_now.strftime("%H:%M")
+    utc_label = utc_now.strftime("%A %Y-%m-%d %H:%MZ")
+    return (
+        f"Current date/time context: UTC {utc_label}; local {local_label} {utc_offset_label(local_now)}. "
+        "authoritative now for rel dates unless user/memory gives date/TZ; "
+        "convert explicit times; note missing TZ."
+    )
 
 
 def build_memory_context(
@@ -3270,7 +3738,7 @@ def build_prompt_messages(
         "Be conversational and useful. Do not expose hidden reasoning. "
         "If memory is weak or absent, say so briefly.\n\n"
         f"Engineering covenant: {covenant}\n\n"
-        f"Current time: {now.isoformat()}\n\n"
+        f"{current_time_context(now)}\n\n"
         f"Durable memories:\n{durable_context}\n\n"
         f"Relevant recalled rings:\n{memory_context}\n\n"
         f"Current neuro-state: {neuro_line}"
@@ -3816,17 +4284,104 @@ class App:
         return persona_id
 
     def memory_model(self) -> dict[str, Any]:
-        model = load_memory_model(self.workspace)
+        global_model = load_memory_model(self.root_workspace)
+        if self.workspace.resolve() == self.root_workspace.resolve():
+            model = global_model
+        else:
+            session_model = load_memory_model(self.workspace)
+            model = {
+                "version": max(int(global_model.get("version", 2)), int(session_model.get("version", 2))),
+                "facts": list(global_model.get("facts", [])) + list(session_model.get("facts", [])),
+            }
         if not model.get("facts") and len(getattr(self.agent, "chain", [])) > 1:
             for ring in self.agent.chain:
                 if getattr(ring, "kind", "") == "interaction":
                     update_memory_model(model, ring, persona_name="Companion")
             if model.get("facts"):
-                save_memory_model(self.workspace, model)
+                save_memory_model(self.root_workspace, model)
         return model
 
     def save_memory_model(self, model: dict[str, Any]) -> None:
         save_memory_model(self.workspace, model)
+
+    def _memory_models_for_update(self) -> list[tuple[pathlib.Path, dict[str, Any]]]:
+        root_model = load_memory_model(self.root_workspace)
+        if self.workspace.resolve() == self.root_workspace.resolve():
+            return [(self.root_workspace, root_model)]
+        return [
+            (self.root_workspace, root_model),
+            (self.workspace, load_memory_model(self.workspace)),
+        ]
+
+    def queue_memory_candidates(
+        self,
+        ring: Any,
+        *,
+        persona_name: str,
+        llm_candidates: list[dict[str, Any]] | None = None,
+    ) -> list[dict[str, Any]]:
+        session_id = self.active_session or "default"
+        global_model = load_memory_model(self.root_workspace)
+        session_model = global_model if self.workspace.resolve() == self.root_workspace.resolve() else load_memory_model(self.workspace)
+        staged: list[dict[str, Any]] = []
+        candidates = [
+            (fact, "deterministic") for fact in extract_memory_facts(ring, persona_name=persona_name)
+        ]
+        candidates.extend((candidate, "llm") for candidate in (llm_candidates or []))
+        for raw, source in candidates:
+            candidate = normalize_memory_candidate(
+                raw,
+                source_ring=int(getattr(ring, "n", 0) or 0),
+                evidence=str(getattr(ring, "query", "") or ""),
+                session_id=session_id,
+                source=source,
+            )
+            if not candidate:
+                continue
+            target_model = global_model if candidate["scope"] == "global" else session_model
+            duplicate = _memory_duplicate(target_model.setdefault("facts", []), candidate)
+            if duplicate:
+                if duplicate.get("status") == "pending":
+                    staged.append(duplicate)
+                continue
+            target_model["facts"].append(candidate)
+            staged.append(candidate)
+        save_memory_model(self.root_workspace, global_model)
+        if session_model is not global_model:
+            save_memory_model(self.workspace, session_model)
+        return staged
+
+    def list_memories(self) -> dict[str, Any]:
+        model = self.memory_model()
+        facts = list(model.get("facts", []))
+        pending = [fact for fact in facts if fact.get("status") == "pending"]
+        accepted = [fact for fact in facts if fact.get("status") in MEMORY_ACCEPTED_STATUSES]
+        inactive = [fact for fact in facts if fact.get("status") in MEMORY_INACTIVE_STATUSES]
+        return {
+            "pending": pending,
+            "accepted": accepted,
+            "inactive": inactive,
+            "all": facts,
+        }
+
+    def update_memory_status(self, memory_id: str, action: str, patch: dict[str, Any] | None = None) -> dict[str, Any]:
+        action = str(action or "").strip().lower()
+        for path, model in self._memory_models_for_update():
+            if not any(str(fact.get("id", "")) == str(memory_id) for fact in model.get("facts", [])):
+                continue
+            if action == "accept":
+                memory = accept_memory(model, memory_id)
+            elif action == "reject":
+                memory = reject_memory(model, memory_id)
+            elif action == "forget":
+                memory = forget_memory(model, memory_id)
+            elif action == "edit":
+                memory = edit_memory(model, memory_id, patch or {})
+            else:
+                raise ValueError(f"Unsupported memory action: {action}")
+            save_memory_model(path, model)
+            return memory
+        raise KeyError(f"Unknown memory: {memory_id}")
 
     def custom_personas(self) -> dict[str, dict[str, str]]:
         return load_custom_personas(self.root_workspace)
@@ -3851,9 +4406,10 @@ class App:
         model["workspace"] = str(self.workspace)
         model["memory_facts"] = [
             fact for fact in memory_model.get("facts", [])
-            if fact.get("status") in {"known", "uncertain"}
+            if fact.get("status") in MEMORY_ACCEPTED_STATUSES
         ]
         model["memory_fact_count"] = len(model["memory_facts"])
+        model["pending_memory_count"] = sum(1 for fact in memory_model.get("facts", []) if fact.get("status") == "pending")
         return model
 
     def reset_chain(self) -> dict[str, Any]:
@@ -3938,7 +4494,7 @@ class App:
         persona_id = self.bind_session_persona(persona_id)
         persona = custom_persona or self.get_custom_persona(persona_id) or PERSONAS.get(persona_id) or PERSONAS["companion"]
         memory_model = self.memory_model()
-        durable_hits = recall_memory_facts(memory_model, query, limit=6)
+        durable_hits = recall_memory_facts(memory_model, query, limit=6, session_id=self.active_session)
         retrieved_scored = self.timechain.retrieve(
             self.agent.chain,
             query,
@@ -3974,6 +4530,7 @@ class App:
                 "usage": {},
                 "retrieved": [ring.n for ring in retrieved],
                 "memory_hits": durable_hits,
+                "memory_candidates": [],
                 "retry": {"attempted": bool(local_repair), "reason": retry_reason},
                 "persona": persona,
             }
@@ -4012,6 +4569,16 @@ class App:
                 retry["attempted"] = True
             except RuntimeError as exc:
                 llm["provider_error"] = str(exc)
+        llm["memory_candidates"] = generate_llm_memory_candidates(
+            provider=provider,
+            api_key=key,
+            model=model or self.default_model,
+            query=query,
+            content=str(llm.get("content", "")),
+            persona_name=persona["name"],
+            timeout=self.timeout,
+            base_url=base_url,
+        )
         llm["retrieved"] = [ring.n for ring in retrieved]
         llm["memory_hits"] = durable_hits
         llm["retry"] = retry
@@ -4071,13 +4638,11 @@ def finalize_chat_response(
         }
 
     ring = result["ring"]
-    memory_model = app.memory_model()
-    extracted = update_memory_model(
-        memory_model,
+    staged = app.queue_memory_candidates(
         SimpleNamespace(**ring),
         persona_name=persona_name,
+        llm_candidates=llm.get("memory_candidates", []),
     )
-    app.save_memory_model(memory_model)
     return {
         "ok": True,
         "accepted": True,
@@ -4089,7 +4654,8 @@ def finalize_chat_response(
         "scores": result.get("scores"),
         "retrieved": llm.get("retrieved", result.get("retrieved")),
         "memory_hits": llm.get("memory_hits", []),
-        "memory_extracted": extracted,
+        "memory_extracted": staged,
+        "memory_pending": [memory for memory in staged if memory.get("status") == "pending"],
         "retry": llm.get("retry", {"attempted": False, "reason": ""}),
         "epistemic": result.get("epistemic"),
         "cache_hit": result.get("cache_hit"),
@@ -4146,6 +4712,10 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 if path == "/api/memory-model":
                     app.use_session(self.query_param("session"))
                     self.send_json({"ok": True, "model": app.memory_model()})
+                    return
+                if path == "/api/memories":
+                    app.use_session(self.query_param("session"))
+                    self.send_json({"ok": True, **app.list_memories()})
                     return
                 if path == "/api/history":
                     app.use_session(self.query_param("session"))
@@ -4209,6 +4779,9 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 if path == "/api/recall":
                     self.handle_recall()
                     return
+                if path == "/api/memories":
+                    self.handle_memory_action()
+                    return
                 if path == "/api/reset":
                     self.handle_reset()
                     return
@@ -4270,7 +4843,7 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
 
             app.reload_agent()
             memory_model = app.memory_model()
-            fact_hits = recall_memory_facts(memory_model, query, limit=limit)
+            fact_hits = recall_memory_facts(memory_model, query, limit=limit, session_id=app.active_session)
             retrieved = app.timechain.retrieve(
                 app.agent.chain,
                 query,
@@ -4307,6 +4880,24 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 "results": results,
                 "diagnostics": diagnostics,
             })
+
+        def handle_memory_action(self) -> None:
+            payload = self.read_json()
+            app.use_session(str(payload.get("session", "")).strip() or self.query_param("session"))
+            memory_id = str(payload.get("id", "")).strip()
+            action = str(payload.get("action", "")).strip().lower()
+            if not memory_id or not action:
+                self.send_json({"ok": False, "error": "id and action are required"}, HTTPStatus.BAD_REQUEST)
+                return
+            try:
+                memory = app.update_memory_status(memory_id, action, payload.get("memory") if isinstance(payload.get("memory"), dict) else {})
+            except KeyError:
+                self.send_json({"ok": False, "error": f"Unknown memory: {memory_id}"}, HTTPStatus.NOT_FOUND)
+                return
+            except ValueError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                return
+            self.send_json({"ok": True, "memory": memory, **app.list_memories()})
 
         def handle_reset(self) -> None:
             app.use_session(self.query_param("session"))

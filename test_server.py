@@ -57,7 +57,30 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertIn("Prefer maintainable software.", messages[0]["content"])
         self.assertIn("Keep the UI separate", messages[0]["content"])
         self.assertIn("dopamine=0.30", messages[0]["content"])
-        self.assertIn("Current time:", messages[0]["content"])
+        self.assertIn("Current date/time context:", messages[0]["content"])
+        self.assertIn("authoritative now", messages[0]["content"])
+
+    def test_build_messages_includes_relative_date_guidance(self):
+        persona = {"name": "Companion", "system": "Stay useful."}
+
+        messages = server.build_messages(
+            persona=persona,
+            query="What should I do tomorrow?",
+            retrieved=[],
+            durable_memories=[],
+            recent_turns=[],
+            neuro={},
+            covenant="Be useful.",
+            now=server.dt.datetime(2026, 5, 3, 17, 5, tzinfo=server.dt.timezone.utc),
+        )
+
+        system = messages[0]["content"]
+        self.assertIn("Current date/time context:", system)
+        self.assertIn("UTC Sunday 2026-05-03 17:05Z", system)
+        self.assertIn("rel dates", system)
+        self.assertIn("unless user/memory gives date/TZ", system)
+        self.assertIn("convert explicit times", system)
+        self.assertIn("note missing TZ", system)
 
     def test_build_messages_includes_recent_turns_before_current_query(self):
         persona = {"name": "Mira", "system": "Stay in character."}
@@ -199,6 +222,66 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertGreaterEqual(len(hits), 1)
         self.assertEqual(hits[0]["key"], "user.name")
         self.assertEqual(hits[0]["value"], "Thomas")
+
+    def test_stage_memory_candidates_keeps_pending_out_of_recall_until_accepted(self):
+        model = server.empty_memory_model()
+        ring = SimpleNamespace(n=2, query="my name is Ava", content="Nice to meet you, Ava.")
+
+        candidates = server.stage_memory_candidates(
+            model,
+            ring,
+            persona_name="Companion",
+            session_id="default",
+        )
+        pending_id = candidates[0]["id"]
+
+        self.assertEqual(candidates[0]["status"], "pending")
+        self.assertEqual(candidates[0]["scope"], "global")
+        self.assertEqual(candidates[0]["kind"], "identity")
+        self.assertEqual(server.recall_memory_facts(model, "what is my name?"), [])
+
+        server.accept_memory(model, pending_id)
+        hits = server.recall_memory_facts(model, "what is my name?")
+
+        self.assertEqual(hits[0]["value"], "Ava")
+        self.assertEqual(hits[0]["status"], "accepted")
+
+    def test_accept_memory_supersedes_prior_accepted_fact_for_same_key_and_scope(self):
+        model = server.empty_memory_model()
+        first = server.stage_memory_candidates(
+            model,
+            SimpleNamespace(n=2, query="my name is Thomas", content="Nice to meet you."),
+            persona_name="Companion",
+            session_id="default",
+        )[0]
+        server.accept_memory(model, first["id"])
+        correction = server.stage_memory_candidates(
+            model,
+            SimpleNamespace(n=5, query="No, my name is Jamie", content="Sorry, Jamie."),
+            persona_name="Companion",
+            session_id="default",
+        )[0]
+
+        accepted = server.accept_memory(model, correction["id"])
+
+        old = next(fact for fact in model["facts"] if fact["value"] == "Thomas")
+        self.assertEqual(accepted["value"], "Jamie")
+        self.assertEqual(accepted["status"], "accepted")
+        self.assertEqual(old["status"], "superseded")
+        self.assertEqual(accepted["supersedes"], old["id"])
+
+    def test_build_memory_fact_context_uses_only_accepted_memories_with_scope_labels(self):
+        facts = [
+            {"key": "user.name", "value": "Pending", "confidence": 0.9, "source_ring": 1, "status": "pending", "scope": "global"},
+            {"key": "user.name", "value": "Ava", "confidence": 0.95, "source_ring": 2, "status": "accepted", "scope": "global"},
+            {"key": "user.goal", "value": "ship the demo", "confidence": 0.72, "source_ring": 3, "status": "accepted", "scope": "session", "session_id": "demo"},
+        ]
+
+        context = server.build_memory_fact_context(facts)
+
+        self.assertIn("Global user.name: Ava", context)
+        self.assertIn("Session user.goal: ship the demo", context)
+        self.assertNotIn("Pending", context)
 
     def test_build_messages_includes_durable_memory_before_ring_context(self):
         persona = {"name": "Companion", "system": "Stay useful."}
@@ -587,6 +670,15 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertNotIn("Guide Explainer", str(payload))
         self.assertNotIn("api_key", str(payload).lower())
 
+    def test_guide_documents_memory_review_queue(self):
+        topic_ids = {topic["id"] for topic in server.GUIDE_TOPICS}
+        skills_readme = server.pathlib.Path("SKILLS/README.md").read_text(encoding="utf-8")
+
+        self.assertIn("memory-review", topic_ids)
+        self.assertIn("Memory Review Queue", skills_readme)
+        self.assertIn("Pending memories are visible in the Memory Inspector", skills_readme)
+        self.assertIn("pending memory candidates are not saved as rings", server.HTML)
+
     def test_guide_explainer_messages_are_source_grounded(self):
         topic = server.get_guide_topic("poq")
         bundle = server.build_guide_source_bundle(topic, server.pathlib.Path(__file__).resolve().parent)
@@ -629,6 +721,12 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertIn('id="settings-view"', server.HTML)
         self.assertIn("renderGuideTopics", server.HTML)
         self.assertIn("explain-guide-topic", server.HTML)
+
+    def test_memory_inspector_has_review_queue_controls(self):
+        self.assertIn('id="pending-memories"', server.HTML)
+        self.assertIn('id="accepted-memories"', server.HTML)
+        self.assertIn("accept-memory", server.HTML)
+        self.assertIn("forget-memory", server.HTML)
 
     def test_provider_controls_are_not_in_left_rail(self):
         rail_start = server.HTML.index('<aside class="rail">')
