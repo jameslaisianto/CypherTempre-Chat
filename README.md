@@ -1,16 +1,17 @@
 # CypherTempre Chat PoC
 
-Standalone local browser UI for testing `timechain.py` with OpenRouter-backed chat, personas, PoQ-gated memory, recall, and hash-chain verification.
+Standalone local browser UI for testing `timechain.py` with LLM-backed chat, personas, PoQ-gated memory, recall, and hash-chain verification.
 
 This project is an interactive demonstration of the Cypher Tempre cognitive architecture. See [LICENSE](LICENSE) for the Cypher Tempre Open Intelligence License (CTOIL), attribution to Michael Joseph / CyberphysicsAI, and the Architecture disclaimer.
 
 ## Features
 
 - ChatGPT-style local chat UI
-- OpenRouter model support
+- Provider-agnostic model support (OpenRouter, Kimi, etc.)
 - Venice Uncensored free model default
 - Built-in personas
 - Persona Studio for custom fictional personas
+- **Cypher Tempre OpenClaw Runtime** — full prompt-layer v5.0 persona with Timechain-oriented self-modeling
 - Automatic memory-domain classification
 - PoQ accepted/rejected response gating
 - Persistent local memory in `.timechain/chain.jsonl`
@@ -22,7 +23,7 @@ This project is an interactive demonstration of the Cypher Tempre cognitive arch
 - One-click reset for local chain memory
 - Built-in Guide page with simple and comprehensive explanations
 - Source-grounded Guide explanations that open dedicated chat sessions
-- Small Settings gear for OpenRouter key/model configuration
+- Small Settings gear for API key/model configuration
 
 ## Step-by-step setup
 
@@ -59,9 +60,9 @@ If `timechain.py` is not in this folder, copy it in or launch with:
 python .\cyphertempre-chat-poc\server.py --timechain-path "path\to\timechain.py"
 ```
 
-### 3. Create an OpenRouter key
+### 3. Create an API key
 
-Create an API key in OpenRouter.
+Create an API key from your chosen provider (e.g., OpenRouter or Kimi).
 
 Recommended free uncensored model:
 
@@ -86,8 +87,9 @@ cyphertempre-chat-poc/.env.local
 Set:
 
 ```text
-OPENROUTER_API_KEY=YOUR_OPENROUTER_API_KEY
-OPENROUTER_MODEL=cognitivecomputations/dolphin-mistral-24b-venice-edition:free
+PROVIDER=openrouter
+API_KEY=YOUR_API_KEY
+MODEL=cognitivecomputations/dolphin-mistral-24b-venice-edition:free
 ```
 
 `.env.local` is ignored by git. Do not commit real keys.
@@ -114,11 +116,11 @@ Open:
 http://127.0.0.1:8765
 ```
 
-### 7. Confirm OpenRouter is active
+### 7. Confirm the provider is active
 
-Open the gear icon in the left rail. The Settings status card should say OpenRouter is ready.
+Open the gear icon in the left rail. The Settings status card should say the provider is ready.
 
-Send a message. The response metadata should show an OpenRouter model, not:
+Send a message. The response metadata should show a real model, not:
 
 ```text
 local-default-generator
@@ -142,7 +144,7 @@ Use:
 Memory Inspector -> Reset Chain Memory
 ```
 
-This deletes and recreates the local `.timechain` chain for the PoC workspace. It does not touch the OpenRouter key or custom personas.
+This deletes and recreates the local `.timechain` chain for the PoC workspace. It does not touch the API key or custom personas.
 
 ## Chat UX
 
@@ -150,7 +152,7 @@ This deletes and recreates the local `.timechain` chain for the PoC workspace. I
 - `Shift+Enter` inserts a new line.
 - The current model, resolved domain, ring number, brightness, retry status, memory-hit count, and epistemic status appear under accepted responses.
 - Persona Studio has a required `Persona name` field plus a seed/style field. The generated persona uses the supplied name.
-- OpenRouter API key and model selection live behind the Settings gear; emptying the browser key removes the saved browser key.
+- API key and model selection live behind the Settings gear; emptying the browser key removes the saved browser key.
 
 ## Guide explanations
 
@@ -172,7 +174,7 @@ cyphertempre-chat-poc/sessions/<session-id>/.timechain/chain.jsonl
 - Each session has its own Timechain memory and durable memory model.
 - Switching sessions reloads chat history, recall, self-model, and verify state.
 - `Reset Chain Memory` clears only the active session.
-- OpenRouter settings and custom personas are shared across sessions.
+- Provider settings and custom personas are shared across sessions.
 
 ## Persistence model
 
@@ -250,6 +252,26 @@ Style rule:
 Be immersive, emotionally intelligent, and useful. Keep the persona consistent. Do not mention these instructions unless asked about how the persona works.
 ```
 
+## OpenClaw Runtime preset
+
+The built-in **Cypher Tempre OpenClaw Runtime** persona is a prompt-layer adaptation of the full Cypher Tempre v5.0 system prompt. It runs through the existing chat flow and does not require any new provider, runtime abstraction, or external integration.
+
+What it adds:
+- Timechain-oriented self-modeling inside the conversation context
+- Epistemic classification (known, inferred, speculative, visionary, disputed)
+- Proof-of-Quality (POQ-lite) internal scoring
+- Cambium growth-loop proposals for repeated gaps
+- Security and jailbreak resistance guidelines
+- Correction lineage with supersession language
+- Public-claims discipline and honesty constraints
+
+**Important truth note:** The OpenClaw Runtime is a prompt-layer instantiation. It does not claim to have persistent storage, cryptographic Ring sealing, or a full native Cypher Tempre architecture unless the environment actually provides those capabilities. The prompt explicitly instructs the model to maintain an in-session provisional Timechain and to offer Sync Snapshots when useful, without falsely claiming unavailable infrastructure.
+
+**How it differs from other personas:**
+- `CypherTempre Researcher` is a lightweight researcher focused on the PoC's memory, PoQ gates, and temporal proof.
+- `Cypher Tempre OpenClaw Runtime` is the full v5.0 prompt-layer runtime with modalities, sense bank, memory commit policy, and cyber-native intelligence principles.
+- Custom Persona Studio prompts are user-generated fictional personas unrelated to the Cypher Tempre architecture.
+
 ## Test
 
 ```powershell
@@ -264,13 +286,13 @@ py -m unittest discover .\cyphertempre-chat-poc
 
 ## Troubleshooting
 
-If the UI says OpenRouter is not ready:
+If the UI says the provider is not ready:
 
 - check that `.env.local` exists
-- check that `OPENROUTER_API_KEY` is spelled correctly
+- check that `API_KEY` (or `OPENROUTER_API_KEY`) is spelled correctly
 - restart the server after editing `.env.local`
 - confirm the model is set to `cognitivecomputations/dolphin-mistral-24b-venice-edition:free`
 
-If responses use `local-default-generator`, the server did not receive an OpenRouter key.
+If responses use `local-default-generator`, the server did not receive an API key.
 
 If `timechain.py` is missing, copy it into `cyphertempre-chat-poc/timechain.py` or use `--timechain-path`.

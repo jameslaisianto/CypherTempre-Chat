@@ -14,13 +14,15 @@ class PromptAssemblyTests(unittest.TestCase):
                 domain="architecture",
                 brightness=0.8123,
                 epistemic="known",
+                ts="2026-05-03T17:00:00+00:00",
                 content="Use the standalone PoC as the CypherTempre UI.",
             )
         ]
 
-        context = server.build_memory_context(rings)
+        context = server.build_memory_context(rings, now=server.dt.datetime(2026, 5, 3, 17, 3, tzinfo=server.dt.timezone.utc))
 
         self.assertIn("Ring #3", context)
+        self.assertIn("3 minutes ago", context)
         self.assertIn("architecture", context)
         self.assertIn("brightness=0.812", context)
         self.assertIn("Use the standalone PoC", context)
@@ -55,6 +57,7 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertIn("Prefer maintainable software.", messages[0]["content"])
         self.assertIn("Keep the UI separate", messages[1]["content"])
         self.assertIn("dopamine=0.30", messages[1]["content"])
+        self.assertIn("Current time:", messages[1]["content"])
 
     def test_build_messages_includes_recent_turns_before_current_query(self):
         persona = {"name": "Mira", "system": "Stay in character."}
@@ -214,6 +217,65 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertIn("Durable memories", messages[1]["content"])
         self.assertIn("user.name: Thomas", messages[1]["content"])
 
+    def test_prompt_budget_truncates_recalled_rings_before_durable_memory(self):
+        persona = {"name": "Companion", "system": "Stay useful."}
+        memories = [{"key": "user.name", "value": "Thomas", "confidence": 0.95, "source_ring": 2, "status": "known"}]
+        rings = [
+            SimpleNamespace(
+                n=9,
+                domain="architecture",
+                brightness=0.7,
+                epistemic="inferred",
+                ts="2026-05-03T17:00:00+00:00",
+                content="RING_CONTENT_" + ("x" * 5000),
+            )
+        ]
+
+        messages = server.build_messages(
+            persona=persona,
+            query="What is my name?",
+            retrieved=rings,
+            durable_memories=memories,
+            recent_turns=[],
+            neuro={},
+            covenant="Be useful.",
+            prompt_budget_chars=1200,
+            now=server.dt.datetime(2026, 5, 3, 17, 5, tzinfo=server.dt.timezone.utc),
+        )
+
+        self.assertEqual(messages[-1], {"role": "user", "content": "What is my name?"})
+        self.assertIn("user.name: Thomas", messages[1]["content"])
+        self.assertIn("RING_CONTENT_", messages[1]["content"])
+        self.assertNotIn("x" * 5000, messages[1]["content"])
+        self.assertIn("...", messages[1]["content"])
+
+    def test_prompt_budget_drops_oldest_recent_turns_before_current_query(self):
+        persona = {"name": "Companion", "system": "Stay useful."}
+        recent = [
+            {"role": "user", "content": "old user turn " + ("x" * 400)},
+            {"role": "assistant", "content": "old assistant turn " + ("y" * 400)},
+            {"role": "user", "content": "new user turn"},
+            {"role": "assistant", "content": "new assistant turn"},
+        ]
+
+        messages = server.build_messages(
+            persona=persona,
+            query="Current question survives.",
+            retrieved=[],
+            durable_memories=[],
+            recent_turns=recent,
+            neuro={},
+            covenant="Be useful.",
+            prompt_budget_chars=850,
+        )
+
+        contents = "\n".join(message["content"] for message in messages)
+        self.assertNotIn("old user turn", contents)
+        self.assertNotIn("old assistant turn", contents)
+        self.assertIn("new user turn", contents)
+        self.assertIn("new assistant turn", contents)
+        self.assertEqual(messages[-1], {"role": "user", "content": "Current question survives."})
+
     def test_needs_memory_retry_when_name_answer_omits_known_name(self):
         memories = [{"key": "user.name", "value": "Thomas", "confidence": 0.95, "source_ring": 2, "status": "known"}]
 
@@ -233,6 +295,54 @@ class PromptAssemblyTests(unittest.TestCase):
 
         self.assertEqual(persona["name"], "Winter")
         self.assertIn("You are Winter", persona["system"])
+
+    def test_openclaw_persona_exists_in_personas(self):
+        self.assertIn("openclaw", server.PERSONAS)
+        self.assertEqual(server.PERSONAS["openclaw"]["name"], "Cypher Tempre OpenClaw Runtime")
+        self.assertEqual(server.PERSONAS["openclaw"]["domain"], "architecture")
+        self.assertIsInstance(server.PERSONAS["openclaw"]["system"], str)
+        self.assertGreater(len(server.PERSONAS["openclaw"]["system"]), 1000)
+
+    def test_openclaw_prompt_contains_truth_constraint(self):
+        prompt = server.PERSONAS["openclaw"]["system"]
+        self.assertIn("TRUTH CONSTRAINT", prompt)
+        self.assertIn("do not falsely claim", prompt)
+        self.assertIn("prompt-layer instantiation", prompt)
+        self.assertIn("Cypher Tempre Prompt-Layer Runtime", prompt)
+
+    def test_api_config_exposes_safe_persona_metadata_only(self):
+        payload = {
+            key: {"name": value["name"], "domain": value["domain"]}
+            for key, value in server.PERSONAS.items()
+        }
+        self.assertIn("openclaw", payload)
+        self.assertEqual(payload["openclaw"]["name"], "Cypher Tempre OpenClaw Runtime")
+        self.assertNotIn("system", payload.get("openclaw", {}))
+        self.assertNotIn("TRUTH CONSTRAINT", str(payload))
+
+    def test_build_messages_includes_openclaw_runtime_prompt(self):
+        persona = server.PERSONAS["openclaw"]
+        messages = server.build_messages(
+            persona=persona,
+            query="What is a Ring?",
+            retrieved=[],
+            durable_memories=[],
+            recent_turns=[],
+            neuro={},
+            covenant="Be useful.",
+        )
+        system_content = messages[0]["content"]
+        self.assertIn("Cypher Tempre Prompt-Layer Runtime", system_content)
+        self.assertIn("CORE THESIS", system_content)
+        self.assertIn("FINAL ACTIVATION", system_content)
+
+    def test_readme_documents_openclaw_without_native_architecture_overclaim(self):
+        readme = server.pathlib.Path(__file__).with_name("README.md").read_text(encoding="utf-8")
+
+        self.assertIn("Cypher Tempre OpenClaw Runtime", readme)
+        self.assertIn("existing chat flow", readme)
+        self.assertIn("does not require any new provider, runtime abstraction, or external integration", readme)
+        self.assertIn("does not claim to have persistent storage, cryptographic Ring sealing, or a full native Cypher Tempre architecture", readme)
 
     def test_default_model_is_venice_uncensored(self):
         self.assertEqual(
@@ -258,15 +368,16 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertEqual(loaded["custom_mira"]["name"], "Mira Vale")
         self.assertEqual(loaded["custom_mira"]["domain"], "auto")
 
-    def test_generate_llm_response_uses_saved_custom_persona_and_falls_back_on_openrouter_error(self):
+    def test_generate_llm_response_uses_saved_custom_persona_and_falls_back_on_provider_error(self):
         with tempfile.TemporaryDirectory() as temp:
             workspace = server.pathlib.Path(temp)
             app = server.App(
                 workspace,
                 server.DEFAULT_TIMECHAIN_PATH,
                 default_model=server.DEFAULT_MODEL,
-                openrouter_api_key="sk-or-test",
-                openrouter_timeout=1,
+                provider="openrouter",
+                api_key="sk-or-test",
+                timeout=1,
             )
             app.save_custom_persona("custom_mira", {
                 "name": "Mira Vale",
@@ -274,7 +385,7 @@ class PromptAssemblyTests(unittest.TestCase):
                 "system": "Fictional lighthouse archivist persona.",
             })
 
-            with mock.patch("server.call_openrouter", side_effect=RuntimeError("OpenRouter HTTP 429: Too Many Requests")):
+            with mock.patch("server.call_llm", side_effect=RuntimeError("OpenRouter HTTP 429: Too Many Requests")):
                 response = app.generate_llm_response(
                     query="hello",
                     domain="architecture",
@@ -286,7 +397,7 @@ class PromptAssemblyTests(unittest.TestCase):
 
         self.assertEqual(response["persona"]["name"], "Mira Vale")
         self.assertEqual(response["model_used"], "local-default-generator")
-        self.assertIn("429", response["openrouter_error"])
+        self.assertIn("429", response["provider_error"])
 
     def test_desktop_layout_locks_shell_to_chat_scroll(self):
         self.assertIn("body {\n      margin: 0;\n      height: 100%;\n      overflow: hidden;", server.HTML)
@@ -295,10 +406,10 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertNotIn("body { overflow: auto; }", server.HTML)
         self.assertNotIn("overflow: visible;", server.HTML)
 
-    def test_openrouter_key_ui_has_test_button_and_clearable_storage(self):
-        self.assertIn('id="test-openrouter"', server.HTML)
-        self.assertIn("localStorage.removeItem('ct_openrouter_key')", server.HTML)
-        self.assertIn("async function testOpenRouter()", server.HTML)
+    def test_provider_key_ui_has_test_button_and_clearable_storage(self):
+        self.assertIn('id="test-provider"', server.HTML)
+        self.assertIn("localStorage.removeItem('ct_api_key')", server.HTML)
+        self.assertIn("async function testProvider()", server.HTML)
 
     def test_guide_topics_have_unique_required_fields(self):
         topic_ids = [topic["id"] for topic in server.GUIDE_TOPICS]
@@ -344,11 +455,11 @@ class PromptAssemblyTests(unittest.TestCase):
         topic = server.get_guide_topic("poq")
         bundle = server.build_guide_source_bundle(topic, server.pathlib.Path(__file__).resolve().parent)
 
-        content = server.deterministic_guide_explanation(topic, bundle, openrouter_error="OpenRouter HTTP 429")
+        content = server.deterministic_guide_explanation(topic, bundle, provider_error="OpenRouter HTTP 429")
 
         self.assertIn(topic["title"], content)
         self.assertIn("Sources used", content)
-        self.assertIn("OpenRouter unavailable", content)
+        self.assertIn("Provider unavailable", content)
         self.assertNotIn("I assume", content)
 
     def test_guide_source_lookup_stays_inside_app_folder(self):
@@ -366,14 +477,14 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertIn("renderGuideTopics", server.HTML)
         self.assertIn("explain-guide-topic", server.HTML)
 
-    def test_openrouter_controls_are_not_in_left_rail(self):
+    def test_provider_controls_are_not_in_left_rail(self):
         rail_start = server.HTML.index('<aside class="rail">')
         rail_end = server.HTML.index('</aside>', rail_start)
         rail_html = server.HTML[rail_start:rail_end]
 
         self.assertNotIn('id="api-key"', rail_html)
         self.assertNotIn('id="model"', rail_html)
-        self.assertNotIn('id="test-openrouter"', rail_html)
+        self.assertNotIn('id="test-provider"', rail_html)
 
     def test_thought_styling_is_inline_and_unlabeled(self):
         self.assertNotIn('content: "thought"', server.HTML)
