@@ -55,9 +55,9 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertEqual(messages[-1], {"role": "user", "content": "What should we build next?"})
         self.assertIn("You are an architect.", messages[0]["content"])
         self.assertIn("Prefer maintainable software.", messages[0]["content"])
-        self.assertIn("Keep the UI separate", messages[1]["content"])
-        self.assertIn("dopamine=0.30", messages[1]["content"])
-        self.assertIn("Current time:", messages[1]["content"])
+        self.assertIn("Keep the UI separate", messages[0]["content"])
+        self.assertIn("dopamine=0.30", messages[0]["content"])
+        self.assertIn("Current time:", messages[0]["content"])
 
     def test_build_messages_includes_recent_turns_before_current_query(self):
         persona = {"name": "Mira", "system": "Stay in character."}
@@ -214,8 +214,8 @@ class PromptAssemblyTests(unittest.TestCase):
             covenant="Be useful.",
         )
 
-        self.assertIn("Durable memories", messages[1]["content"])
-        self.assertIn("user.name: Thomas", messages[1]["content"])
+        self.assertIn("Durable memories", messages[0]["content"])
+        self.assertIn("user.name: Thomas", messages[0]["content"])
 
     def test_prompt_budget_truncates_recalled_rings_before_durable_memory(self):
         persona = {"name": "Companion", "system": "Stay useful."}
@@ -244,10 +244,10 @@ class PromptAssemblyTests(unittest.TestCase):
         )
 
         self.assertEqual(messages[-1], {"role": "user", "content": "What is my name?"})
-        self.assertIn("user.name: Thomas", messages[1]["content"])
-        self.assertIn("RING_CONTENT_", messages[1]["content"])
-        self.assertNotIn("x" * 5000, messages[1]["content"])
-        self.assertIn("...", messages[1]["content"])
+        self.assertIn("user.name: Thomas", messages[0]["content"])
+        self.assertIn("RING_CONTENT_", messages[0]["content"])
+        self.assertNotIn("x" * 5000, messages[0]["content"])
+        self.assertIn("...", messages[0]["content"])
 
     def test_prompt_budget_drops_oldest_recent_turns_before_current_query(self):
         persona = {"name": "Companion", "system": "Stay useful."}
@@ -351,6 +351,20 @@ class PromptAssemblyTests(unittest.TestCase):
         )
         self.assertIn(server.DEFAULT_MODEL, server.HTML)
 
+    def test_resolve_chat_completions_url_accepts_base_or_full_endpoint(self):
+        self.assertEqual(
+            server.resolve_chat_completions_url("kimi", "https://api.moonshot.ai/v1"),
+            "https://api.moonshot.ai/v1/chat/completions",
+        )
+        self.assertEqual(
+            server.resolve_chat_completions_url("kimi", "https://api.moonshot.ai/v1/chat/completions"),
+            "https://api.moonshot.ai/v1/chat/completions",
+        )
+        self.assertEqual(
+            server.resolve_chat_completions_url("kimi-code", "https://api.kimi.com/coding/v1"),
+            "https://api.kimi.com/coding/v1/chat/completions",
+        )
+
     def test_custom_personas_persist_in_workspace(self):
         with tempfile.TemporaryDirectory() as temp:
             workspace = server.pathlib.Path(temp)
@@ -377,6 +391,7 @@ class PromptAssemblyTests(unittest.TestCase):
                 default_model=server.DEFAULT_MODEL,
                 provider="openrouter",
                 api_key="sk-or-test",
+                base_url="",
                 timeout=1,
             )
             app.save_custom_persona("custom_mira", {
@@ -399,6 +414,45 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertEqual(response["model_used"], "local-default-generator")
         self.assertIn("429", response["provider_error"])
 
+    def test_provider_error_chat_response_does_not_update_chain(self):
+        with tempfile.TemporaryDirectory() as temp:
+            workspace = server.pathlib.Path(temp)
+            app = server.App(
+                workspace,
+                server.DEFAULT_TIMECHAIN_PATH,
+                default_model=server.DEFAULT_MODEL,
+                provider="kimi",
+                api_key="sk-test",
+                base_url="",
+                timeout=1,
+            )
+            before = len(app.agent.chain)
+            app.agent.interact = mock.Mock()
+            llm = {
+                "content": "Provider unavailable: Kimi HTTP 401",
+                "model_used": "local-default-generator",
+                "provider_error": "Kimi HTTP 401",
+                "retrieved": [],
+                "memory_hits": [],
+                "retry": {"attempted": False, "reason": ""},
+                "usage": {},
+            }
+
+            response = server.finalize_chat_response(
+                app=app,
+                message="hello",
+                domain="architecture",
+                tags=["architecture", "chat-poc", "companion"],
+                model="kimi-k2.6",
+                llm=llm,
+                persona_name="Companion",
+            )
+
+        self.assertFalse(response["accepted"])
+        self.assertIn("401", response["provider_error"])
+        self.assertEqual(len(app.agent.chain), before)
+        app.agent.interact.assert_not_called()
+
     def test_desktop_layout_locks_shell_to_chat_scroll(self):
         self.assertIn("body {\n      margin: 0;\n      height: 100%;\n      overflow: hidden;", server.HTML)
         self.assertIn(".app {\n      display: grid;\n      grid-template-columns: 286px minmax(0, 1fr) 360px;\n      height: 100vh;", server.HTML)
@@ -408,6 +462,10 @@ class PromptAssemblyTests(unittest.TestCase):
 
     def test_provider_key_ui_has_test_button_and_clearable_storage(self):
         self.assertIn('id="test-provider"', server.HTML)
+        self.assertIn('id="base-url"', server.HTML)
+        self.assertIn('value="kimi-code"', server.HTML)
+        self.assertIn("kimi-for-coding", server.HTML)
+        self.assertIn("providerEndpoints", server.HTML)
         self.assertIn("localStorage.removeItem('ct_api_key')", server.HTML)
         self.assertIn("async function testProvider()", server.HTML)
 

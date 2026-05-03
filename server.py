@@ -35,10 +35,22 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         "label": "OpenRouter",
     },
     "kimi": {
-        "url": "https://api.moonshot.cn/v1/chat/completions",
+        "url": "https://api.moonshot.ai/v1/chat/completions",
         "needs_referer": False,
         "needs_title": False,
         "label": "Kimi",
+    },
+    "kimi-code": {
+        "url": "https://api.kimi.com/coding/v1/chat/completions",
+        "needs_referer": False,
+        "needs_title": False,
+        "label": "Kimi Code",
+    },
+    "other": {
+        "url": "",
+        "needs_referer": False,
+        "needs_title": False,
+        "label": "Other",
     },
 }
 
@@ -47,6 +59,23 @@ DEFAULT_ENV_PATH = pathlib.Path(__file__).resolve().parent / ".env.local"
 PROMPT_BUDGET_CHARS = 32000
 RECALLED_RING_SNIPPET_CHARS = 700
 TRIMMED_RECALLED_RING_SNIPPET_CHARS = 220
+
+
+def default_provider_url(provider: str) -> str:
+    config = PROVIDERS.get((provider or DEFAULT_PROVIDER).strip().lower(), PROVIDERS[DEFAULT_PROVIDER])
+    return str(config.get("url", ""))
+
+
+def resolve_chat_completions_url(provider: str, base_url: str = "") -> str:
+    url = (base_url or "").strip() or default_provider_url(provider)
+    if not url:
+        raise RuntimeError("Endpoint is required. Set it in Settings or BASE_URL.")
+    trimmed = url.rstrip("/")
+    if trimmed.endswith("/chat/completions"):
+        return trimmed
+    if trimmed.endswith("/v1"):
+        return f"{trimmed}/chat/completions"
+    return trimmed
 
 CYPHER_TEMPRE_OPENCLAW_PROMPT = (
     "You are operating as a Cypher Tempre prompt-layer runtime: a continuity-oriented cognitive layer wrapped around a language model.\n\n"
@@ -891,6 +920,89 @@ HTML = r"""<!doctype html>
       display: block;
     }
 
+    .settings-form {
+      display: grid;
+      gap: 18px;
+    }
+
+    .settings-row {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      gap: 18px;
+    }
+
+    @media (max-width: 640px) {
+      .settings-row {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .settings-field {
+      display: grid;
+      gap: 6px;
+    }
+
+    .settings-field label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .settings-status-panel {
+      margin-top: 4px;
+      padding: 14px 16px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: linear-gradient(180deg, #151513, #10110f);
+      display: grid;
+      gap: 6px;
+    }
+
+    .status-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .status-indicator {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--faint);
+      box-shadow: 0 0 0 2px rgba(126, 119, 109, 0.25);
+      transition: background 0.2s, box-shadow 0.2s;
+      flex-shrink: 0;
+    }
+
+    .status-indicator.ok {
+      background: var(--green);
+      box-shadow: 0 0 0 2px rgba(103, 216, 155, 0.25);
+    }
+
+    .status-indicator.warn {
+      background: var(--amber);
+      box-shadow: 0 0 0 2px rgba(214, 179, 106, 0.25);
+    }
+
+    .status-indicator.error {
+      background: var(--red);
+      box-shadow: 0 0 0 2px rgba(255, 134, 134, 0.25);
+    }
+
+    .status-label {
+      color: var(--text);
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .status-detail {
+      color: var(--faint);
+      font-size: 12px;
+      padding-left: 20px;
+    }
+
     .guide-shell {
       max-width: 1180px;
       margin: 0 auto;
@@ -1021,6 +1133,10 @@ HTML = r"""<!doctype html>
 
     .simple-only.hidden, .comprehensive-only.hidden {
       display: none;
+    }
+
+    .hidden {
+      display: none !important;
     }
 
     .chat-top {
@@ -1220,6 +1336,22 @@ HTML = r"""<!doctype html>
       cursor: not-allowed;
     }
 
+    .composer-warning {
+      display: none;
+      max-width: 1020px;
+      margin: 0 auto 12px;
+      padding: 10px 12px;
+      border: 1px solid #8b6914;
+      border-radius: 8px;
+      background: rgba(214, 179, 106, 0.12);
+      color: #d6b36a;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .composer-warning.active {
+      display: block;
+    }
+
     .inspector {
       border-left: 1px solid var(--line);
       display: grid;
@@ -1411,6 +1543,11 @@ HTML = r"""<!doctype html>
       </section>
 
       <div class="composer">
+        <div class="composer-warning" id="composer-warning">
+          <strong>CT OpenClaw Runtime is blocked on free models.</strong>
+          The free-tier backend cannot handle this persona's large system prompt (429 rate limit).
+          Switch to a non-free model, or select Companion/Architect.
+        </div>
         <form id="composer-form" class="composer-form">
           <textarea id="message" placeholder="Ask anything..." required></textarea>
           <button id="send" class="send" type="submit" aria-label="Send">→</button>
@@ -1625,23 +1762,48 @@ HTML = r"""<!doctype html>
           <p>Configure provider access and the default model used by chat and source-grounded guide explanations.</p>
         </section>
 
-        <section class="feature-card">
-          <div class="group">
+        <section class="feature-card settings-form">
+          <div class="settings-row">
+            <div class="settings-field">
+              <label for="provider">Provider</label>
+              <select id="provider">
+                <option value="openrouter">OpenRouter</option>
+                <option value="kimi-code">Kimi Code</option>
+                <option value="kimi">Kimi Platform</option>
+                <option value="other">Other</option>
+              </select>
+              <div class="hint">Select your LLM provider</div>
+            </div>
+            <div class="settings-field">
+              <label for="model">Model</label>
+              <input id="model" value="cognitivecomputations/dolphin-mistral-24b-venice-edition:free">
+              <div class="hint" id="model-hint">Recommended free default: Venice Uncensored.</div>
+            </div>
+          </div>
+
+          <div class="settings-field" id="base-url-field">
+            <label for="base-url">Endpoint</label>
+            <input id="base-url" type="text" autocomplete="off" placeholder="https://api.example.com/v1/chat/completions">
+            <div class="hint">OpenAI-compatible /v1 base URL or full /chat/completions endpoint</div>
+          </div>
+
+          <div class="settings-field">
             <label for="api-key">API key</label>
             <div class="inline-field">
               <input id="api-key" type="password" autocomplete="off" placeholder="sk-...">
               <button id="test-provider" class="secondary" type="button">Test</button>
+              <button id="clear-provider-override" class="secondary" type="button">Use .env</button>
             </div>
             <div class="hint">Stored in this browser only. You can also set API_KEY in .env.local.</div>
           </div>
 
-          <div class="group">
-            <label for="model">Model</label>
-            <input id="model" value="cognitivecomputations/dolphin-mistral-24b-venice-edition:free">
-            <div class="hint">Recommended free default: Venice Uncensored.</div>
+          <div class="settings-status-panel" id="settings-status">
+            <div class="status-header">
+              <span class="status-indicator" id="status-dot"></span>
+              <span class="status-label" id="status-label">Checking configuration...</span>
+            </div>
+            <div class="status-detail" id="status-detail"></div>
           </div>
-
-          <div class="status-card" id="settings-status">Checking configuration...</div>
         </section>
       </div>
     </main>
@@ -1709,6 +1871,13 @@ HTML = r"""<!doctype html>
       guideView: document.getElementById('guide-view'),
       settingsView: document.getElementById('settings-view'),
       settingsStatus: document.getElementById('settings-status'),
+      provider: document.getElementById('provider'),
+      modelHint: document.getElementById('model-hint'),
+      statusDot: document.getElementById('status-dot'),
+      statusLabel: document.getElementById('status-label'),
+      statusDetail: document.getElementById('status-detail'),
+      baseUrl: document.getElementById('base-url'),
+      baseUrlField: document.getElementById('base-url-field'),
       guideTopicGrid: document.getElementById('guide-topic-grid'),
       guideSimple: document.getElementById('guide-simple'),
       guideComprehensive: document.getElementById('guide-comprehensive'),
@@ -1716,14 +1885,22 @@ HTML = r"""<!doctype html>
       personaSeed: document.getElementById('persona-seed'),
       generatePersona: document.getElementById('generate-persona'),
       testProvider: document.getElementById('test-provider'),
+      clearProviderOverride: document.getElementById('clear-provider-override'),
       sessionList: document.getElementById('session-list'),
       sessionName: document.getElementById('session-name'),
-      newSession: document.getElementById('new-session')
+      newSession: document.getElementById('new-session'),
+      composerWarning: document.getElementById('composer-warning')
     };
 
     let personas = {};
     let customPersonas = {};
     let activeSession = localStorage.getItem('ct_active_session') || 'default';
+    const providerEndpoints = {
+      openrouter: 'https://openrouter.ai/api/v1/chat/completions',
+      'kimi-code': 'https://api.kimi.com/coding/v1/chat/completions',
+      kimi: 'https://api.moonshot.ai/v1/chat/completions',
+      other: ''
+    };
 
     function esc(value) {
       return String(value ?? '').replace(/[&<>"']/g, ch => ({
@@ -1819,7 +1996,9 @@ HTML = r"""<!doctype html>
         body: JSON.stringify({
           topicId,
           model: els.model.value.trim(),
-          apiKey: els.apiKey.value.trim()
+          apiKey: els.apiKey.value.trim(),
+          provider: els.provider.value,
+          baseUrl: els.baseUrl.value.trim()
         })
       });
       if (data.session?.id) {
@@ -1874,6 +2053,8 @@ HTML = r"""<!doctype html>
 
     function saveLocalConfig() {
       localStorage.setItem('ct_model', els.model.value.trim());
+      localStorage.setItem('ct_provider', els.provider.value);
+      localStorage.setItem('ct_base_url', els.baseUrl.value.trim());
       localStorage.setItem('ct_persona', els.persona.value);
       localStorage.setItem('ct_domain', els.domain.value);
       if (els.apiKey.value.trim()) {
@@ -1915,13 +2096,17 @@ HTML = r"""<!doctype html>
       customPersonas = { ...(config.custom_personas || {}), ...customPersonas };
       saveCustomPersonas();
       renderPersonaOptions();
-      els.model.value = localStorage.getItem('ct_model') || config.default_model || 'cognitivecomputations/dolphin-mistral-24b-venice-edition:free';
-      els.apiKey.value = localStorage.getItem('ct_api_key') || '';
+      els.provider.value = config.provider || localStorage.getItem('ct_provider') || 'openrouter';
+      els.baseUrl.value = config.base_url || localStorage.getItem('ct_base_url') || providerEndpoints[els.provider.value] || '';
+      els.model.value = config.default_model || localStorage.getItem('ct_model') || 'cognitivecomputations/dolphin-mistral-24b-venice-edition:free';
+      els.apiKey.value = '';
       els.persona.value = localStorage.getItem('ct_persona') || 'companion';
       if (!personas[els.persona.value] && !customPersonas[els.persona.value]) els.persona.value = 'companion';
       els.domain.value = localStorage.getItem('ct_domain') || 'auto';
+      updateProviderHint();
       updatePersonaText();
       updateSetup(config.has_env_key);
+      validatePersonaModel();
     }
 
     async function syncCustomPersonasToServer(config) {
@@ -1934,43 +2119,92 @@ HTML = r"""<!doctype html>
       }).catch(() => null)));
     }
 
-    function setStatus(text, borderColor = '') {
+    function setStatus(text, type = '') {
       els.setup.textContent = text;
-      els.settingsStatus.textContent = text;
-      if (borderColor) {
-        els.setup.style.borderColor = borderColor;
-        els.settingsStatus.style.borderColor = borderColor;
+      if (els.statusLabel) els.statusLabel.textContent = text;
+      if (els.statusDot) {
+        els.statusDot.className = 'status-indicator';
+        if (type === 'ok') els.statusDot.classList.add('ok');
+        if (type === 'warn') els.statusDot.classList.add('warn');
+        if (type === 'error') els.statusDot.classList.add('error');
       }
+    }
+
+    function setStatusDetail(text) {
+      if (els.statusDetail) els.statusDetail.textContent = text;
+    }
+
+    function updateProviderHint() {
+      const provider = els.provider.value;
+      if (provider === 'kimi-code') {
+        els.modelHint.textContent = 'Use model: kimi-for-coding';
+      } else if (provider === 'kimi') {
+        els.modelHint.textContent = 'Example: kimi-k2.6, moonshot-v1-8k, moonshot-v1-32k';
+      } else if (provider === 'other') {
+        els.modelHint.textContent = 'Enter the model name your custom provider expects';
+      } else {
+        els.modelHint.textContent = 'Example: cognitivecomputations/dolphin-mistral-24b-venice-edition:free';
+      }
+      if (!els.baseUrl.value.trim() && providerEndpoints[provider]) els.baseUrl.value = providerEndpoints[provider];
     }
 
     function updateSetup(hasEnvKey = false) {
       const hasBrowserKey = Boolean(els.apiKey.value.trim());
       const configured = hasEnvKey || hasBrowserKey;
-      const text = configured
-        ? `Provider ready. Using ${els.model.value.trim() || 'cognitivecomputations/dolphin-mistral-24b-venice-edition:free'}.`
-        : 'Add an API key or set API_KEY to get real LLM responses.';
-      setStatus(text, configured ? '#35674f' : '#6b5730');
+      const providerMap = { openrouter: 'OpenRouter', 'kimi-code': 'Kimi Code', kimi: 'Kimi Platform', other: 'Custom' };
+      const providerName = providerMap[els.provider.value] || 'OpenRouter';
+      if (configured) {
+        setStatus('Provider ready', 'ok');
+        setStatusDetail(`${providerName} · ${els.model.value.trim() || 'default model'} · ${els.baseUrl.value.trim() || 'default endpoint'}`);
+      } else {
+        setStatus('Provider not configured', 'warn');
+        setStatusDetail('Add an API key or set API_KEY in .env.local to get real LLM responses.');
+      }
       els.modelBadge.textContent = els.model.value.trim() || 'cognitivecomputations/dolphin-mistral-24b-venice-edition:free';
+    }
+
+    function clearProviderOverride() {
+      localStorage.removeItem('ct_provider');
+      localStorage.removeItem('ct_model');
+      localStorage.removeItem('ct_base_url');
+      localStorage.removeItem('ct_api_key');
+      api('/api/config').then(config => applyLocalConfig(config));
     }
 
     async function testProvider() {
       saveLocalConfig();
-      setStatus('Testing provider...');
+      setStatus('Testing provider...', '');
+      setStatusDetail('Sending a test request...');
       els.testProvider.disabled = true;
       try {
         const data = await api('/api/test', {
           method: 'POST',
           body: JSON.stringify({
+            provider: els.provider.value,
             model: els.model.value.trim(),
-            apiKey: els.apiKey.value.trim()
+            apiKey: els.apiKey.value.trim(),
+            baseUrl: els.baseUrl.value.trim()
           })
         });
-        setStatus(`Provider OK: ${data.model_used || data.model}.`, '#35674f');
+        setStatus('Provider OK', 'ok');
+        setStatusDetail(`Connected · ${data.model_used || data.model}`);
       } catch (error) {
-        setStatus(error.message, '#6b3c3c');
+        setStatus('Connection failed', 'error');
+        setStatusDetail(error.message);
       } finally {
         els.testProvider.disabled = false;
       }
+    }
+
+    function validatePersonaModel() {
+      const isFree = (els.model.value || '').trim().endsWith(':free');
+      const isOpenClaw = els.persona.value === 'openclaw';
+      const blocked = isFree && isOpenClaw;
+      els.composerWarning.classList.toggle('active', blocked);
+      els.send.disabled = blocked;
+      els.message.placeholder = blocked
+        ? 'Switch to a non-free model or another persona to chat.'
+        : 'Ask anything...';
     }
 
     function updatePersonaText() {
@@ -2142,7 +2376,9 @@ HTML = r"""<!doctype html>
             persona: els.persona.value,
             customPersona: customPersonas[els.persona.value] || null,
             model: els.model.value.trim() || 'cognitivecomputations/dolphin-mistral-24b-venice-edition:free',
-            apiKey: els.apiKey.value.trim()
+            apiKey: els.apiKey.value.trim(),
+            provider: els.provider.value,
+            baseUrl: els.baseUrl.value.trim()
           })
         });
         if (data.accepted) {
@@ -2207,12 +2443,20 @@ HTML = r"""<!doctype html>
       resetChainMemory().catch(error => { els.verifyResult.textContent = error.message; });
     });
 
-    els.persona.addEventListener('change', () => { updatePersonaText(); saveLocalConfig(); });
-    els.model.addEventListener('input', () => { updateSetup(); saveLocalConfig(); });
+    els.persona.addEventListener('change', () => { updatePersonaText(); saveLocalConfig(); validatePersonaModel(); });
+    els.provider.addEventListener('change', () => {
+      if (providerEndpoints[els.provider.value]) els.baseUrl.value = providerEndpoints[els.provider.value];
+      updateProviderHint();
+      updateSetup();
+      saveLocalConfig();
+    });
+    els.model.addEventListener('input', () => { updateSetup(); saveLocalConfig(); validatePersonaModel(); });
     els.apiKey.addEventListener('input', () => { updateSetup(); saveLocalConfig(); });
+    if (els.baseUrl) els.baseUrl.addEventListener('input', saveLocalConfig);
     els.testProvider.addEventListener('click', () => {
       testProvider().catch(error => { setStatus(error.message, '#6b3c3c'); });
     });
+    if (els.clearProviderOverride) els.clearProviderOverride.addEventListener('click', clearProviderOverride);
     els.domain.addEventListener('change', saveLocalConfig);
     els.navChat.addEventListener('click', () => setMainView('chat'));
     els.navGuide.addEventListener('click', () => setMainView('guide'));
@@ -2591,13 +2835,15 @@ def build_retry_messages(
     facts: list[dict[str, Any]],
 ) -> list[dict[str, str]]:
     retry = list(messages)
+    has_system = any(m.get("role") == "system" for m in retry)
+    instruction = (
+        "Repair the previous answer. The prior response failed this requirement: "
+        f"{reason}\nUse these durable memories as higher priority than ordinary chat text:\n"
+        f"{build_memory_fact_context(facts)}"
+    )
     retry.insert(1, {
-        "role": "system",
-        "content": (
-            "Repair the previous answer. The prior response failed this requirement: "
-            f"{reason}\nUse these durable memories as higher priority than ordinary chat text:\n"
-            f"{build_memory_fact_context(facts)}"
-        ),
+        "role": "system" if has_system else "user",
+        "content": instruction,
     })
     return retry
 
@@ -2710,31 +2956,32 @@ def build_prompt_messages(
     neuro_line: str,
     covenant: str,
     now: dt.datetime,
+    model: str = "",
 ) -> list[dict[str, str]]:
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                f"{persona['system']}\n\n"
-                "You are connected to a local CypherTempre Timechain. "
-                "Use recalled rings as memory, but distinguish memory from fresh inference. "
-                "Continue the current conversation naturally using the recent turns. "
-                "If asked who you are, answer as the selected persona, not as the underlying model or provider. "
-                "Be conversational and useful. Do not expose hidden reasoning. "
-                "If memory is weak or absent, say so briefly.\n\n"
-                f"Engineering covenant: {covenant}"
-            ),
-        },
-        {
-            "role": "system",
-            "content": (
-                f"Current time: {now.isoformat()}\n\n"
-                f"Durable memories:\n{durable_context}\n\n"
-                f"Relevant recalled rings:\n{memory_context}\n\n"
-                f"Current neuro-state: {neuro_line}"
-            ),
-        },
-    ]
+    system_text = (
+        f"{persona['system']}\n\n"
+        "You are connected to a local CypherTempre Timechain. "
+        "Use recalled rings as memory, but distinguish memory from fresh inference. "
+        "Continue the current conversation naturally using the recent turns. "
+        "If asked who you are, answer as the selected persona, not as the underlying model or provider. "
+        "Be conversational and useful. Do not expose hidden reasoning. "
+        "If memory is weak or absent, say so briefly.\n\n"
+        f"Engineering covenant: {covenant}\n\n"
+        f"Current time: {now.isoformat()}\n\n"
+        f"Durable memories:\n{durable_context}\n\n"
+        f"Relevant recalled rings:\n{memory_context}\n\n"
+        f"Current neuro-state: {neuro_line}"
+    )
+    model_id = (model or "").lower()
+    is_gemma = "gemma" in model_id
+    messages: list[dict[str, str]] = []
+    if is_gemma:
+        # Gemma via Google AI Studio does not support system/developer instructions.
+        # Inject system context as a user message before the conversation.
+        messages.append({"role": "user", "content": f"[System Instruction]\n{system_text}\n\nAcknowledge these instructions."})
+        messages.append({"role": "assistant", "content": "Understood. I will follow these instructions."})
+    else:
+        messages.append({"role": "system", "content": system_text})
     messages.extend(recent_turns)
     messages.append({"role": "user", "content": query})
     return messages
@@ -2807,6 +3054,7 @@ def build_messages(
     durable_memories: list[dict[str, Any]] | None = None,
     prompt_budget_chars: int = PROMPT_BUDGET_CHARS,
     now: dt.datetime | None = None,
+    model: str = "",
 ) -> list[dict[str, str]]:
     current_time = now or dt.datetime.now(dt.timezone.utc)
     if current_time.tzinfo is None:
@@ -2825,6 +3073,7 @@ def build_messages(
         neuro_line=neuro_line,
         covenant=covenant,
         now=current_time,
+        model=model,
     )
     if prompt_budget_chars > 0 and prompt_size(messages) > prompt_budget_chars and retrieved:
         memory_context = build_memory_context(
@@ -2841,6 +3090,7 @@ def build_messages(
             neuro_line=neuro_line,
             covenant=covenant,
             now=current_time,
+            model=model,
         )
     if prompt_budget_chars > 0 and prompt_size(messages) > prompt_budget_chars and retrieved:
         memory_context = f"{len(retrieved[:6])} retrieved rings omitted to preserve prompt budget."
@@ -2853,6 +3103,7 @@ def build_messages(
             neuro_line=neuro_line,
             covenant=covenant,
             now=current_time,
+            model=model,
         )
     while prompt_budget_chars > 0 and prompt_size(messages) > prompt_budget_chars and active_recent_turns:
         drop_count = 2 if len(active_recent_turns) >= 2 else 1
@@ -2866,6 +3117,7 @@ def build_messages(
             neuro_line=neuro_line,
             covenant=covenant,
             now=current_time,
+            model=model,
         )
     return messages
 
@@ -2877,6 +3129,7 @@ def call_llm(
     model: str,
     messages: list[dict[str, str]],
     timeout: float,
+    base_url: str = "",
 ) -> dict[str, Any]:
     api_key = api_key.strip()
     if not api_key:
@@ -2884,6 +3137,9 @@ def call_llm(
     if api_key in {"YOUR_API_KEY", "YOUR_OPENROUTER_API_KEY", "sk-or-your-key-here", "sk-or-your-real-key"}:
         raise RuntimeError("API key is still the example placeholder.")
     config = PROVIDERS.get(provider, PROVIDERS[DEFAULT_PROVIDER])
+    if provider == "other":
+        config = {"url": "", "needs_referer": False, "needs_title": False, "label": "Custom"}
+    url = resolve_chat_completions_url(provider, base_url)
     payload = {
         "model": model or DEFAULT_MODEL,
         "messages": messages,
@@ -2899,7 +3155,7 @@ def call_llm(
     if config.get("needs_title"):
         headers["X-Title"] = "CypherTempre Chat PoC"
     request = urllib.request.Request(
-        config["url"],
+        url,
         data=json.dumps(payload).encode("utf-8"),
         headers=headers,
         method="POST",
@@ -2982,6 +3238,14 @@ def guide_topics_payload() -> list[dict[str, Any]]:
         }
         for topic in GUIDE_TOPICS
     ]
+
+
+def env_value(*names: str) -> str:
+    for name in names:
+        value = os.environ.get(name, "")
+        if value:
+            return value
+    return ""
 
 
 def get_guide_topic(topic_id: str) -> dict[str, Any]:
@@ -3103,6 +3367,7 @@ class App:
         default_model: str,
         provider: str,
         api_key: str,
+        base_url: str,
         timeout: float,
     ) -> None:
         self.root_workspace = workspace.resolve()
@@ -3111,6 +3376,7 @@ class App:
         self.default_model = default_model
         self.provider = provider
         self.api_key = api_key
+        self.base_url = base_url
         self.timeout = timeout
         self.active_session = "default"
         self.workspace = self.workspace_for_session(self.active_session)
@@ -3220,20 +3486,23 @@ class App:
             "genesis_hash": self.agent.genesis_hash,
         }
 
-    def explain_guide_topic(self, topic_id: str, *, model: str, api_key: str) -> dict[str, Any]:
+    def explain_guide_topic(self, topic_id: str, *, model: str, api_key: str, provider: str = "", base_url: str = "") -> dict[str, Any]:
         topic = get_guide_topic(topic_id)
         source_bundle = build_guide_source_bundle(topic, self.root_workspace)
         messages = build_guide_explainer_messages(topic, source_bundle)
         key = api_key or self.api_key
+        provider = (provider or self.provider).strip().lower()
+        base_url = (base_url or self.base_url).strip()
         provider_error = ""
         if key:
             try:
                 llm = call_llm(
-                    provider=self.provider,
+                    provider=provider,
                     api_key=key,
                     model=model or self.default_model,
                     messages=messages,
                     timeout=self.timeout,
+                    base_url=base_url,
                 )
                 content = llm["content"]
                 model_used = llm.get("model_used", model or self.default_model)
@@ -3274,6 +3543,8 @@ class App:
         custom_persona: dict[str, str] | None,
         model: str,
         api_key: str,
+        provider: str = "",
+        base_url: str = "",
     ) -> dict[str, Any]:
         persona = custom_persona or self.get_custom_persona(persona_id) or PERSONAS.get(persona_id) or PERSONAS["companion"]
         memory_model = self.memory_model()
@@ -3296,8 +3567,11 @@ class App:
             recent_turns=recent_turns,
             neuro=neuro,
             covenant=self.agent.values,
+            model=model or self.default_model,
         )
         key = api_key or self.api_key
+        provider = (provider or self.provider).strip().lower()
+        base_url = (base_url or self.base_url).strip()
         def local_fallback(provider_error: str = "") -> dict[str, Any]:
             fallback = self.timechain._default_generator(query, retrieved, neuro)
             retry_reason = memory_retry_reason(query, fallback, durable_hits, persona["name"])
@@ -3321,11 +3595,12 @@ class App:
             return local_fallback()
         try:
             llm = call_llm(
-                provider=self.provider,
+                provider=provider,
                 api_key=key,
                 model=model or self.default_model,
                 messages=messages,
                 timeout=self.timeout,
+                base_url=base_url,
             )
         except RuntimeError as exc:
             return local_fallback(str(exc))
@@ -3334,11 +3609,12 @@ class App:
         if retry_reason:
             try:
                 repaired = call_llm(
-                    provider=self.provider,
+                    provider=provider,
                     api_key=key,
                     model=model or self.default_model,
                     messages=build_retry_messages(messages, reason=retry_reason, facts=durable_hits),
                     timeout=self.timeout,
+                    base_url=base_url,
                 )
                 llm = repaired
                 retry["attempted"] = True
@@ -3349,6 +3625,89 @@ class App:
         llm["retry"] = retry
         llm["persona"] = persona
         return llm
+
+
+def finalize_chat_response(
+    *,
+    app: App,
+    message: str,
+    domain: str,
+    tags: list[str],
+    model: str,
+    llm: dict[str, Any],
+    persona_name: str,
+) -> dict[str, Any]:
+    provider_error = llm.get("provider_error", "")
+    if provider_error:
+        return {
+            "ok": True,
+            "accepted": False,
+            "reason": "provider_error",
+            "brightness": 0,
+            "scores": {},
+            "content": llm.get("content", ""),
+            "model": model,
+            "model_used": llm.get("model_used"),
+            "provider_error": provider_error,
+            "retrieved": llm.get("retrieved", []),
+            "memory_hits": llm.get("memory_hits", []),
+            "retry": llm.get("retry", {"attempted": False, "reason": ""}),
+            "usage": llm.get("usage", {}),
+            "persona_name": persona_name,
+            "domain": domain,
+        }
+
+    result = app.agent.interact(
+        message,
+        domain=domain,
+        tags=tags,
+        override_content=llm["content"],
+    )
+    if not result.get("accepted"):
+        return {
+            "ok": True,
+            "accepted": False,
+            "reason": result.get("reason"),
+            "brightness": result.get("brightness"),
+            "scores": result.get("scores"),
+            "content": llm["content"],
+            "model": model,
+            "model_used": llm.get("model_used"),
+            "provider_error": "",
+            "persona_name": persona_name,
+            "domain": domain,
+        }
+
+    ring = result["ring"]
+    memory_model = app.memory_model()
+    extracted = update_memory_model(
+        memory_model,
+        SimpleNamespace(**ring),
+        persona_name=persona_name,
+    )
+    app.save_memory_model(memory_model)
+    return {
+        "ok": True,
+        "accepted": True,
+        "content": ring.get("content", ""),
+        "ring": ring.get("n"),
+        "hash": ring.get("hash"),
+        "hash_prefix": str(ring.get("hash", ""))[:16],
+        "brightness": round(float(result.get("brightness", 0)), 3),
+        "scores": result.get("scores"),
+        "retrieved": llm.get("retrieved", result.get("retrieved")),
+        "memory_hits": llm.get("memory_hits", []),
+        "memory_extracted": extracted,
+        "retry": llm.get("retry", {"attempted": False, "reason": ""}),
+        "epistemic": result.get("epistemic"),
+        "cache_hit": result.get("cache_hit"),
+        "model": model,
+        "model_used": llm.get("model_used"),
+        "provider_error": "",
+        "usage": llm.get("usage", {}),
+        "persona_name": persona_name,
+        "domain": domain,
+    }
 
 
 def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
@@ -3367,7 +3726,9 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 if path == "/api/config":
                     self.send_json({
                         "ok": True,
+                        "provider": app.provider,
                         "default_model": app.default_model,
+                        "base_url": app.base_url or default_provider_url(app.provider),
                         "has_env_key": bool(app.api_key),
                         "personas": {
                             key: {"name": value["name"], "domain": value["domain"]}
@@ -3464,59 +3825,18 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 custom_persona=custom_persona,
                 model=model,
                 api_key=api_key,
+                provider=str(payload.get("provider", "")).strip(),
+                base_url=str(payload.get("baseUrl", "")).strip() or app.base_url,
             )
-            result = app.agent.interact(
-                message,
+            self.send_json(finalize_chat_response(
+                app=app,
+                message=message,
                 domain=domain,
                 tags=[domain, "chat-poc", persona_id],
-                override_content=llm["content"],
-            )
-            if not result.get("accepted"):
-                self.send_json({
-                    "ok": True,
-                    "accepted": False,
-                    "reason": result.get("reason"),
-                    "brightness": result.get("brightness"),
-                    "scores": result.get("scores"),
-                    "content": llm["content"],
-                    "model": model,
-                    "model_used": llm.get("model_used"),
-                    "provider_error": llm.get("provider_error", ""),
-                    "persona_name": persona["name"],
-                    "domain": domain,
-                })
-                return
-
-            ring = result["ring"]
-            memory_model = app.memory_model()
-            extracted = update_memory_model(
-                memory_model,
-                SimpleNamespace(**ring),
+                model=model,
+                llm=llm,
                 persona_name=persona["name"],
-            )
-            app.save_memory_model(memory_model)
-            self.send_json({
-                "ok": True,
-                "accepted": True,
-                "content": ring.get("content", ""),
-                "ring": ring.get("n"),
-                "hash": ring.get("hash"),
-                "hash_prefix": str(ring.get("hash", ""))[:16],
-                "brightness": round(float(result.get("brightness", 0)), 3),
-                "scores": result.get("scores"),
-                "retrieved": llm.get("retrieved", result.get("retrieved")),
-                "memory_hits": llm.get("memory_hits", []),
-                "memory_extracted": extracted,
-                "retry": llm.get("retry", {"attempted": False, "reason": ""}),
-                "epistemic": result.get("epistemic"),
-                "cache_hit": result.get("cache_hit"),
-                "model": model,
-                "model_used": llm.get("model_used"),
-                "provider_error": llm.get("provider_error", ""),
-                "usage": llm.get("usage", {}),
-                "persona_name": persona["name"],
-                "domain": domain,
-            })
+            ))
 
         def handle_recall(self) -> None:
             payload = self.read_json()
@@ -3582,12 +3902,14 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
             payload = self.read_json()
             model = str(payload.get("model", app.default_model)).strip() or app.default_model
             api_key = str(payload.get("apiKey", "")).strip() or app.api_key
+            provider = str(payload.get("provider", "")).strip() or app.provider
             result = call_llm(
-                provider=app.provider,
+                provider=provider,
                 api_key=api_key,
                 model=model,
                 messages=[{"role": "user", "content": "Reply with exactly: ok"}],
                 timeout=min(app.timeout, 20.0),
+                base_url=str(payload.get("baseUrl", "")).strip(),
             )
             self.send_json({
                 "ok": True,
@@ -3602,7 +3924,7 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
             model = str(payload.get("model", app.default_model)).strip() or app.default_model
             api_key = str(payload.get("apiKey", "")).strip()
             try:
-                result = app.explain_guide_topic(topic_id, model=model, api_key=api_key)
+                result = app.explain_guide_topic(topic_id, model=model, api_key=api_key, provider=str(payload.get("provider", "")).strip(), base_url=str(payload.get("baseUrl", "")).strip())
             except KeyError:
                 self.send_json({"ok": False, "error": f"Unknown guide topic: {topic_id}"}, HTTPStatus.NOT_FOUND)
                 return
@@ -3692,6 +4014,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="API key. If omitted, the UI can send a browser-session key.",
     )
     parser.add_argument(
+        "--base-url",
+        default=None,
+        help="OpenAI-compatible endpoint or /v1 base URL. Defaults from provider.",
+    )
+    parser.add_argument(
         "--openrouter-api-key",
         default=None,
         help="Deprecated. Use --api-key instead.",
@@ -3711,8 +4038,19 @@ def main() -> int:
     args = build_parser().parse_args()
     load_local_env(args.env_file)
     provider = (args.provider or os.environ.get("PROVIDER", DEFAULT_PROVIDER)).strip().lower()
-    default_model = args.model or os.environ.get("MODEL") or os.environ.get("OPENROUTER_MODEL", DEFAULT_MODEL)
-    api_key = args.api_key or os.environ.get("API_KEY") or args.openrouter_api_key or os.environ.get("OPENROUTER_API_KEY", "")
+    if provider == "kimi-code":
+        provider_default_model = "kimi-for-coding"
+        default_model = args.model or env_value("MODEL", "KIMI_MODEL_NAME") or provider_default_model
+        api_key = args.api_key or env_value("API_KEY", "KIMI_API_KEY")
+        base_url = args.base_url or env_value("BASE_URL", "KIMI_BASE_URL")
+    elif provider == "kimi":
+        default_model = args.model or env_value("MODEL", "KIMI_MODEL_NAME") or "kimi-k2.6"
+        api_key = args.api_key or env_value("API_KEY", "KIMI_API_KEY")
+        base_url = args.base_url or env_value("BASE_URL", "KIMI_BASE_URL")
+    else:
+        default_model = args.model or os.environ.get("MODEL") or os.environ.get("OPENROUTER_MODEL", DEFAULT_MODEL)
+        api_key = args.api_key or os.environ.get("API_KEY") or args.openrouter_api_key or os.environ.get("OPENROUTER_API_KEY", "")
+        base_url = args.base_url or os.environ.get("BASE_URL", "")
     timeout = args.timeout if args.timeout is not None else (args.openrouter_timeout or 45.0)
     app = App(
         args.workspace,
@@ -3720,6 +4058,7 @@ def main() -> int:
         default_model=default_model,
         provider=provider,
         api_key=api_key,
+        base_url=base_url,
         timeout=timeout,
     )
     handler = make_handler(app)
