@@ -50,6 +50,18 @@ Pending, rejected, superseded, and forgotten memories are not used in prompt ass
 
 The self model summarizes the local chain: ring count, temporal mass, top domains, gaps, current verification state, accepted durable memory count, and pending memory count. It is a diagnostic view of local memory state.
 
+## Timechain Workbench
+
+The Timechain Workbench is the inspector panel that makes continuity, correction, and growth signals visible while using the chat app.
+
+It includes:
+
+- A recent Ring timeline with kind, domain, brightness, epistemic status, PoQ score details, hash prefix, retrieved-ring links, and supersession hints.
+- Cambium results from the local Timechain scan, including low-brightness gaps, consolidation candidates, and growth proposals.
+- A Copy Sync Snapshot action that creates a `CT_SYNC_SNAPSHOT` handoff artifact with current state, important recent rings, accepted memories, pending open loops, verification status, risks, and next steps.
+
+Workbench output is diagnostic. Cambium proposals are candidates for user or developer review; they are not durable decisions until accepted through the normal Cypher Tempre discipline.
+
 ## Chain Verification
 
 Verification replays the hash chain to confirm that each ring still points to the previous ring and that no sealed memory was changed outside the normal append path.

@@ -1,5 +1,4 @@
 import unittest
-import tempfile
 from unittest import mock
 from types import SimpleNamespace
 
@@ -7,6 +6,14 @@ import server
 
 
 class PromptAssemblyTests(unittest.TestCase):
+    def make_workspace(self):
+        root = server.pathlib.Path(__file__).resolve().parent / ".test_workspaces"
+        root.mkdir(exist_ok=True)
+        path = root / f"test-{server.uuid.uuid4().hex}"
+        path.mkdir()
+        self.addCleanup(lambda: server.shutil.rmtree(path, ignore_errors=True))
+        return path
+
     def test_build_memory_context_uses_ring_metadata(self):
         rings = [
             SimpleNamespace(
@@ -129,6 +136,104 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertEqual(history[1]["role"], "assistant")
         self.assertEqual(history[1]["brightness"], 0.712)
         self.assertEqual(history[1]["hash_prefix"], "abcdef1234567890")
+
+    def test_serialize_rings_exposes_timechain_workbench_metadata(self):
+        chain = [
+            SimpleNamespace(
+                n=1,
+                ts="2026-05-01T00:00:00Z",
+                kind="genesis",
+                domain="architecture",
+                query="Genesis",
+                content="Start here",
+                brightness=1.0,
+                epistemic="known",
+                tags=["genesis"],
+                retrieved=[],
+                refs=[],
+                supersedes=None,
+                importance=0.9,
+                hash="abc1234567890def",
+                prev="",
+                scores={"coherence": 0.93},
+            ),
+            SimpleNamespace(
+                n=2,
+                ts="2026-05-01T00:01:00Z",
+                kind="interaction",
+                domain="testing",
+                query="What passed?",
+                content="Tests passed.",
+                brightness=0.81234,
+                epistemic="known",
+                tags=["testing"],
+                retrieved=[1],
+                refs=[],
+                supersedes=None,
+                importance=0.7,
+                hash="def1234567890abc",
+                prev="abc1234567890def",
+                scores={"coherence": 0.81},
+            ),
+        ]
+
+        rings = server.serialize_rings(chain)
+
+        self.assertEqual([ring["n"] for ring in rings], [2, 1])
+        self.assertEqual(rings[0]["brightness"], 0.812)
+        self.assertEqual(rings[0]["hash_prefix"], "def1234567890abc")
+        self.assertEqual(rings[0]["scores"]["coherence"], 0.81)
+
+    def test_serialize_cambium_report_counts_growth_signals(self):
+        report = SimpleNamespace(
+            gaps=[("testing", 0.41234)],
+            consolidations=["architecture"],
+            proposals=[{"proposed_domain": "handoff", "reason": "recurring handoff work"}],
+        )
+
+        payload = server.serialize_cambium_report(report)
+
+        self.assertEqual(payload["gap_count"], 1)
+        self.assertEqual(payload["consolidation_count"], 1)
+        self.assertEqual(payload["proposal_count"], 1)
+        self.assertEqual(payload["gaps"][0]["mean_brightness"], 0.4123)
+
+    def test_build_sync_snapshot_uses_rings_memories_and_cambium(self):
+        snapshot = server.build_sync_snapshot(
+            session_id="default",
+            workspace=server.pathlib.Path("C:/workspace/app"),
+            self_model={
+                "name": "CypherTempre",
+                "genesis_hash": "genesis-hash",
+                "ring_count": 2,
+                "temporal_mass": 1.25,
+                "top_domains": ["architecture"],
+            },
+            rings=[{
+                "n": 2,
+                "kind": "interaction",
+                "domain": "architecture",
+                "brightness": 0.8,
+                "epistemic": "known",
+                "query": "What next?",
+                "content": "Build the workbench.",
+            }],
+            memories={
+                "accepted": [{"scope": "global", "key": "preference", "value": "concise", "source_ring": 2}],
+                "pending": [{"scope": "session", "key": "goal", "value": "iterate", "source_ring": 2}],
+            },
+            cambium={
+                "gaps": [{"domain": "testing", "mean_brightness": 0.45}],
+                "consolidations": [],
+                "proposals": [{"proposed_domain": "handoff", "reason": "recurring handoff work"}],
+            },
+            verify_status="ok",
+        )
+
+        self.assertIn("[CT_SYNC_SNAPSHOT]", snapshot)
+        self.assertIn("#2 interaction architecture", snapshot)
+        self.assertIn("preference=concise", snapshot)
+        self.assertIn("proposal handoff", snapshot)
 
     def test_classify_domain_auto_uses_message_keywords(self):
         persona = {"name": "Companion", "domain": "architecture", "system": ""}
@@ -472,147 +577,252 @@ class PromptAssemblyTests(unittest.TestCase):
         )
 
     def test_custom_personas_persist_in_workspace(self):
-        with tempfile.TemporaryDirectory() as temp:
-            workspace = server.pathlib.Path(temp)
-            personas = {
-                "custom_mira": {
-                    "name": "Mira Vale",
-                    "domain": "auto",
-                    "system": "Fictional lighthouse archivist persona.",
-                }
+        workspace = self.make_workspace()
+        personas = {
+            "custom_mira": {
+                "name": "Mira Vale",
+                "domain": "auto",
+                "system": "Fictional lighthouse archivist persona.",
             }
+        }
 
-            server.save_custom_personas(workspace, personas)
-            loaded = server.load_custom_personas(workspace)
+        server.save_custom_personas(workspace, personas)
+        loaded = server.load_custom_personas(workspace)
 
         self.assertEqual(loaded["custom_mira"]["name"], "Mira Vale")
         self.assertEqual(loaded["custom_mira"]["domain"], "auto")
 
     def test_generate_llm_response_uses_saved_custom_persona_and_falls_back_on_provider_error(self):
-        with tempfile.TemporaryDirectory() as temp:
-            workspace = server.pathlib.Path(temp)
-            app = server.App(
-                workspace,
-                server.DEFAULT_TIMECHAIN_PATH,
-                default_model=server.DEFAULT_MODEL,
-                provider="openrouter",
-                api_key="sk-or-test",
-                base_url="",
-                timeout=1,
-            )
-            app.save_custom_persona("custom_mira", {
-                "name": "Mira Vale",
-                "domain": "auto",
-                "system": "Fictional lighthouse archivist persona.",
-            })
+        workspace = self.make_workspace()
+        app = server.App(
+            workspace,
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="sk-or-test",
+            base_url="",
+            timeout=1,
+        )
+        app.save_custom_persona("custom_mira", {
+            "name": "Mira Vale",
+            "domain": "auto",
+            "system": "Fictional lighthouse archivist persona.",
+        })
 
-            with mock.patch("server.call_llm", side_effect=RuntimeError("OpenRouter HTTP 429: Too Many Requests")):
-                response = app.generate_llm_response(
-                    query="hello",
-                    domain="architecture",
-                    persona_id="custom_mira",
-                    custom_persona=None,
-                    model=server.DEFAULT_MODEL,
-                    api_key="sk-or-test",
-                )
+        with mock.patch("server.call_llm", side_effect=RuntimeError("OpenRouter HTTP 429: Too Many Requests")):
+            response = app.generate_llm_response(
+                query="hello",
+                domain="architecture",
+                persona_id="custom_mira",
+                custom_persona=None,
+                model=server.DEFAULT_MODEL,
+                api_key="sk-or-test",
+            )
 
         self.assertEqual(response["persona"]["name"], "Mira Vale")
         self.assertEqual(response["model_used"], "local-default-generator")
         self.assertIn("429", response["provider_error"])
 
     def test_created_session_locks_initial_persona(self):
-        with tempfile.TemporaryDirectory() as temp:
-            app = server.App(
-                server.pathlib.Path(temp),
-                server.DEFAULT_TIMECHAIN_PATH,
-                default_model=server.DEFAULT_MODEL,
-                provider="openrouter",
-                api_key="",
-                base_url="",
-                timeout=1,
-            )
+        app = server.App(
+            self.make_workspace(),
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
 
-            session = app.create_session("OpenClaw chat", persona_id="openclaw")
-            app.use_session(session["id"])
+        session = app.create_session("OpenClaw chat", persona_id="openclaw")
+        app.use_session(session["id"])
 
-            self.assertEqual(session["persona_id"], "openclaw")
-            self.assertEqual(app.session_persona_id(), "openclaw")
-            self.assertEqual(app.bind_session_persona("companion"), "openclaw")
+        self.assertEqual(session["persona_id"], "openclaw")
+        self.assertEqual(app.session_persona_id(), "openclaw")
+        self.assertEqual(app.bind_session_persona("companion"), "openclaw")
 
     def test_existing_session_binds_persona_on_first_chat(self):
-        with tempfile.TemporaryDirectory() as temp:
-            app = server.App(
-                server.pathlib.Path(temp),
-                server.DEFAULT_TIMECHAIN_PATH,
-                default_model=server.DEFAULT_MODEL,
-                provider="openrouter",
-                api_key="",
-                base_url="",
-                timeout=1,
-            )
+        app = server.App(
+            self.make_workspace(),
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
 
-            session = app.create_session("First chat")
-            app.use_session(session["id"])
+        session = app.create_session("First chat")
+        app.use_session(session["id"])
 
-            self.assertEqual(app.bind_session_persona("architect"), "architect")
-            self.assertEqual(app.bind_session_persona("openclaw"), "architect")
+        self.assertEqual(app.bind_session_persona("architect"), "architect")
+        self.assertEqual(app.bind_session_persona("openclaw"), "architect")
 
     def test_reset_chain_preserves_session_persona_lock(self):
-        with tempfile.TemporaryDirectory() as temp:
-            app = server.App(
-                server.pathlib.Path(temp),
-                server.DEFAULT_TIMECHAIN_PATH,
-                default_model=server.DEFAULT_MODEL,
-                provider="openrouter",
-                api_key="",
-                base_url="",
-                timeout=1,
-            )
-            session = app.create_session("Reset me", persona_id="openclaw")
-            app.use_session(session["id"])
+        app = server.App(
+            self.make_workspace(),
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
+        session = app.create_session("Reset me", persona_id="openclaw")
+        app.use_session(session["id"])
 
-            app.reset_chain()
+        app.reset_chain()
 
-            self.assertEqual(app.session_persona_id(), "openclaw")
+        self.assertEqual(app.session_persona_id(), "openclaw")
 
     def test_provider_error_chat_response_does_not_update_chain(self):
-        with tempfile.TemporaryDirectory() as temp:
-            workspace = server.pathlib.Path(temp)
-            app = server.App(
-                workspace,
-                server.DEFAULT_TIMECHAIN_PATH,
-                default_model=server.DEFAULT_MODEL,
-                provider="kimi",
-                api_key="sk-test",
-                base_url="",
-                timeout=1,
-            )
-            before = len(app.agent.chain)
-            app.agent.interact = mock.Mock()
-            llm = {
-                "content": "Provider unavailable: Kimi HTTP 401",
-                "model_used": "local-default-generator",
-                "provider_error": "Kimi HTTP 401",
-                "retrieved": [],
-                "memory_hits": [],
-                "retry": {"attempted": False, "reason": ""},
-                "usage": {},
-            }
+        workspace = self.make_workspace()
+        app = server.App(
+            workspace,
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="kimi",
+            api_key="sk-test",
+            base_url="",
+            timeout=1,
+        )
+        before = len(app.agent.chain)
+        app.agent.interact = mock.Mock()
+        llm = {
+            "content": "Provider unavailable: Kimi HTTP 401",
+            "model_used": "local-default-generator",
+            "provider_error": "Kimi HTTP 401",
+            "retrieved": [],
+            "memory_hits": [],
+            "retry": {"attempted": False, "reason": ""},
+            "usage": {},
+        }
 
-            response = server.finalize_chat_response(
-                app=app,
-                message="hello",
-                domain="architecture",
-                tags=["architecture", "chat-poc", "companion"],
-                model="kimi-k2.6",
-                llm=llm,
-                persona_name="Companion",
-            )
+        response = server.finalize_chat_response(
+            app=app,
+            message="hello",
+            domain="architecture",
+            tags=["architecture", "chat-poc", "companion"],
+            model="kimi-k2.6",
+            llm=llm,
+            persona_name="Companion",
+        )
 
         self.assertFalse(response["accepted"])
         self.assertIn("401", response["provider_error"])
         self.assertEqual(len(app.agent.chain), before)
         app.agent.interact.assert_not_called()
+
+    def test_freeze_management_blocks_new_sealed_rings(self):
+        app = server.App(
+            self.make_workspace(),
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
+
+        result = app.set_frozen(True)
+        response = app.agent.interact("hello", override_content="Frozen response")
+
+        self.assertTrue(result["frozen"])
+        self.assertFalse(response["accepted"])
+        self.assertEqual(response["reason"], "chain is frozen")
+
+    def test_delete_session_refuses_default_and_switches_active(self):
+        app = server.App(
+            self.make_workspace(),
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
+        session = app.create_session("Delete me")
+        app.use_session(session["id"])
+
+        with self.assertRaises(ValueError):
+            app.delete_session("default")
+        result = app.delete_session(session["id"])
+
+        self.assertEqual(result["active"], "default")
+        self.assertFalse((app.sessions_root / session["id"]).exists())
+
+    def test_custom_persona_edit_and_delete_management(self):
+        app = server.App(
+            self.make_workspace(),
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
+
+        edited = app.save_custom_persona("custom_mira", {
+            "name": "Mira Vale",
+            "domain": "testing",
+            "system": "Fictional testing persona.",
+        })
+        remaining = app.delete_custom_persona("custom_mira")
+
+        self.assertEqual(edited["domain"], "testing")
+        self.assertNotIn("custom_mira", remaining)
+        with self.assertRaises(ValueError):
+            app.delete_custom_persona("companion")
+
+    def test_archive_rewind_creates_archive_and_truncates_chain(self):
+        workspace = self.make_workspace()
+        app = server.App(
+            workspace,
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
+        app.agent.interact("first", override_content="First accepted response.")
+        app.agent.interact("second", override_content="Second accepted response.")
+        model = server.empty_memory_model()
+        model["facts"].append({
+            "id": "future",
+            "kind": "goal",
+            "key": "user.goal",
+            "value": "future fact",
+            "confidence": 0.9,
+            "source_ring": 2,
+            "status": "accepted",
+            "scope": "global",
+            "session_id": "default",
+        })
+        server.save_memory_model(workspace, model)
+
+        result = app.rewind_to_ring(1)
+        pruned = server.load_memory_model(workspace)
+
+        self.assertTrue(server.pathlib.Path(result["archive"]).exists())
+        self.assertEqual(result["rewound_to"], 1)
+        self.assertEqual([ring.n for ring in app.agent.chain], [0, 1])
+        self.assertTrue(result["verify_ok"])
+        self.assertEqual(pruned["facts"], [])
+
+    def test_rewind_rejects_invalid_ring(self):
+        app = server.App(
+            self.make_workspace(),
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
+
+        with self.assertRaises(ValueError):
+            app.rewind_to_ring(999)
 
     def test_desktop_layout_locks_shell_to_chat_scroll(self):
         self.assertIn("body {\n      margin: 0;\n      height: 100%;\n      overflow: hidden;", server.HTML)
@@ -629,6 +839,46 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertIn("providerEndpoints", server.HTML)
         self.assertIn("localStorage.removeItem('ct_api_key')", server.HTML)
         self.assertIn("async function testProvider()", server.HTML)
+
+    def test_settings_manage_section_exposes_operational_controls(self):
+        self.assertIn('id="settings-provider-tab"', server.HTML)
+        self.assertIn('id="settings-persona-tab"', server.HTML)
+        self.assertIn('id="settings-manage-tab"', server.HTML)
+        self.assertIn('id="settings-workbench-tab"', server.HTML)
+        self.assertIn('id="persona-settings-section"', server.HTML)
+        self.assertIn('id="manage-settings-section"', server.HTML)
+        self.assertIn('id="workbench-settings-section"', server.HTML)
+        self.assertIn('id="manage-freeze"', server.HTML)
+        self.assertIn('id="manage-ring-select"', server.HTML)
+        self.assertIn('id="manage-rewind"', server.HTML)
+        self.assertIn('id="manage-delete-session"', server.HTML)
+        self.assertIn('id="persona-name"', server.HTML)
+        self.assertIn('id="manage-persona-select"', server.HTML)
+        self.assertIn('id="manage-save-persona"', server.HTML)
+        self.assertIn('id="manage-delete-persona"', server.HTML)
+        self.assertIn("/api/freeze", server.HTML)
+        self.assertIn("/api/rewind", server.HTML)
+        self.assertIn("/api/sessions/delete", server.HTML)
+        self.assertIn("/api/personas/delete", server.HTML)
+
+    def test_persona_studio_and_workbench_moved_out_of_sidebars(self):
+        rail_start = server.HTML.index('<aside class="rail">')
+        rail_end = server.HTML.index('</aside>', rail_start)
+        rail_html = server.HTML[rail_start:rail_end]
+        inspector_start = server.HTML.index('<aside class="inspector">')
+        inspector_end = server.HTML.index('</aside>', inspector_start)
+        inspector_html = server.HTML[inspector_start:inspector_end]
+        persona_start = server.HTML.index('id="persona-settings-section"')
+        manage_start = server.HTML.index('id="manage-settings-section"')
+        workbench_start = server.HTML.index('id="workbench-settings-section"')
+        persona_section = server.HTML[persona_start:manage_start]
+        manage_section = server.HTML[manage_start:workbench_start]
+
+        self.assertNotIn('id="persona-name"', rail_html)
+        self.assertNotIn("Timechain Workbench", inspector_html)
+        self.assertIn('id="persona-name"', persona_section)
+        self.assertIn('id="manage-persona-select"', persona_section)
+        self.assertNotIn('id="manage-persona-select"', manage_section)
 
     def test_chat_ui_has_pending_generation_indicator_and_session_persona_lock(self):
         self.assertIn("thinking-message", server.HTML)
@@ -679,6 +929,17 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertIn("Pending memories are visible in the Memory Inspector", skills_readme)
         self.assertIn("pending memory candidates are not saved as rings", server.HTML)
 
+    def test_guide_documents_timechain_workbench(self):
+        topic_ids = {topic["id"] for topic in server.GUIDE_TOPICS}
+        payload = {topic["id"]: topic for topic in server.guide_topics_payload()}
+        skills_readme = server.pathlib.Path("SKILLS/README.md").read_text(encoding="utf-8")
+
+        self.assertIn("timechain-workbench", topic_ids)
+        self.assertIn("Ring timeline", payload["timechain-workbench"]["details"])
+        self.assertIn("Copy Sync Snapshot", payload["timechain-workbench"]["details"])
+        self.assertIn("Timechain Workbench", skills_readme)
+        self.assertIn("CT_SYNC_SNAPSHOT", skills_readme)
+
     def test_guide_explainer_messages_are_source_grounded(self):
         topic = server.get_guide_topic("poq")
         bundle = server.build_guide_source_bundle(topic, server.pathlib.Path(__file__).resolve().parent)
@@ -708,12 +969,11 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertNotIn("I assume", content)
 
     def test_guide_source_lookup_stays_inside_app_folder(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = server.pathlib.Path(temp)
-            (root / "README.md").write_text("local app readme", encoding="utf-8")
+        root = self.make_workspace()
+        (root / "README.md").write_text("local app readme", encoding="utf-8")
 
-            self.assertIsNotNone(server._doc_path(root, "README.md"))
-            self.assertIsNone(server._doc_path(root, "../OUTSIDE.md"))
+        self.assertIsNotNone(server._doc_path(root, "README.md"))
+        self.assertIsNone(server._doc_path(root, "../OUTSIDE.md"))
 
     def test_guide_ui_has_explain_buttons_and_settings_view(self):
         self.assertIn('id="nav-settings"', server.HTML)
@@ -727,6 +987,16 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertIn('id="accepted-memories"', server.HTML)
         self.assertIn("accept-memory", server.HTML)
         self.assertIn("forget-memory", server.HTML)
+
+    def test_timechain_workbench_ui_exposes_rings_cambium_and_snapshot(self):
+        self.assertIn("Timechain Workbench", server.HTML)
+        self.assertIn('id="ring-timeline"', server.HTML)
+        self.assertIn('id="cambium-results"', server.HTML)
+        self.assertIn('id="copy-sync-snapshot"', server.HTML)
+        self.assertIn("async function refreshWorkbench()", server.HTML)
+        self.assertIn("/api/rings", server.HTML)
+        self.assertIn("/api/cambium", server.HTML)
+        self.assertIn("/api/sync-snapshot", server.HTML)
 
     def test_provider_controls_are_not_in_left_rail(self):
         rail_start = server.HTML.index('<aside class="rail">')

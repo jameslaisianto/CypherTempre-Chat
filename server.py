@@ -601,6 +601,19 @@ GUIDE_TOPICS: list[dict[str, Any]] = [
         "sources": ["Guide: Self Model", "README.md", "SKILLS/README.md"],
     },
     {
+        "id": "timechain-workbench",
+        "title": "Timechain Workbench",
+        "summary": "Inspect the ordered Ring timeline, Cambium growth signals, and a portable Sync Snapshot.",
+        "details": (
+            "The Timechain Workbench turns hidden continuity data into a visible workflow surface.\n"
+            "The Ring timeline lists recent sealed rings with kind, domain, brightness, epistemic status, PoQ scores, hash prefix, and lineage hints.\n"
+            "Cambium shows repeated low-brightness gaps, consolidation candidates, and growth proposals from the local Timechain scan.\n"
+            "Copy Sync Snapshot creates a CT_SYNC_SNAPSHOT handoff artifact with current state, recent rings, accepted memories, pending open loops, verification status, and next-step signals.\n"
+            "Workbench data is diagnostic: Cambium proposals are candidates, not accepted durable decisions."
+        ),
+        "sources": ["Guide: Timechain Workbench", "README.md", "SKILLS/README.md"],
+    },
+    {
         "id": "verify-chain",
         "title": "Verify Chain",
         "summary": "Check whether the hash-linked memory chain is intact.",
@@ -716,6 +729,64 @@ HTML = r"""<!doctype html>
       --amber: #d6b36a;
       --red: #ff8686;
       --shadow: rgba(0, 0, 0, 0.35);
+      --nav-bg: #121311;
+      --nav-active-bg: linear-gradient(180deg, #e5c57c, #c9a45b);
+      --nav-active-text: #15110a;
+      --input-bg: #121311;
+      --panel-bg: linear-gradient(180deg, rgba(24, 24, 22, 0.98), rgba(18, 18, 16, 0.98));
+      --bubble-bg: linear-gradient(180deg, rgba(24, 24, 22, 0.98), rgba(17, 18, 16, 0.98));
+      --user-bubble-bg: linear-gradient(180deg, #17231d, #111a16);
+      --composer-bg: rgba(11, 12, 11, 0.92);
+      --chat-top-bg: rgba(12, 12, 11, 0.82);
+      --status-card-bg: linear-gradient(180deg, #151513, #10110f);
+      --rail-inspector-bg: rgba(17, 17, 15, 0.95);
+      --mobile-nav-bg: rgba(17, 17, 15, 0.98);
+      --overlay-bg: rgba(0, 0, 0, 0.55);
+      --guide-hero-bg: linear-gradient(135deg, rgba(214, 179, 106, 0.10), rgba(18, 18, 16, 0.96) 44%, rgba(103, 216, 155, 0.08));
+      --feature-card-bg: linear-gradient(180deg, rgba(24, 24, 22, 0.98), rgba(18, 18, 16, 0.98));
+      --project-attribution-bg: rgba(16, 16, 14, 0.92);
+      --memory-card-bg: rgba(16, 17, 15, 0.72);
+      --ring-card-bg: rgba(16, 17, 15, 0.72);
+      --thinking-bg: linear-gradient(180deg, rgba(22, 30, 24, 0.98), rgba(16, 19, 17, 0.98));
+      --rejected-bg: #211615;
+    }
+
+    .light {
+      color-scheme: light;
+      --bg: #f7f5f0;
+      --surface: #ffffff;
+      --surface-2: #f0ede6;
+      --surface-3: #e8e4db;
+      --line: #d4d0c5;
+      --line-soft: #e0ddd4;
+      --text: #1a1917;
+      --muted: #6b665c;
+      --faint: #9a958a;
+      --green: #2a9d5c;
+      --blue: #4a7fd4;
+      --amber: #b5892a;
+      --red: #c44;
+      --shadow: rgba(0, 0, 0, 0.10);
+      --nav-bg: #f0ede6;
+      --nav-active-bg: linear-gradient(180deg, #e5c57c, #c9a45b);
+      --nav-active-text: #15110a;
+      --input-bg: #f7f5f0;
+      --panel-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 245, 240, 0.98));
+      --bubble-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 245, 240, 0.98));
+      --user-bubble-bg: linear-gradient(180deg, #e8f5ee, #dceee6);
+      --composer-bg: rgba(255, 255, 255, 0.92);
+      --chat-top-bg: rgba(247, 245, 240, 0.82);
+      --status-card-bg: linear-gradient(180deg, #ffffff, #f0ede6);
+      --rail-inspector-bg: rgba(255, 255, 255, 0.95);
+      --mobile-nav-bg: rgba(255, 255, 255, 0.98);
+      --overlay-bg: rgba(0, 0, 0, 0.25);
+      --guide-hero-bg: linear-gradient(135deg, rgba(214, 179, 106, 0.10), rgba(247, 245, 240, 0.96) 44%, rgba(103, 216, 155, 0.08));
+      --feature-card-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 245, 240, 0.98));
+      --project-attribution-bg: rgba(247, 245, 240, 0.92);
+      --memory-card-bg: rgba(247, 245, 240, 0.72);
+      --ring-card-bg: rgba(247, 245, 240, 0.72);
+      --thinking-bg: linear-gradient(180deg, rgba(232, 245, 238, 0.98), rgba(220, 238, 230, 0.98));
+      --rejected-bg: #f5e8e8;
     }
 
     * { box-sizing: border-box; }
@@ -731,6 +802,14 @@ HTML = r"""<!doctype html>
         var(--bg);
       color: var(--text);
       font: 14px/1.45 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      transition: background-color 0.3s, color 0.3s;
+    }
+
+    .light body {
+      background:
+        linear-gradient(135deg, rgba(214, 179, 106, 0.06), transparent 36%),
+        radial-gradient(circle at 88% 10%, rgba(103, 216, 155, 0.08), transparent 24%),
+        var(--bg);
     }
 
     button, input, textarea, select { font: inherit; }
@@ -750,12 +829,13 @@ HTML = r"""<!doctype html>
     }
 
     .rail, .inspector {
-      background: rgba(17, 17, 15, 0.95);
+      background: var(--rail-inspector-bg);
       border-color: var(--line);
       height: 100vh;
       height: 100dvh;
       min-height: 0;
       overflow: hidden;
+      transition: background-color 0.3s;
     }
 
     .rail {
@@ -799,57 +879,105 @@ HTML = r"""<!doctype html>
       flex: 0 0 auto;
       border: 1px solid var(--line);
       border-radius: 8px;
-      background: #121311;
+      background: var(--nav-bg);
       color: var(--muted);
       cursor: pointer;
+      transition: background-color 0.2s, color 0.2s, border-color 0.2s;
     }
 
     .settings-icon:hover,
     .settings-icon.active {
       color: var(--text);
-      border-color: #a88b4d;
+      border-color: var(--amber);
       background: var(--surface-2);
     }
 
-    .rail-section {
-      padding: 12px;
+    .theme-toggle {
+      width: 34px;
+      height: 34px;
       display: grid;
-      gap: 10px;
+      place-items: center;
+      flex: 0 0 auto;
+      border: 1px solid var(--line);
+      border-radius: 50%;
+      background: var(--nav-bg);
+      color: var(--muted);
+      cursor: pointer;
+      transition: background-color 0.2s, color 0.2s, border-color 0.2s, transform 0.2s;
+    }
+
+    .theme-toggle:hover {
+      color: var(--text);
+      border-color: var(--amber);
+      background: var(--surface-2);
+      transform: scale(1.05);
+    }
+
+    .theme-toggle svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    .rail-section {
+      padding: 16px;
+      display: grid;
+      gap: 14px;
       align-content: start;
       overflow: hidden;
     }
 
     .group {
       display: grid;
-      gap: 6px;
-    }
-
-    .nav {
-      display: grid;
-      grid-template-columns: 1fr;
       gap: 8px;
     }
 
-    .nav button {
-      min-height: 38px;
+    .nav {
+      display: inline-flex;
+      gap: 0;
+      padding: 0;
       border: 1px solid var(--line);
-      border-radius: 8px;
-      background: #121311;
+      border-radius: 999px;
+      background: var(--surface);
+      width: 100%;
+      overflow: hidden;
+    }
+
+    .nav button {
+      flex: 1;
+      min-height: 38px;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
       color: var(--muted);
       cursor: pointer;
       font-weight: 700;
+      font-size: 13px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 0 10px;
+      transition: background-color 0.2s, color 0.2s;
+    }
+
+    .nav button:first-child { border-radius: 999px 0 0 999px; }
+    .nav button:last-child { border-radius: 0 999px 999px 0; }
+
+    .nav button:hover {
+      background: var(--surface-2);
+      color: var(--text);
     }
 
     .nav button.active {
-      color: #15110a;
-      border-color: #a88b4d;
-      background: linear-gradient(180deg, #e5c57c, #c9a45b);
+      color: var(--nav-active-text);
+      background: var(--nav-active-bg);
+      box-shadow: 0 2px 8px var(--shadow);
     }
 
-    .nav .settings-icon {
-      width: auto;
-      height: auto;
-      display: block;
+    .nav button svg {
+      width: 15px;
+      height: 15px;
+      flex-shrink: 0;
     }
 
     label {
@@ -858,15 +986,22 @@ HTML = r"""<!doctype html>
       font-weight: 700;
       letter-spacing: 0.05em;
       text-transform: uppercase;
+      margin-top: 6px;
+    }
+
+    .rail-section label:first-child,
+    .group label:first-child {
+      margin-top: 0;
     }
 
     input, select, textarea {
       width: 100%;
       color: var(--text);
-      background: #121311;
+      background: var(--input-bg);
       border: 1px solid var(--line);
       border-radius: 8px;
       outline: none;
+      transition: background-color 0.3s, border-color 0.2s;
     }
 
     input, select {
@@ -896,9 +1031,10 @@ HTML = r"""<!doctype html>
       padding: 11px;
       border: 1px solid var(--line);
       border-radius: 8px;
-      background: linear-gradient(180deg, #151513, #10110f);
+      background: var(--status-card-bg);
       color: var(--muted);
       font-size: 13px;
+      transition: background-color 0.3s;
     }
 
     .inline-field {
@@ -956,6 +1092,36 @@ HTML = r"""<!doctype html>
       gap: 18px;
     }
 
+    .settings-tabs {
+      display: inline-flex;
+      gap: 6px;
+      padding: 4px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+      width: fit-content;
+    }
+
+    .settings-tabs button {
+      min-height: 34px;
+      border: 0;
+      border-radius: 6px;
+      padding: 0 14px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      font-weight: 800;
+    }
+
+    .settings-tabs button.active {
+      background: rgba(214, 179, 106, 0.14);
+      color: var(--amber);
+    }
+
+    .settings-section.hidden {
+      display: none;
+    }
+
     .settings-row {
       display: grid;
       grid-template-columns: 220px 1fr;
@@ -986,9 +1152,10 @@ HTML = r"""<!doctype html>
       padding: 14px 16px;
       border: 1px solid var(--line);
       border-radius: 10px;
-      background: linear-gradient(180deg, #151513, #10110f);
+      background: var(--status-card-bg);
       display: grid;
       gap: 6px;
+      transition: background-color 0.3s;
     }
 
     .status-header {
@@ -1045,8 +1212,9 @@ HTML = r"""<!doctype html>
       border: 1px solid var(--line);
       border-radius: 12px;
       padding: 24px;
-      background: linear-gradient(135deg, rgba(214, 179, 106, 0.10), rgba(18, 18, 16, 0.96) 44%, rgba(103, 216, 155, 0.08));
-      box-shadow: 0 18px 44px rgba(0, 0, 0, 0.24);
+      background: var(--guide-hero-bg);
+      box-shadow: 0 18px 44px var(--shadow);
+      transition: background-color 0.3s;
     }
 
     .guide-hero h2 {
@@ -1068,7 +1236,7 @@ HTML = r"""<!doctype html>
       padding: 5px;
       border: 1px solid var(--line);
       border-radius: 999px;
-      background: #10110f;
+      background: var(--surface);
     }
 
     .guide-controls button {
@@ -1096,8 +1264,9 @@ HTML = r"""<!doctype html>
     .feature-card {
       border: 1px solid var(--line);
       border-radius: 10px;
-      background: linear-gradient(180deg, rgba(24, 24, 22, 0.98), rgba(18, 18, 16, 0.98));
+      background: var(--feature-card-bg);
       padding: 16px;
+      transition: background-color 0.3s;
     }
 
     .feature-card h3 {
@@ -1132,9 +1301,10 @@ HTML = r"""<!doctype html>
       margin-top: 14px;
       border: 1px solid var(--line);
       border-radius: 10px;
-      background: rgba(16, 16, 14, 0.92);
+      background: var(--project-attribution-bg);
       padding: 16px;
       color: var(--muted);
+      transition: background-color 0.3s;
     }
 
     .project-attribution h3 {
@@ -1177,8 +1347,9 @@ HTML = r"""<!doctype html>
       align-items: center;
       padding: 16px 22px;
       border-bottom: 1px solid var(--line);
-      background: rgba(12, 12, 11, 0.82);
+      background: var(--chat-top-bg);
       backdrop-filter: blur(12px);
+      transition: background-color 0.3s;
     }
 
     .chat-title {
@@ -1284,26 +1455,35 @@ HTML = r"""<!doctype html>
       min-width: 0;
       border: 1px solid var(--line);
       border-radius: 10px;
-      background: linear-gradient(180deg, rgba(24, 24, 22, 0.98), rgba(17, 18, 16, 0.98));
-      box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28);
+      background: var(--bubble-bg);
+      box-shadow: 0 18px 44px var(--shadow);
       overflow: hidden;
+      transition: background-color 0.3s;
     }
 
     .message.user .bubble {
       grid-column: 1;
       grid-row: 1;
-      background: linear-gradient(180deg, #17231d, #111a16);
-      border-color: #315843;
+      background: var(--user-bubble-bg);
+      border-color: var(--green);
+    }
+
+    .light .message.user .bubble {
+      border-color: #8bc4a8;
     }
 
     .message.rejected .bubble {
-      background: #211615;
-      border-color: #6a3939;
+      background: var(--rejected-bg);
+      border-color: var(--red);
     }
 
     .message.thinking-message .bubble {
-      border-color: #4f684f;
-      background: linear-gradient(180deg, rgba(22, 30, 24, 0.98), rgba(16, 19, 17, 0.98));
+      border-color: var(--green);
+      background: var(--thinking-bg);
+    }
+
+    .light .message.thinking-message .bubble {
+      border-color: #8bc4a8;
     }
 
     .thinking-row {
@@ -1355,7 +1535,7 @@ HTML = r"""<!doctype html>
 
     .thought-segment {
       display: inline;
-      color: #cdbf9f;
+      color: var(--faint);
       font-style: italic;
       opacity: 0.88;
     }
@@ -1370,7 +1550,8 @@ HTML = r"""<!doctype html>
     .composer {
       padding: 16px 22px 20px;
       border-top: 1px solid var(--line);
-      background: rgba(11, 12, 11, 0.92);
+      background: var(--composer-bg);
+      transition: background-color 0.3s;
     }
 
     .composer-form {
@@ -1403,10 +1584,10 @@ HTML = r"""<!doctype html>
       max-width: 1020px;
       margin: 0 auto 12px;
       padding: 10px 12px;
-      border: 1px solid #8b6914;
+      border: 1px solid var(--amber);
       border-radius: 8px;
       background: rgba(214, 179, 106, 0.12);
-      color: #d6b36a;
+      color: var(--amber);
       font-size: 13px;
       line-height: 1.45;
     }
@@ -1447,17 +1628,57 @@ HTML = r"""<!doctype html>
 
     .panel {
       border: 1px solid var(--line);
-      border-radius: 8px;
-      background: linear-gradient(180deg, rgba(24, 24, 22, 0.98), rgba(18, 18, 16, 0.98));
-      padding: 12px;
+      border-radius: 10px;
+      background: var(--panel-bg);
+      overflow: hidden;
+      transition: background-color 0.3s;
     }
 
-    .panel h2 {
-      margin: 0 0 10px;
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 12px;
+      cursor: pointer;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .panel-header:hover {
+      background: var(--surface-2);
+    }
+
+    .panel-header h2 {
+      margin: 0;
       color: var(--muted);
       font-size: 12px;
       letter-spacing: 0.06em;
       text-transform: uppercase;
+    }
+
+    .panel-chevron {
+      width: 16px;
+      height: 16px;
+      color: var(--faint);
+      transition: transform 0.25s ease;
+      flex-shrink: 0;
+    }
+
+    .panel.expanded .panel-chevron {
+      transform: rotate(180deg);
+    }
+
+    .panel-body {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.3s ease, padding 0.3s ease;
+      padding: 0 12px;
+    }
+
+    .panel.expanded .panel-body {
+      max-height: 2000px;
+      padding: 0 12px 12px;
     }
 
     dl {
@@ -1485,6 +1706,17 @@ HTML = r"""<!doctype html>
       font-weight: 700;
     }
 
+    .secondary.danger {
+      border-color: #7c3c3c;
+      color: #f0b5ad;
+      background: rgba(91, 36, 34, 0.32);
+    }
+
+    .secondary:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
     .result {
       border-top: 1px solid var(--line-soft);
       padding-top: 10px;
@@ -1503,10 +1735,11 @@ HTML = r"""<!doctype html>
     .memory-card {
       border: 1px solid var(--line-soft);
       border-radius: 8px;
-      background: rgba(16, 17, 15, 0.72);
+      background: var(--memory-card-bg);
       padding: 9px;
       display: grid;
       gap: 7px;
+      transition: background-color 0.3s;
     }
 
     .memory-card strong {
@@ -1539,6 +1772,44 @@ HTML = r"""<!doctype html>
       font-weight: 800;
     }
 
+    .ring-list {
+      display: grid;
+      gap: 8px;
+      max-height: 340px;
+      overflow: auto;
+      padding-right: 2px;
+    }
+
+    .ring-card {
+      border: 1px solid var(--line-soft);
+      border-radius: 8px;
+      background: var(--ring-card-bg);
+      padding: 9px;
+      display: grid;
+      gap: 6px;
+      transition: background-color 0.3s;
+    }
+
+    .ring-card strong {
+      color: var(--text);
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+
+    .ring-card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+    }
+
+    .workbench-actions {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+    }
+
     @media (max-width: 1120px) {
       .app { grid-template-columns: 238px minmax(0, 1fr) 300px; }
       .inspector { border-left: 1px solid var(--line); border-top: 0; }
@@ -1552,16 +1823,17 @@ HTML = r"""<!doctype html>
       .guide.active { flex: 1; min-height: 0; }
       .settings { height: auto; }
       .settings.active { flex: 1; min-height: 0; }
-      .rail { position: fixed; left: 0; top: 0; bottom: 0; width: min(320px, 86vw); z-index: 100; transform: translateX(-101%); transition: transform .25s ease; border-right: 1px solid var(--line); background: rgba(17, 17, 15, 0.98); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+      .rail { position: fixed; left: 0; top: 0; bottom: 0; width: min(320px, 86vw); z-index: 100; transform: translateX(-101%); transition: transform .25s ease; border-right: 1px solid var(--line); background: var(--rail-inspector-bg); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow-y: auto; -webkit-overflow-scrolling: touch; }
       .rail.open { transform: translateX(0); }
       .brand { padding: 12px 14px; }
       .brand-row { display: block; }
       .rail-section { min-height: 0; overflow-y: auto; padding: 10px 10px 18px; }
-      .nav { grid-template-columns: 1fr; }
+      .nav { display: inline-flex; }
+      .nav button { min-height: 34px; }
       .nav button { min-height: 40px; font-size: 13px; }
-      .inspector { position: fixed; right: 0; top: 0; bottom: 0; width: min(320px, 85vw); z-index: 100; transform: translateX(101%); transition: transform .25s ease; border-left: 1px solid var(--line); background: rgba(17, 17, 15, 0.98); display: grid; grid-template-rows: auto minmax(0, 1fr); overflow-y: auto; -webkit-overflow-scrolling: touch; }
+      .inspector { position: fixed; right: 0; top: 0; bottom: 0; width: min(320px, 85vw); z-index: 100; transform: translateX(101%); transition: transform .25s ease; border-left: 1px solid var(--line); background: var(--rail-inspector-bg); display: grid; grid-template-rows: auto minmax(0, 1fr); overflow-y: auto; -webkit-overflow-scrolling: touch; }
       .inspector.open { transform: translateX(0); }
-      .overlay-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 99; display: none; backdrop-filter: blur(2px); }
+      .overlay-backdrop { position: fixed; inset: 0; background: var(--overlay-bg); z-index: 99; display: none; backdrop-filter: blur(2px); }
       .overlay-backdrop.active { display: block; }
       .mobile-only { display: inline-flex; align-items: center; justify-content: center; }
       .guide { padding: 18px; }
@@ -1581,7 +1853,7 @@ HTML = r"""<!doctype html>
     .mobile-nav { display: none; }
 
     @media (max-width: 640px) {
-      .mobile-nav { display: flex; flex: 0 0 56px; border-top: 1px solid var(--line); background: rgba(17, 17, 15, 0.98); padding-bottom: max(0px, env(safe-area-inset-bottom)); }
+      .mobile-nav { display: flex; flex: 0 0 56px; border-top: 1px solid var(--line); background: var(--mobile-nav-bg); padding-bottom: max(0px, env(safe-area-inset-bottom)); }
       .mobile-nav button { flex: 1; background: transparent; border: 0; color: var(--muted); font-size: 13px; font-weight: 700; cursor: pointer; }
       .mobile-nav button.active { color: var(--amber); background: rgba(214, 179, 106, 0.08); }
       .mobile-only { display: inline-flex; align-items: center; justify-content: center; }
@@ -1611,7 +1883,7 @@ HTML = r"""<!doctype html>
       .empty h2 { font-size: 20px; }
       .empty p { font-size: 14px; }
       .brand { padding: 12px 14px; }
-      .rail-section { padding: 10px; gap: 8px; }
+      .rail-section { padding: 12px; gap: 10px; }
       .nav button { min-height: 40px; font-size: 13px; }
       .inspector-head { padding: 12px; }
       .inspector-body { padding: 10px; gap: 10px; }
@@ -1630,15 +1902,28 @@ HTML = r"""<!doctype html>
       <div class="brand">
         <div class="brand-row">
           <h1>CypherTempre</h1>
+          <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Toggle theme" title="Toggle theme">
+            <svg id="theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+            <svg id="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+          </button>
         </div>
         <p>Local LLM chat with PoQ-gated memory.</p>
       </div>
 
       <div class="rail-section">
         <div class="nav" aria-label="Main view">
-          <button id="nav-chat" class="active" type="button">Chat</button>
-          <button id="nav-guide" type="button">Guide</button>
-          <button id="nav-settings" class="settings-icon" type="button">Settings</button>
+          <button id="nav-chat" class="active" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+            Chat
+          </button>
+          <button id="nav-guide" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
+            Guide
+          </button>
+          <button id="nav-settings" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 5 15.4a1.65 1.65 0 0 0-1.51 1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 5 10.6a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 5.4a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82 1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+            Settings
+          </button>
         </div>
 
         <div class="group">
@@ -1660,14 +1945,6 @@ HTML = r"""<!doctype html>
             <option value="refactoring">refactoring</option>
             <option value="api-design">api-design</option>
           </select>
-        </div>
-
-        <div class="group">
-          <label for="persona-seed">Persona Studio</label>
-          <input id="persona-name" placeholder="Persona name">
-          <textarea id="persona-seed" placeholder="Example: lighthouse archivist, warm dry wit, remembers details carefully"></textarea>
-          <button id="generate-persona" class="secondary" type="button">Generate Persona</button>
-          <div class="hint">Creates a fictional inspired persona. It does not claim to be a real person.</div>
         </div>
 
         <div class="group">
@@ -1947,7 +2224,14 @@ HTML = r"""<!doctype html>
           <p>Configure provider access and the default model used by chat and source-grounded guide explanations.</p>
         </section>
 
-        <section class="feature-card settings-form">
+        <div class="settings-tabs" aria-label="Settings sections">
+          <button id="settings-provider-tab" class="active" type="button">Provider</button>
+          <button id="settings-persona-tab" type="button">Persona</button>
+          <button id="settings-manage-tab" type="button">Manage</button>
+          <button id="settings-workbench-tab" type="button">Workbench</button>
+        </div>
+
+        <section id="provider-settings-section" class="feature-card settings-form settings-section">
           <div class="settings-row">
             <div class="settings-field">
               <label for="provider">Provider</label>
@@ -1990,6 +2274,79 @@ HTML = r"""<!doctype html>
             <div class="status-detail" id="status-detail"></div>
           </div>
         </section>
+
+        <section id="persona-settings-section" class="feature-card settings-form settings-section hidden">
+          <div class="settings-row">
+            <div class="settings-field">
+              <label for="persona-seed">Persona Studio</label>
+              <input id="persona-name" placeholder="Persona name">
+              <textarea id="persona-seed" placeholder="Example: lighthouse archivist, warm dry wit, remembers details carefully"></textarea>
+              <button id="generate-persona" class="secondary" type="button">Generate Persona</button>
+              <div class="hint">Creates a fictional inspired persona. It does not claim to be a real person.</div>
+            </div>
+            <div class="settings-field">
+              <label for="manage-persona-select">Custom persona editor</label>
+              <select id="manage-persona-select"></select>
+              <input id="manage-persona-name" placeholder="Persona name">
+              <textarea id="manage-persona-system" placeholder="Persona system prompt"></textarea>
+              <select id="manage-persona-domain">
+                <option value="auto">auto</option>
+                <option value="architecture">architecture</option>
+                <option value="system-design">system-design</option>
+                <option value="api-design">api-design</option>
+                <option value="debugging">debugging</option>
+                <option value="security">security</option>
+                <option value="testing">testing</option>
+                <option value="performance">performance</option>
+              </select>
+              <button id="manage-save-persona" class="secondary" type="button">Save Persona</button>
+              <button id="manage-delete-persona" class="secondary danger" type="button">Delete Persona</button>
+            </div>
+          </div>
+        </section>
+
+        <section id="manage-settings-section" class="feature-card settings-form settings-section hidden">
+          <div class="settings-status-panel" id="manage-status">
+            <div class="status-header">
+              <span class="status-indicator" id="manage-status-dot"></span>
+              <span class="status-label" id="manage-status-label">Manage active session</span>
+            </div>
+            <div class="status-detail" id="manage-status-detail">Session state will load after startup.</div>
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-field">
+              <label for="manage-freeze">Chain controls</label>
+              <button id="manage-freeze" class="secondary" type="button">Freeze Chain</button>
+              <div class="hint">Frozen sessions reject new sealed rings until unfrozen.</div>
+            </div>
+            <div class="settings-field">
+              <label for="manage-ring-select">Archive rewind</label>
+              <select id="manage-ring-select"></select>
+              <button id="manage-rewind" class="secondary danger" type="button">Archive Rewind To Ring</button>
+              <div class="hint">Creates a local archive before truncating the active session chain.</div>
+            </div>
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-field">
+              <label for="manage-session-select">Sessions</label>
+              <select id="manage-session-select"></select>
+              <button id="manage-delete-session" class="secondary danger" type="button">Delete Session</button>
+              <div class="hint">The Default session cannot be deleted.</div>
+            </div>
+          </div>
+        </section>
+
+        <section id="workbench-settings-section" class="feature-card settings-form settings-section hidden">
+          <h2>Timechain Workbench</h2>
+          <div class="workbench-actions">
+            <button id="refresh-workbench" type="button" class="secondary">Refresh Workbench</button>
+            <button id="copy-sync-snapshot" type="button" class="secondary">Copy Sync Snapshot</button>
+          </div>
+          <div id="cambium-results" class="result">Cambium not loaded yet.</div>
+          <div id="ring-timeline" class="ring-list">Ring timeline not loaded yet.</div>
+        </section>
       </div>
     </main>
 
@@ -1999,36 +2356,61 @@ HTML = r"""<!doctype html>
         <span>Recall, verify, and inspect the local chain.</span>
       </div>
       <div class="inspector-body">
-        <section class="panel">
-          <h2>Self Model</h2>
-          <dl id="summary"></dl>
+        <section class="panel expanded" data-panel="self">
+          <div class="panel-header">
+            <h2>Self Model</h2>
+            <svg class="panel-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </div>
+          <div class="panel-body">
+            <dl id="summary"></dl>
+          </div>
         </section>
 
-        <section class="panel">
-          <h2>Pending Memories</h2>
-          <div id="pending-memories" class="memory-list">No pending memories.</div>
+        <section class="panel" data-panel="pending">
+          <div class="panel-header">
+            <h2>Pending Memories</h2>
+            <svg class="panel-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </div>
+          <div class="panel-body">
+            <div id="pending-memories" class="memory-list">No pending memories.</div>
+          </div>
         </section>
 
-        <section class="panel">
-          <h2>Accepted Memories</h2>
-          <div id="accepted-memories" class="memory-list">No accepted memories.</div>
+        <section class="panel" data-panel="accepted">
+          <div class="panel-header">
+            <h2>Accepted Memories</h2>
+            <svg class="panel-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </div>
+          <div class="panel-body">
+            <div id="accepted-memories" class="memory-list">No accepted memories.</div>
+          </div>
         </section>
 
-        <section class="panel">
-          <h2>Recall</h2>
-          <form id="recall-form" class="stack">
-            <input id="recall-query" placeholder="Search prior rings" required>
-            <button type="submit" class="secondary">Recall</button>
-          </form>
-          <div id="recall-results" class="result">No recall query yet.</div>
+        <section class="panel" data-panel="recall">
+          <div class="panel-header">
+            <h2>Recall</h2>
+            <svg class="panel-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </div>
+          <div class="panel-body">
+            <form id="recall-form" class="stack">
+              <input id="recall-query" placeholder="Search prior rings" required>
+              <button type="submit" class="secondary">Recall</button>
+            </form>
+            <div id="recall-results" class="result">No recall query yet.</div>
+          </div>
         </section>
 
-        <section class="panel">
-          <h2>Chain</h2>
-          <div class="stack">
-            <button id="verify" type="button" class="secondary">Verify Chain</button>
-            <button id="reset-chain" type="button" class="secondary">Reset Chain Memory</button>
-            <div id="verify-result" class="result">Not checked yet.</div>
+        <section class="panel" data-panel="chain">
+          <div class="panel-header">
+            <h2>Chain</h2>
+            <svg class="panel-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </div>
+          <div class="panel-body">
+            <div class="stack">
+              <button id="verify" type="button" class="secondary">Verify Chain</button>
+              <button id="reset-chain" type="button" class="secondary">Reset Chain Memory</button>
+              <div id="verify-result" class="result">Not checked yet.</div>
+            </div>
           </div>
         </section>
       </div>
@@ -2059,6 +2441,10 @@ HTML = r"""<!doctype html>
       message: document.getElementById('message'),
       send: document.getElementById('send'),
       summary: document.getElementById('summary'),
+      ringTimeline: document.getElementById('ring-timeline'),
+      cambiumResults: document.getElementById('cambium-results'),
+      refreshWorkbench: document.getElementById('refresh-workbench'),
+      copySyncSnapshot: document.getElementById('copy-sync-snapshot'),
       pendingMemories: document.getElementById('pending-memories'),
       acceptedMemories: document.getElementById('accepted-memories'),
       recallForm: document.getElementById('recall-form'),
@@ -2073,6 +2459,14 @@ HTML = r"""<!doctype html>
       chatView: document.getElementById('chat-view'),
       guideView: document.getElementById('guide-view'),
       settingsView: document.getElementById('settings-view'),
+      settingsProviderTab: document.getElementById('settings-provider-tab'),
+      settingsPersonaTab: document.getElementById('settings-persona-tab'),
+      settingsManageTab: document.getElementById('settings-manage-tab'),
+      settingsWorkbenchTab: document.getElementById('settings-workbench-tab'),
+      providerSettingsSection: document.getElementById('provider-settings-section'),
+      personaSettingsSection: document.getElementById('persona-settings-section'),
+      manageSettingsSection: document.getElementById('manage-settings-section'),
+      workbenchSettingsSection: document.getElementById('workbench-settings-section'),
       settingsStatus: document.getElementById('settings-status'),
       provider: document.getElementById('provider'),
       modelHint: document.getElementById('model-hint'),
@@ -2090,19 +2484,39 @@ HTML = r"""<!doctype html>
       generatePersona: document.getElementById('generate-persona'),
       testProvider: document.getElementById('test-provider'),
       clearProviderOverride: document.getElementById('clear-provider-override'),
+      manageStatusDot: document.getElementById('manage-status-dot'),
+      manageStatusLabel: document.getElementById('manage-status-label'),
+      manageStatusDetail: document.getElementById('manage-status-detail'),
+      manageFreeze: document.getElementById('manage-freeze'),
+      manageRingSelect: document.getElementById('manage-ring-select'),
+      manageRewind: document.getElementById('manage-rewind'),
+      manageSessionSelect: document.getElementById('manage-session-select'),
+      manageDeleteSession: document.getElementById('manage-delete-session'),
+      managePersonaSelect: document.getElementById('manage-persona-select'),
+      managePersonaName: document.getElementById('manage-persona-name'),
+      managePersonaSystem: document.getElementById('manage-persona-system'),
+      managePersonaDomain: document.getElementById('manage-persona-domain'),
+      manageSavePersona: document.getElementById('manage-save-persona'),
+      manageDeletePersona: document.getElementById('manage-delete-persona'),
       sessionList: document.getElementById('session-list'),
       sessionName: document.getElementById('session-name'),
       newSession: document.getElementById('new-session'),
       composerWarning: document.getElementById('composer-warning'),
       mobChat: document.getElementById('mob-chat'),
       mobGuide: document.getElementById('mob-guide'),
-      mobSettings: document.getElementById('mob-settings')
+      mobSettings: document.getElementById('mob-settings'),
+      themeToggle: document.getElementById('theme-toggle'),
+      themeIconMoon: document.getElementById('theme-icon-moon'),
+      themeIconSun: document.getElementById('theme-icon-sun')
     };
 
     let personas = {};
     let customPersonas = {};
     let activeSession = localStorage.getItem('ct_active_session') || 'default';
     let sessionPersonaLocks = {};
+    let sessionRows = [];
+    let ringRows = [];
+    let currentFrozen = false;
     let isSending = false;
     const providerEndpoints = {
       openrouter: 'https://openrouter.ai/api/v1/chat/completions',
@@ -2153,6 +2567,62 @@ HTML = r"""<!doctype html>
       if (els.mobGuide) els.mobGuide.classList.toggle('active', guide);
       if (els.mobSettings) els.mobSettings.classList.toggle('active', settings);
       localStorage.setItem('ct_view', view);
+    }
+
+    function initTheme() {
+      const saved = localStorage.getItem('ct_theme');
+      const prefersLight = saved === 'light' || (!saved && window.matchMedia('(prefers-color-scheme: light)').matches);
+      document.documentElement.classList.toggle('light', prefersLight);
+      updateThemeIcon(prefersLight);
+      const metaTheme = document.querySelector('meta[name="theme-color"]');
+      if (metaTheme) metaTheme.content = prefersLight ? '#f7f5f0' : '#0b0c0b';
+    }
+
+    function toggleTheme() {
+      const isLight = document.documentElement.classList.toggle('light');
+      localStorage.setItem('ct_theme', isLight ? 'light' : 'dark');
+      updateThemeIcon(isLight);
+      const metaTheme = document.querySelector('meta[name="theme-color"]');
+      if (metaTheme) metaTheme.content = isLight ? '#f7f5f0' : '#0b0c0b';
+    }
+
+    function updateThemeIcon(isLight) {
+      if (els.themeIconMoon) els.themeIconMoon.style.display = isLight ? 'none' : 'block';
+      if (els.themeIconSun) els.themeIconSun.style.display = isLight ? 'block' : 'none';
+    }
+
+    function initPanels() {
+      const saved = localStorage.getItem('ct_panels');
+      const expanded = saved ? JSON.parse(saved) : { self: true };
+      document.querySelectorAll('.inspector-body .panel').forEach(panel => {
+        const key = panel.dataset.panel;
+        if (key && expanded[key]) panel.classList.add('expanded');
+        else if (key && !expanded[key]) panel.classList.remove('expanded');
+        const header = panel.querySelector('.panel-header');
+        if (header) {
+          header.addEventListener('click', () => {
+            panel.classList.toggle('expanded');
+            const state = {};
+            document.querySelectorAll('.inspector-body .panel').forEach(p => {
+              if (p.dataset.panel) state[p.dataset.panel] = p.classList.contains('expanded');
+            });
+            localStorage.setItem('ct_panels', JSON.stringify(state));
+          });
+        }
+      });
+    }
+
+    function setSettingsSection(section) {
+      const active = ['provider', 'persona', 'manage', 'workbench'].includes(section) ? section : 'provider';
+      els.providerSettingsSection.classList.toggle('hidden', active !== 'provider');
+      els.personaSettingsSection.classList.toggle('hidden', active !== 'persona');
+      els.manageSettingsSection.classList.toggle('hidden', active !== 'manage');
+      els.workbenchSettingsSection.classList.toggle('hidden', active !== 'workbench');
+      els.settingsProviderTab.classList.toggle('active', active === 'provider');
+      els.settingsPersonaTab.classList.toggle('active', active === 'persona');
+      els.settingsManageTab.classList.toggle('active', active === 'manage');
+      els.settingsWorkbenchTab.classList.toggle('active', active === 'workbench');
+      localStorage.setItem('ct_settings_section', active);
     }
 
     function setGuideDepth(depth) {
@@ -2236,6 +2706,7 @@ HTML = r"""<!doctype html>
 
     async function loadSessions() {
       const data = await api('/api/sessions');
+      sessionRows = data.sessions || [];
       if (!data.sessions.some(session => session.id === activeSession)) {
         activeSession = data.active || 'default';
         localStorage.setItem('ct_active_session', activeSession);
@@ -2248,13 +2719,14 @@ HTML = r"""<!doctype html>
         .map(session => `<option value="${esc(session.id)}">${esc(session.name)} (${session.rings})</option>`)
         .join('');
       els.sessionList.value = activeSession;
+      renderManageSessions();
       applySessionPersonaLock();
     }
 
     async function switchSession(sessionId) {
       activeSession = sessionId || 'default';
       localStorage.setItem('ct_active_session', activeSession);
-      await Promise.all([refreshSummary(), refreshMemories(), verifyChain(), restoreHistory()]);
+      await Promise.all([refreshSummary(), refreshMemories(), refreshWorkbench(), verifyChain(), restoreHistory()]);
       await loadSessions();
       applySessionPersonaLock();
     }
@@ -2306,6 +2778,37 @@ HTML = r"""<!doctype html>
         .map(([id, persona]) => `<option value="${esc(id)}">${esc(persona.name)} · custom</option>`)
         .join('');
       els.persona.innerHTML = builtIns + custom;
+      renderManagePersonas();
+    }
+
+    function renderManageSessions() {
+      els.manageSessionSelect.innerHTML = sessionRows
+        .map(session => `<option value="${esc(session.id)}">${esc(session.name)} (${session.rings})</option>`)
+        .join('');
+      els.manageSessionSelect.value = activeSession;
+      els.manageDeleteSession.disabled = activeSession === 'default';
+    }
+
+    function renderManagePersonas() {
+      const entries = Object.entries(customPersonas);
+      els.managePersonaSelect.innerHTML = entries.length
+        ? entries.map(([id, persona]) => `<option value="${esc(id)}">${esc(persona.name)}</option>`).join('')
+        : '<option value="">No custom personas</option>';
+      els.managePersonaSelect.disabled = entries.length === 0;
+      els.manageSavePersona.disabled = entries.length === 0;
+      els.manageDeletePersona.disabled = entries.length === 0;
+      if (entries.length && !customPersonas[els.managePersonaSelect.value]) {
+        els.managePersonaSelect.value = entries[0][0];
+      }
+      loadSelectedManagePersona();
+    }
+
+    function loadSelectedManagePersona() {
+      const id = els.managePersonaSelect.value;
+      const persona = customPersonas[id] || null;
+      els.managePersonaName.value = persona?.name || '';
+      els.managePersonaSystem.value = persona?.system || '';
+      els.managePersonaDomain.value = persona?.domain || 'auto';
     }
 
     function applySessionPersonaLock() {
@@ -2576,6 +3079,11 @@ HTML = r"""<!doctype html>
     function renderSummary(model) {
       els.workspace.textContent = `Workspace: ${model.workspace || '(local)'}`;
       els.ringsBadge.textContent = `rings: ${model.ring_count}`;
+      currentFrozen = Boolean(model.frozen);
+      els.manageFreeze.textContent = currentFrozen ? 'Unfreeze Chain' : 'Freeze Chain';
+      els.manageStatusLabel.textContent = currentFrozen ? 'Active session frozen' : 'Active session writable';
+      els.manageStatusDot.className = `status-indicator ${currentFrozen ? 'warn' : 'ok'}`;
+      els.manageStatusDetail.textContent = `${session_name_from_id_js(activeSession)} · rings ${model.ring_count} · ${model.workspace || '(local)'}`;
       const facts = model.memory_facts || [];
       const factSummary = facts.length
         ? facts.slice(0, 6).map(fact => `${fact.key}=${fact.value} (#${fact.source_ring})`).join('\n')
@@ -2595,9 +3103,74 @@ HTML = r"""<!doctype html>
         .join('');
     }
 
+    function session_name_from_id_js(sessionId) {
+      if (sessionId === 'default') return 'Default';
+      return String(sessionId || '').replace(/[-_]+/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase()) || sessionId;
+    }
+
     async function refreshSummary() {
       const data = await api(`/api/self-model${sessionQuery()}`);
       renderSummary(data.model);
+    }
+
+    function renderRings(rings) {
+      ringRows = rings || [];
+      els.manageRingSelect.innerHTML = ringRows.length
+        ? ringRows.map(ring => `<option value="${esc(ring.n)}">#${esc(ring.n)} ${esc(ring.kind)} · ${esc(ring.domain)}</option>`).join('')
+        : '<option value="">No rings available</option>';
+      els.manageRewind.disabled = ringRows.length === 0;
+      els.ringTimeline.innerHTML = rings?.length
+        ? rings.map(ring => {
+            const scoreText = ring.scores && Object.keys(ring.scores).length
+              ? Object.entries(ring.scores).map(([key, value]) => `${key}=${value}`).join(' ')
+              : 'scores unavailable';
+            const lineage = [
+              ring.supersedes ? `supersedes #${ring.supersedes}` : '',
+              ring.retrieved?.length ? `retrieved ${ring.retrieved.join(', ')}` : '',
+              ring.hash_prefix ? `hash ${ring.hash_prefix}` : ''
+            ].filter(Boolean).join(' · ');
+            return `
+              <article class="ring-card">
+                <strong>#${esc(ring.n)} ${esc(ring.kind)} · ${esc(ring.domain)} · brightness ${esc(ring.brightness)}</strong>
+                <p>${esc(ring.query || ring.content || '(empty ring)')}</p>
+                <div class="memory-meta">${esc(ring.epistemic || 'unknown')} · ${esc(scoreText)}</div>
+                ${lineage ? `<div class="memory-meta">${esc(lineage)}</div>` : ''}
+              </article>
+            `;
+          }).join('')
+        : 'No rings yet.';
+    }
+
+    function renderCambium(data) {
+      const gaps = data.gaps?.length
+        ? data.gaps.map(gap => `gap ${gap.domain}: mean brightness ${gap.mean_brightness}`).join('\n')
+        : 'No repeated low-brightness gaps.';
+      const consolidations = data.consolidations?.length
+        ? data.consolidations.map(domain => `consolidate ${domain}`).join('\n')
+        : 'No consolidation candidates yet.';
+      const proposals = data.proposals?.length
+        ? data.proposals.slice(0, 8).map(proposal => `proposal ${proposal.proposed_domain}: ${proposal.reason}`).join('\n')
+        : 'No growth proposals yet.';
+      els.cambiumResults.textContent = `Gaps\n${gaps}\n\nConsolidations\n${consolidations}\n\nProposals\n${proposals}`;
+    }
+
+    async function refreshWorkbench() {
+      const [rings, cambium] = await Promise.all([
+        api(`/api/rings${sessionQuery()}&limit=24`),
+        api(`/api/cambium${sessionQuery()}`)
+      ]);
+      renderRings(rings.rings || []);
+      renderCambium(cambium);
+    }
+
+    async function copySyncSnapshot() {
+      const data = await api(`/api/sync-snapshot${sessionQuery()}`);
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(data.snapshot || '');
+        els.cambiumResults.textContent = `Sync Snapshot copied.\n\n${data.snapshot || ''}`;
+      } else {
+        els.cambiumResults.textContent = data.snapshot || 'Sync Snapshot unavailable.';
+      }
     }
 
     function memoryMeta(memory) {
@@ -2650,6 +3223,7 @@ HTML = r"""<!doctype html>
       });
       renderMemories(data);
       await refreshSummary();
+      await refreshWorkbench();
     }
 
     async function verifyChain() {
@@ -2676,7 +3250,89 @@ HTML = r"""<!doctype html>
       els.verifyResult.textContent = `Reset complete. New genesis chain created. rings=${data.rings}`;
       await refreshSummary();
       await refreshMemories();
+      await refreshWorkbench();
       await verifyChain();
+    }
+
+    async function refreshOperationalState() {
+      await Promise.all([refreshSummary(), refreshMemories(), refreshWorkbench(), verifyChain(), restoreHistory()]);
+      await loadSessions();
+      renderManageSessions();
+      renderManagePersonas();
+    }
+
+    async function toggleFreeze() {
+      const data = await api('/api/freeze', {
+        method: 'POST',
+        body: JSON.stringify({ session: activeSession, frozen: !currentFrozen })
+      });
+      currentFrozen = Boolean(data.frozen);
+      await refreshOperationalState();
+      els.manageStatusDetail.textContent = currentFrozen ? 'Session is frozen. New rings will not seal.' : 'Session is writable again.';
+    }
+
+    async function rewindActiveSession() {
+      const ring = Number(els.manageRingSelect.value);
+      if (!Number.isInteger(ring)) throw new Error('Choose a ring to rewind to.');
+      const ok = window.confirm(`Archive and rewind ${session_name_from_id_js(activeSession)} to ring #${ring}? Later rings will be removed from the active chain.`);
+      if (!ok) return;
+      const data = await api('/api/rewind', {
+        method: 'POST',
+        body: JSON.stringify({ session: activeSession, ring })
+      });
+      await refreshOperationalState();
+      els.manageStatusDetail.textContent = `Rewound to ring #${data.rewound_to}. Archive: ${data.archive}. Verify: ${data.verify_status}`;
+    }
+
+    async function deleteSelectedSession() {
+      const sessionId = els.manageSessionSelect.value;
+      if (!sessionId || sessionId === 'default') throw new Error('Default session cannot be deleted.');
+      const ok = window.confirm(`Delete session "${session_name_from_id_js(sessionId)}"? This cannot be undone from the app.`);
+      if (!ok) return;
+      const data = await api('/api/sessions/delete', {
+        method: 'POST',
+        body: JSON.stringify({ session: sessionId })
+      });
+      activeSession = data.active || 'default';
+      localStorage.setItem('ct_active_session', activeSession);
+      await refreshOperationalState();
+      els.manageStatusDetail.textContent = `Deleted session ${session_name_from_id_js(sessionId)}.`;
+    }
+
+    async function saveManagedPersona() {
+      const id = els.managePersonaSelect.value;
+      if (!id || !customPersonas[id]) throw new Error('Choose a custom persona to edit.');
+      const persona = {
+        name: els.managePersonaName.value.trim(),
+        domain: els.managePersonaDomain.value,
+        system: els.managePersonaSystem.value.trim()
+      };
+      const data = await api('/api/personas', {
+        method: 'POST',
+        body: JSON.stringify({ id, persona })
+      });
+      customPersonas = data.custom_personas || customPersonas;
+      saveCustomPersonas();
+      renderPersonaOptions();
+      applySessionPersonaLock();
+      els.manageStatusDetail.textContent = `Saved persona ${data.persona?.name || id}.`;
+    }
+
+    async function deleteManagedPersona() {
+      const id = els.managePersonaSelect.value;
+      if (!id || !customPersonas[id]) throw new Error('Choose a custom persona to delete.');
+      const ok = window.confirm(`Delete custom persona "${customPersonas[id].name}"? Existing sessions will fall back if this persona is missing.`);
+      if (!ok) return;
+      const data = await api('/api/personas/delete', {
+        method: 'POST',
+        body: JSON.stringify({ id })
+      });
+      customPersonas = data.custom_personas || {};
+      localStorage.setItem('ct_custom_personas', JSON.stringify(customPersonas));
+      renderPersonaOptions();
+      if (!customPersonas[els.persona.value] && !personas[els.persona.value]) els.persona.value = 'companion';
+      applySessionPersonaLock();
+      els.manageStatusDetail.textContent = `Deleted persona ${id}.`;
     }
 
     els.form.addEventListener('submit', async (event) => {
@@ -2734,6 +3390,7 @@ HTML = r"""<!doctype html>
         }
         await refreshSummary();
         await refreshMemories();
+        await refreshWorkbench();
         await verifyChain();
       } catch (error) {
         removeThinkingMessage();
@@ -2776,6 +3433,12 @@ HTML = r"""<!doctype html>
     els.resetChain.addEventListener('click', () => {
       resetChainMemory().catch(error => { els.verifyResult.textContent = error.message; });
     });
+    els.refreshWorkbench.addEventListener('click', () => {
+      refreshWorkbench().catch(error => { els.cambiumResults.textContent = error.message; });
+    });
+    els.copySyncSnapshot.addEventListener('click', () => {
+      copySyncSnapshot().catch(error => { els.cambiumResults.textContent = error.message; });
+    });
     document.querySelector('.inspector')?.addEventListener('click', (event) => {
       const button = event.target.closest('[data-action][data-id]');
       if (!button) return;
@@ -2810,6 +3473,10 @@ HTML = r"""<!doctype html>
     els.navChat.addEventListener('click', () => setMainView('chat'));
     els.navGuide.addEventListener('click', () => setMainView('guide'));
     els.navSettings.addEventListener('click', () => setMainView('settings'));
+    els.settingsProviderTab.addEventListener('click', () => setSettingsSection('provider'));
+    els.settingsPersonaTab.addEventListener('click', () => setSettingsSection('persona'));
+    els.settingsManageTab.addEventListener('click', () => setSettingsSection('manage'));
+    els.settingsWorkbenchTab.addEventListener('click', () => setSettingsSection('workbench'));
     if (els.mobChat) els.mobChat.addEventListener('click', () => setMainView('chat'));
     if (els.mobGuide) els.mobGuide.addEventListener('click', () => setMainView('guide'));
     if (els.mobSettings) els.mobSettings.addEventListener('click', () => setMainView('settings'));
@@ -2823,6 +3490,27 @@ HTML = r"""<!doctype html>
     });
     els.newSession.addEventListener('click', () => {
       createSession().catch(error => { els.setup.textContent = error.message; });
+    });
+    els.manageSessionSelect.addEventListener('change', () => {
+      activeSession = els.manageSessionSelect.value || 'default';
+      localStorage.setItem('ct_active_session', activeSession);
+      switchSession(activeSession).catch(error => { els.manageStatusDetail.textContent = error.message; });
+    });
+    els.managePersonaSelect.addEventListener('change', loadSelectedManagePersona);
+    els.manageFreeze.addEventListener('click', () => {
+      toggleFreeze().catch(error => { els.manageStatusDetail.textContent = error.message; });
+    });
+    els.manageRewind.addEventListener('click', () => {
+      rewindActiveSession().catch(error => { els.manageStatusDetail.textContent = error.message; });
+    });
+    els.manageDeleteSession.addEventListener('click', () => {
+      deleteSelectedSession().catch(error => { els.manageStatusDetail.textContent = error.message; });
+    });
+    els.manageSavePersona.addEventListener('click', () => {
+      saveManagedPersona().catch(error => { els.manageStatusDetail.textContent = error.message; });
+    });
+    els.manageDeletePersona.addEventListener('click', () => {
+      deleteManagedPersona().catch(error => { els.manageStatusDetail.textContent = error.message; });
     });
     els.sessionName.addEventListener('keydown', (event) => {
       if (event.key === 'Enter') {
@@ -2866,12 +3554,17 @@ HTML = r"""<!doctype html>
       });
     })();
 
+    initTheme();
+    initPanels();
+    if (els.themeToggle) els.themeToggle.addEventListener('click', toggleTheme);
+
     api('/api/config')
       .then(config => {
         applyLocalConfig(config);
         return syncCustomPersonasToServer(config).then(() => {
           setMainView(localStorage.getItem('ct_view') || 'chat');
-          return loadGuideTopics().then(() => loadSessions().then(() => Promise.all([refreshSummary(), refreshMemories(), verifyChain(), restoreHistory()])));
+          setSettingsSection(localStorage.getItem('ct_settings_section') || 'provider');
+          return loadGuideTopics().then(() => loadSessions().then(() => Promise.all([refreshSummary(), refreshMemories(), refreshWorkbench(), verifyChain(), restoreHistory()])));
         });
       })
       .catch(error => {
@@ -3783,6 +4476,132 @@ def serialize_history(chain: list[Any], limit: int = 80) -> list[dict[str, Any]]
     return history
 
 
+def serialize_ring(ring: Any, *, content_limit: int = 700) -> dict[str, Any]:
+    content = str(getattr(ring, "content", "") or "")
+    query = str(getattr(ring, "query", "") or "")
+    return {
+        "n": int(getattr(ring, "n", 0) or 0),
+        "ts": str(getattr(ring, "ts", "") or ""),
+        "kind": str(getattr(ring, "kind", "") or ""),
+        "domain": str(getattr(ring, "domain", "") or ""),
+        "query": query[:content_limit],
+        "content": content[:content_limit],
+        "brightness": round(float(getattr(ring, "brightness", 0) or 0), 3),
+        "epistemic": str(getattr(ring, "epistemic", "") or ""),
+        "tags": list(getattr(ring, "tags", []) or []),
+        "retrieved": list(getattr(ring, "retrieved", []) or []),
+        "refs": list(getattr(ring, "refs", []) or []),
+        "supersedes": getattr(ring, "supersedes", None),
+        "importance": round(float(getattr(ring, "importance", 0) or 0), 3),
+        "hash_prefix": str(getattr(ring, "hash", "") or "")[:16],
+        "prev_prefix": str(getattr(ring, "prev", "") or "")[:16],
+        "scores": {
+            str(key): round(float(value), 3)
+            for key, value in dict(getattr(ring, "scores", {}) or {}).items()
+        },
+    }
+
+
+def serialize_rings(chain: list[Any], limit: int = 24) -> list[dict[str, Any]]:
+    selected = chain[-max(1, min(limit, 100)):]
+    return [serialize_ring(ring) for ring in reversed(selected)]
+
+
+def serialize_cambium_report(report: Any) -> dict[str, Any]:
+    gaps = [
+        {"domain": str(domain), "mean_brightness": round(float(score), 4)}
+        for domain, score in list(getattr(report, "gaps", []) or [])
+    ]
+    consolidations = [str(domain) for domain in list(getattr(report, "consolidations", []) or [])]
+    proposals = list(getattr(report, "proposals", []) or [])
+    return {
+        "gaps": gaps,
+        "consolidations": consolidations,
+        "proposals": proposals,
+        "proposal_count": len(proposals),
+        "gap_count": len(gaps),
+        "consolidation_count": len(consolidations),
+    }
+
+
+def build_sync_snapshot(
+    *,
+    session_id: str,
+    workspace: pathlib.Path,
+    self_model: dict[str, Any],
+    rings: list[dict[str, Any]],
+    memories: dict[str, Any],
+    cambium: dict[str, Any],
+    verify_status: str,
+) -> str:
+    recent = rings[:8]
+    accepted = list(memories.get("accepted", []) or [])[:8]
+    pending = list(memories.get("pending", []) or [])[:8]
+    top_domains = ", ".join(self_model.get("top_domains", []) or []) or "(none)"
+    ring_lines = [
+        f"- #{ring['n']} {ring['kind']} {ring['domain']} brightness={ring['brightness']} epistemic={ring['epistemic']}: {ring['query'] or ring['content']}"
+        for ring in recent
+    ] or ["- (none)"]
+    accepted_lines = [
+        f"- {fact.get('scope', 'legacy')} {fact.get('key', 'memory')}={fact.get('value', '')} source=#{fact.get('source_ring', '?')}"
+        for fact in accepted
+    ] or ["- (none)"]
+    pending_lines = [
+        f"- {fact.get('scope', 'legacy')} {fact.get('key', 'memory')}={fact.get('value', '')} source=#{fact.get('source_ring', '?')}"
+        for fact in pending
+    ] or ["- (none)"]
+    cambium_lines = [
+        f"- gap {gap['domain']} mean_brightness={gap['mean_brightness']}"
+        for gap in cambium.get("gaps", [])
+    ]
+    cambium_lines.extend(
+        f"- consolidate {domain}" for domain in cambium.get("consolidations", [])
+    )
+    cambium_lines.extend(
+        f"- proposal {proposal.get('proposed_domain', 'unknown')}: {proposal.get('reason', '')}"
+        for proposal in cambium.get("proposals", [])[:8]
+    )
+    if not cambium_lines:
+        cambium_lines = ["- (none)"]
+    return "\n".join([
+        "[CT_SYNC_SNAPSHOT]",
+        "Genesis:",
+        f"- Agent: {self_model.get('name', 'CypherTempre')}",
+        f"- Genesis hash: {self_model.get('genesis_hash', '')}",
+        f"- Workspace: {workspace}",
+        "Current goal:",
+        f"- Continue session '{session_id}' with Timechain continuity visible.",
+        "Current state:",
+        f"- Rings: {self_model.get('ring_count', 0)}",
+        f"- Temporal mass: {self_model.get('temporal_mass', 0)}",
+        f"- Top domains: {top_domains}",
+        f"- Verify: {verify_status}",
+        "Important Rings:",
+        *ring_lines,
+        "Decisions:",
+        "- Use accepted rings and reviewed memories as local continuity context.",
+        "Corrections:",
+        "- Corrections should supersede prior memories or rings without erasing lineage.",
+        "Artifacts:",
+        f"- Chain workspace: {workspace / '.timechain'}",
+        "Tests and evidence:",
+        f"- Chain verification status: {verify_status}",
+        "Known facts:",
+        *accepted_lines,
+        "Inferences:",
+        "- Recent rings and Cambium signals indicate the highest-value next context.",
+        "Speculation:",
+        "- Cambium proposals are growth candidates until accepted by the user.",
+        "Risks:",
+        "- Pending memories are not trusted for recall until reviewed.",
+        "Open loops:",
+        *pending_lines,
+        "Next steps:",
+        *cambium_lines,
+        "[/CT_SYNC_SNAPSHOT]",
+    ])
+
+
 def classify_domain(query: str, persona: dict[str, str], requested_domain: str | None) -> str:
     requested = (requested_domain or "").strip()
     if requested and requested.lower() != "auto":
@@ -4162,6 +4981,19 @@ def session_name_from_id(session_id: str) -> str:
     return session_id.replace("-", " ").replace("_", " ").strip().title() or session_id
 
 
+def prune_memory_model_to_ring(model: dict[str, Any], max_ring: int) -> dict[str, Any]:
+    facts = []
+    for fact in model.get("facts", []):
+        try:
+            source_ring = int(fact.get("source_ring", 0) or 0)
+        except (TypeError, ValueError):
+            source_ring = 0
+        if source_ring <= max_ring:
+            facts.append(fact)
+    model["facts"] = facts
+    return model
+
+
 class App:
     def __init__(
         self,
@@ -4190,6 +5022,10 @@ class App:
     def sessions_root(self) -> pathlib.Path:
         return self.root_workspace / "sessions"
 
+    @property
+    def archives_root(self) -> pathlib.Path:
+        return self.root_workspace / ".timechain_archives"
+
     def workspace_for_session(self, session_id: str) -> pathlib.Path:
         session_id = sanitize_session_id(session_id)
         if session_id == "default":
@@ -4209,7 +5045,11 @@ class App:
         sessions: list[dict[str, Any]] = []
         for session_id, path in [("default", self.root_workspace)]:
             chain_path = path / ".timechain" / "chain.jsonl"
-            rings = sum(1 for _ in chain_path.open("r", encoding="utf-8")) if chain_path.exists() else 0
+            if chain_path.exists():
+                with chain_path.open("r", encoding="utf-8") as handle:
+                    rings = sum(1 for _ in handle)
+            else:
+                rings = 0
             metadata = load_session_metadata(path)
             persona_id = str(metadata.get("persona_id", "")).strip()
             sessions.append({
@@ -4223,7 +5063,11 @@ class App:
             for path in sorted(p for p in self.sessions_root.iterdir() if p.is_dir()):
                 session_id = sanitize_session_id(path.name)
                 chain_path = path / ".timechain" / "chain.jsonl"
-                rings = sum(1 for _ in chain_path.open("r", encoding="utf-8")) if chain_path.exists() else 0
+                if chain_path.exists():
+                    with chain_path.open("r", encoding="utf-8") as handle:
+                        rings = sum(1 for _ in handle)
+                else:
+                    rings = 0
                 metadata = load_session_metadata(path)
                 persona_id = str(metadata.get("persona_id", "")).strip()
                 sessions.append({
@@ -4255,6 +5099,23 @@ class App:
             "rings": len(self.agent.chain),
             "persona_id": locked_persona,
             "persona_name": self.persona_name_for_id(locked_persona),
+        }
+
+    def delete_session(self, session_id: str) -> dict[str, Any]:
+        session_id = sanitize_session_id(session_id)
+        if session_id == "default":
+            raise ValueError("Default session cannot be deleted.")
+        target = (self.sessions_root / session_id).resolve()
+        sessions_root = self.sessions_root.resolve()
+        if sessions_root not in target.parents or not target.exists() or not target.is_dir():
+            raise KeyError(f"Unknown session: {session_id}")
+        shutil.rmtree(target)
+        if self.active_session == session_id:
+            self.use_session("default")
+        return {
+            "deleted": session_id,
+            "active": self.active_session,
+            "sessions": self.list_sessions(),
         }
 
     def reload_agent(self) -> None:
@@ -4399,6 +5260,17 @@ class App:
         save_custom_personas(self.root_workspace, personas)
         return normalized
 
+    def delete_custom_persona(self, persona_id: str) -> dict[str, dict[str, str]]:
+        persona_id = sanitize_session_id(persona_id)
+        if not persona_id or persona_id in PERSONAS:
+            raise ValueError("Built-in personas cannot be deleted.")
+        personas = self.custom_personas()
+        if persona_id not in personas:
+            raise KeyError(f"Unknown custom persona: {persona_id}")
+        personas.pop(persona_id, None)
+        save_custom_personas(self.root_workspace, personas)
+        return personas
+
     def self_model(self) -> dict[str, Any]:
         self.reload_agent()
         model = self.agent.self_model()
@@ -4411,6 +5283,104 @@ class App:
         model["memory_fact_count"] = len(model["memory_facts"])
         model["pending_memory_count"] = sum(1 for fact in memory_model.get("facts", []) if fact.get("status") == "pending")
         return model
+
+    def ring_workbench(self, *, limit: int = 24) -> dict[str, Any]:
+        self.reload_agent()
+        return {
+            "session": self.active_session,
+            "rings": serialize_rings(self.agent.chain, limit=limit),
+            "ring_count": len(self.agent.chain),
+        }
+
+    def cambium_workbench(self) -> dict[str, Any]:
+        self.reload_agent()
+        report = self.agent.cambium_report()
+        return serialize_cambium_report(report)
+
+    def sync_snapshot(self) -> dict[str, Any]:
+        self.reload_agent()
+        ok, status = self.timechain.verify_chain(self.agent.chain)
+        rings = serialize_rings(self.agent.chain, limit=16)
+        memories = self.list_memories()
+        cambium = self.cambium_workbench()
+        model = self.self_model()
+        return {
+            "session": self.active_session,
+            "verify_ok": ok,
+            "verify_status": status,
+            "snapshot": build_sync_snapshot(
+                session_id=self.active_session,
+                workspace=self.workspace,
+                self_model=model,
+                rings=rings,
+                memories=memories,
+                cambium=cambium,
+                verify_status=status,
+            ),
+        }
+
+    def set_frozen(self, frozen: bool) -> dict[str, Any]:
+        self.reload_agent()
+        self.agent.freeze(bool(frozen))
+        return {
+            "session": self.active_session,
+            "frozen": self.agent.frozen,
+            "rings": len(self.agent.chain),
+        }
+
+    def archive_active_timechain(self, *, label: str) -> pathlib.Path:
+        self.archives_root.mkdir(parents=True, exist_ok=True)
+        timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        archive = (self.archives_root / f"{self.active_session}-{label}-{timestamp}").resolve()
+        archives_root = self.archives_root.resolve()
+        if archives_root not in archive.parents:
+            raise RuntimeError(f"Refusing to archive unexpected path: {archive}")
+        archive.mkdir(parents=True, exist_ok=False)
+        source = self.workspace / ".timechain"
+        if source.exists():
+            shutil.copytree(source, archive / ".timechain")
+        return archive
+
+    def rewind_to_ring(self, ring_number: int) -> dict[str, Any]:
+        self.reload_agent()
+        target = next((ring for ring in self.agent.chain if int(getattr(ring, "n", -1)) == int(ring_number)), None)
+        if target is None:
+            raise ValueError(f"Unknown ring: {ring_number}")
+        archive = self.archive_active_timechain(label=f"rewind-to-{ring_number}")
+        kept = [ring for ring in self.agent.chain if int(getattr(ring, "n", -1)) <= int(ring_number)]
+        chain_path = self.workspace / ".timechain" / "chain.jsonl"
+        chain_path.parent.mkdir(parents=True, exist_ok=True)
+        chain_path.write_text(
+            "".join(json.dumps(ring.to_dict(), ensure_ascii=False) + "\n" for ring in kept),
+            encoding="utf-8",
+        )
+        config_path = self.workspace / ".timechain" / "config.json"
+        if config_path.exists():
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+            cache = config.get("skill_cache", {})
+            if isinstance(cache, dict):
+                for domain, entries in list(cache.items()):
+                    if not isinstance(entries, dict):
+                        continue
+                    cache[domain] = {
+                        key: value for key, value in entries.items()
+                        if isinstance(value, dict) and int(value.get("ring", 0) or 0) <= int(ring_number)
+                    }
+            config["skill_cache"] = cache
+            config_path.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
+        model_path = self.root_workspace if self.workspace.resolve() == self.root_workspace.resolve() else self.workspace
+        model = prune_memory_model_to_ring(load_memory_model(model_path), int(ring_number))
+        save_memory_model(model_path, model)
+        self.reload_agent()
+        ok, status = self.timechain.verify_chain(self.agent.chain)
+        return {
+            "session": self.active_session,
+            "archive": str(archive),
+            "rings": len(self.agent.chain),
+            "rewound_to": int(ring_number),
+            "verify_ok": ok,
+            "verify_status": status,
+        }
 
     def reset_chain(self) -> dict[str, Any]:
         root = (self.workspace / ".timechain").resolve()
@@ -4725,6 +5695,19 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                         "rings": len(app.agent.chain),
                     })
                     return
+                if path == "/api/rings":
+                    app.use_session(self.query_param("session"))
+                    limit = int(self.query_param("limit") or "24")
+                    self.send_json({"ok": True, **app.ring_workbench(limit=limit)})
+                    return
+                if path == "/api/cambium":
+                    app.use_session(self.query_param("session"))
+                    self.send_json({"ok": True, **app.cambium_workbench()})
+                    return
+                if path == "/api/sync-snapshot":
+                    app.use_session(self.query_param("session"))
+                    self.send_json({"ok": True, **app.sync_snapshot()})
+                    return
                 if path == "/api/verify":
                     app.use_session(self.query_param("session"))
                     ok, status = app.timechain.verify_chain(app.agent.chain)
@@ -4770,6 +5753,9 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 if path == "/api/personas":
                     self.handle_save_persona()
                     return
+                if path == "/api/personas/delete":
+                    self.handle_delete_persona()
+                    return
                 if path == "/api/test":
                     self.handle_provider_test()
                     return
@@ -4784,6 +5770,15 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                     return
                 if path == "/api/reset":
                     self.handle_reset()
+                    return
+                if path == "/api/freeze":
+                    self.handle_freeze()
+                    return
+                if path == "/api/rewind":
+                    self.handle_rewind()
+                    return
+                if path == "/api/sessions/delete":
+                    self.handle_delete_session()
                     return
                 self.send_error(HTTPStatus.NOT_FOUND, "Not found")
             except Exception as exc:
@@ -4904,6 +5899,23 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
             result = app.reset_chain()
             self.send_json({"ok": True, **result})
 
+        def handle_freeze(self) -> None:
+            payload = self.read_json()
+            app.use_session(str(payload.get("session", "")).strip() or self.query_param("session"))
+            result = app.set_frozen(bool(payload.get("frozen")))
+            self.send_json({"ok": True, **result})
+
+        def handle_rewind(self) -> None:
+            payload = self.read_json()
+            app.use_session(str(payload.get("session", "")).strip() or self.query_param("session"))
+            try:
+                ring_number = int(payload.get("ring"))
+                result = app.rewind_to_ring(ring_number)
+            except (TypeError, ValueError) as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                return
+            self.send_json({"ok": True, **result})
+
         def handle_create_session(self) -> None:
             payload = self.read_json()
             persona_id = str(payload.get("persona", "")).strip()
@@ -4915,6 +5927,19 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 persona_id=persona_id,
             )
             self.send_json({"ok": True, "session": session, "sessions": app.list_sessions()})
+
+        def handle_delete_session(self) -> None:
+            payload = self.read_json()
+            session_id = str(payload.get("session", "")).strip()
+            try:
+                result = app.delete_session(session_id)
+            except KeyError:
+                self.send_json({"ok": False, "error": f"Unknown session: {session_id}"}, HTTPStatus.NOT_FOUND)
+                return
+            except ValueError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                return
+            self.send_json({"ok": True, **result})
 
         def handle_provider_test(self) -> None:
             payload = self.read_json()
@@ -4959,6 +5984,19 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 "persona": persona,
                 "custom_personas": app.custom_personas(),
             })
+
+        def handle_delete_persona(self) -> None:
+            payload = self.read_json()
+            persona_id = str(payload.get("id", "")).strip()
+            try:
+                custom_personas = app.delete_custom_persona(persona_id)
+            except KeyError:
+                self.send_json({"ok": False, "error": f"Unknown custom persona: {persona_id}"}, HTTPStatus.NOT_FOUND)
+                return
+            except ValueError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                return
+            self.send_json({"ok": True, "id": sanitize_session_id(persona_id), "custom_personas": custom_personas})
 
         def query_param(self, name: str) -> str:
             parsed = urlparse(self.path)
