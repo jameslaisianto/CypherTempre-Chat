@@ -1,3 +1,4 @@
+import inspect
 import unittest
 from unittest import mock
 from types import SimpleNamespace
@@ -234,6 +235,150 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertIn("#2 interaction architecture", snapshot)
         self.assertIn("preference=concise", snapshot)
         self.assertIn("proposal handoff", snapshot)
+
+    def test_root_timechain_engine_matches_skills_reference(self):
+        root_engine = server.DEFAULT_TIMECHAIN_PATH.read_text(encoding="utf-8").replace("\r\n", "\n")
+        skills_engine = (server.pathlib.Path(__file__).resolve().parent / "SKILLS" / "TIMECHAIN.py").read_text(encoding="utf-8").replace("\r\n", "\n")
+
+        self.assertEqual(root_engine, skills_engine)
+
+    def test_app_maps_fundamental_timechain_contract(self):
+        workspace = self.make_workspace()
+        app = server.App(
+            workspace,
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
+
+        first = app.agent.interact(
+            "Choose the architecture boundary.",
+            domain="architecture",
+            tags=["architecture", "contract"],
+            override_content=(
+                "We chose a modular, testable, documented architecture boundary. "
+                "This keeps behavior reproducible, reviewed, and simple to verify."
+            ),
+        )
+        self.assertTrue(first["accepted"], first.get("reason"))
+
+        ok, status = app.timechain.verify_chain(app.agent.chain)
+        self.assertTrue(ok, status)
+        self.assertEqual(app.ring_workbench(limit=10)["ring_count"], 2)
+        self.assertEqual(app.self_model()["ring_count"], 2)
+
+        recalled = app.timechain.retrieve(
+            app.agent.chain,
+            "modular architecture boundary",
+            domain="architecture",
+            cphy_weights=app.agent.cphy_weights,
+            config=app.timechain.RetrieverConfig(limit=3),
+        )
+        self.assertGreaterEqual(len(recalled), 1)
+        self.assertEqual(recalled[0][1].n, 1)
+
+        cambium = app.cambium_workbench()
+        self.assertIn("gaps", cambium)
+        self.assertIn("consolidations", cambium)
+        self.assertIn("proposals", cambium)
+
+        app.set_frozen(True)
+        rejected = app.agent.interact("Try to mutate while frozen.", override_content="This should not seal.")
+        self.assertFalse(rejected["accepted"])
+        self.assertEqual(rejected["reason"], "chain is frozen")
+
+        session = app.create_session("Isolated contract session")
+        app.use_session(session["id"])
+        self.assertEqual(len(app.agent.chain), 1)
+        self.assertNotEqual(app.workspace.resolve(), workspace.resolve())
+
+    def test_dream_workbench_creates_rings_and_rejects_when_frozen(self):
+        app = server.App(
+            self.make_workspace(),
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
+        app.agent.interact(
+            "Architecture choice",
+            domain="architecture",
+            override_content="Use modular testable documented architecture with reproducible reviewed boundaries.",
+        )
+        app.agent.interact(
+            "Security choice",
+            domain="security",
+            override_content="Use secure reviewed documented boundary checks with testable audit behavior.",
+        )
+
+        result = app.run_dream("architecture,security", cycles=2)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["domains"], ["architecture", "security"])
+        self.assertGreaterEqual(len(result["dreams"]), 1)
+        self.assertGreater(app.ring_workbench()["ring_count"], 3)
+
+        app.set_frozen(True)
+        with self.assertRaises(PermissionError):
+            app.run_dream("architecture,security", cycles=1)
+
+    def test_overlay_memory_sync_fleet_import_and_challenge_workbench_methods(self):
+        workspace = self.make_workspace()
+        app = server.App(
+            workspace,
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
+
+        overlays = app.set_overlay("architecture", 1.4)
+        self.assertEqual(overlays["overlays"]["architecture"], 1.4)
+        self.assertEqual(app.list_overlays()["overlays"]["architecture"], 1.4)
+
+        sync = app.memory_sync()
+        self.assertTrue((workspace / "MEMORY.md").exists())
+        self.assertTrue(server.pathlib.Path(sync["memory_md"]).exists())
+        self.assertTrue(server.pathlib.Path(sync["daily"]).exists())
+
+        imported = app.fleet_import(
+            {
+                "domain": "architecture",
+                "query": "Imported architecture decision",
+                "content": "Imported modular testable documented decision with reviewed secure boundaries.",
+                "tags": ["imported"],
+            },
+            source="peer-agent",
+        )
+        self.assertTrue(imported["ok"])
+        self.assertEqual(imported["kind"], "fleet_import")
+
+        with self.assertRaises(ValueError):
+            app.fleet_import({"content": "hardcode unsafe skip-review"}, source="peer-agent")
+
+        challenge = app.challenge("0,1", nonce="fixed")
+        self.assertEqual(challenge["nonce"], "fixed")
+        self.assertEqual(challenge["ring_count"], len(app.agent.chain))
+        self.assertEqual([item["n"] for item in challenge["revealed"]], [0, 1])
+        self.assertIn("response_hash", challenge)
+
+        app.set_frozen(True)
+        with self.assertRaises(PermissionError):
+            app.fleet_import(
+                {
+                    "domain": "security",
+                    "query": "Frozen import",
+                    "content": "Secure modular testable documented imported decision.",
+                },
+                source="peer-agent",
+            )
 
     def test_classify_domain_auto_uses_message_keywords(self):
         persona = {"name": "Companion", "domain": "architecture", "system": ""}
@@ -937,8 +1082,16 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertIn("timechain-workbench", topic_ids)
         self.assertIn("Ring timeline", payload["timechain-workbench"]["details"])
         self.assertIn("Copy Sync Snapshot", payload["timechain-workbench"]["details"])
+        self.assertIn("Dream synthesis", payload["timechain-workbench"]["details"])
+        self.assertIn("Overlays", payload["timechain-workbench"]["details"])
+        self.assertIn("Memory Sync", payload["timechain-workbench"]["details"])
+        self.assertIn("Fleet import", payload["timechain-workbench"]["details"])
+        self.assertIn("Temporal challenge", payload["timechain-workbench"]["details"])
         self.assertIn("Timechain Workbench", skills_readme)
         self.assertIn("CT_SYNC_SNAPSHOT", skills_readme)
+        self.assertIn("Dream synthesis", skills_readme)
+        self.assertIn("Fleet import", skills_readme)
+        self.assertIn("Temporal challenge", skills_readme)
 
     def test_guide_explainer_messages_are_source_grounded(self):
         topic = server.get_guide_topic("poq")
@@ -997,6 +1150,41 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertIn("/api/rings", server.HTML)
         self.assertIn("/api/cambium", server.HTML)
         self.assertIn("/api/sync-snapshot", server.HTML)
+
+    def test_timechain_workbench_ui_exposes_advanced_engine_controls(self):
+        expected_ids = [
+            'id="dream-domains"',
+            'id="dream-cycles"',
+            'id="run-dream"',
+            'id="overlay-tag"',
+            'id="overlay-weight"',
+            'id="save-overlay"',
+            'id="run-memory-sync"',
+            'id="fleet-source"',
+            'id="fleet-ring-json"',
+            'id="run-fleet-import"',
+            'id="challenge-indices"',
+            'id="challenge-nonce"',
+            'id="run-challenge"',
+            'id="advanced-timechain-results"',
+        ]
+        for expected in expected_ids:
+            self.assertIn(expected, server.HTML)
+
+        for endpoint in ["/api/dream", "/api/overlays", "/api/memory-sync", "/api/fleet-import", "/api/challenge"]:
+            self.assertIn(endpoint, server.HTML)
+        self.assertIn("confirmTimechainMutation", server.HTML)
+
+    def test_handler_routes_expose_advanced_timechain_endpoints(self):
+        handler_source = inspect.getsource(server.make_handler)
+
+        self.assertIn('path == "/api/overlays"', handler_source)
+        self.assertIn('path == "/api/dream"', handler_source)
+        self.assertIn('path == "/api/memory-sync"', handler_source)
+        self.assertIn('path == "/api/fleet-import"', handler_source)
+        self.assertIn('path == "/api/challenge"', handler_source)
+        self.assertIn("handle_dream", handler_source)
+        self.assertIn("handle_fleet_import", handler_source)
 
     def test_provider_controls_are_not_in_left_rail(self):
         rail_start = server.HTML.index('<aside class="rail">')

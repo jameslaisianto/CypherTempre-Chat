@@ -611,6 +611,11 @@ GUIDE_TOPICS: list[dict[str, Any]] = [
             "The Ring timeline lists recent sealed rings with kind, domain, brightness, epistemic status, PoQ scores, hash prefix, and lineage hints.\n"
             "Cambium shows repeated low-brightness gaps, consolidation candidates, and growth proposals from the local Timechain scan.\n"
             "Copy Sync Snapshot creates a CT_SYNC_SNAPSHOT handoff artifact with current state, recent rings, accepted memories, pending open loops, verification status, and next-step signals.\n"
+            "Dream synthesis seals speculative cross-domain synthesis rings from two or more existing domains, such as architecture and security.\n"
+            "Overlays store tag weight multipliers in .timechain/overlays.json so future retrieval can emphasize selected topics.\n"
+            "Memory Sync writes a human-readable MEMORY.md summary and daily memory journal for the active session workspace.\n"
+            "Fleet import accepts a foreign Ring JSON object from another agent only if it passes the local covenant gate, preserving source provenance.\n"
+            "Temporal challenge returns a proof response from selected ring hashes and a nonce without changing the chain.\n"
             "Workbench data is diagnostic: Cambium proposals are candidates, not accepted durable decisions."
         ),
         "sources": ["Guide: Timechain Workbench", "README.md", "SKILLS/README.md"],
@@ -709,7 +714,7 @@ HTML = r"""<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0b0c0b">
+  <meta name="theme-color" content="#000000">
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
   <link rel="apple-touch-icon" href="/icon.svg">
@@ -717,78 +722,84 @@ HTML = r"""<!doctype html>
   <style>
     :root {
       color-scheme: dark;
-      --bg: #0b0c0b;
-      --surface: #151514;
-      --surface-2: #1d1d1b;
-      --surface-3: #262520;
-      --line: #3a3932;
-      --line-soft: #292821;
-      --text: #f5f0e6;
-      --muted: #aaa397;
-      --faint: #7e776d;
-      --green: #67d89b;
-      --blue: #8fb3ff;
+      --bg: #000000;
+      --surface: #0f0f0f;
+      --surface-2: #1a1a1a;
+      --surface-3: #262626;
+      --line: #333333;
+      --line-soft: #1a1a1a;
+      --text: #ededed;
+      --muted: #a3a3a3;
+      --faint: #525252;
+      --green: #22c55e;
+      --blue: #10aceb;
       --amber: #d6b36a;
-      --red: #ff8686;
-      --shadow: rgba(0, 0, 0, 0.35);
-      --nav-bg: #121311;
-      --nav-active-bg: linear-gradient(180deg, #e5c57c, #c9a45b);
-      --nav-active-text: #15110a;
-      --input-bg: #121311;
-      --panel-bg: linear-gradient(180deg, rgba(24, 24, 22, 0.98), rgba(18, 18, 16, 0.98));
-      --bubble-bg: linear-gradient(180deg, rgba(24, 24, 22, 0.98), rgba(17, 18, 16, 0.98));
-      --user-bubble-bg: linear-gradient(180deg, #17231d, #111a16);
-      --composer-bg: rgba(11, 12, 11, 0.92);
-      --chat-top-bg: rgba(12, 12, 11, 0.82);
-      --status-card-bg: linear-gradient(180deg, #151513, #10110f);
-      --rail-inspector-bg: rgba(17, 17, 15, 0.95);
-      --mobile-nav-bg: rgba(17, 17, 15, 0.98);
-      --overlay-bg: rgba(0, 0, 0, 0.55);
-      --guide-hero-bg: linear-gradient(135deg, rgba(214, 179, 106, 0.10), rgba(18, 18, 16, 0.96) 44%, rgba(103, 216, 155, 0.08));
-      --feature-card-bg: linear-gradient(180deg, rgba(24, 24, 22, 0.98), rgba(18, 18, 16, 0.98));
-      --project-attribution-bg: rgba(16, 16, 14, 0.92);
-      --memory-card-bg: rgba(16, 17, 15, 0.72);
-      --ring-card-bg: rgba(16, 17, 15, 0.72);
-      --thinking-bg: linear-gradient(180deg, rgba(22, 30, 24, 0.98), rgba(16, 19, 17, 0.98));
-      --rejected-bg: #211615;
+      --red: #ef4444;
+      --shadow: rgba(0, 0, 0, 0.45);
+      --nav-bg: rgba(17, 17, 17, 0.6);
+      --nav-active-bg: linear-gradient(180deg, #10aceb, #0a8ec5);
+      --nav-active-text: #ffffff;
+      --input-bg: #0f0f0f;
+      --panel-bg: rgba(10, 10, 10, 0.72);
+      --bubble-bg: rgba(17, 17, 17, 0.82);
+      --user-bubble-bg: linear-gradient(180deg, #0d1f2d, #0a1822);
+      --composer-bg: rgba(0, 0, 0, 0.88);
+      --chat-top-bg: rgba(0, 0, 0, 0.72);
+      --status-card-bg: linear-gradient(180deg, #111111, #0a0a0a);
+      --rail-inspector-bg: rgba(8, 8, 8, 0.82);
+      --mobile-nav-bg: rgba(8, 8, 8, 0.92);
+      --overlay-bg: rgba(0, 0, 0, 0.65);
+      --guide-hero-bg: linear-gradient(135deg, rgba(16, 172, 235, 0.08), rgba(0, 0, 0, 0.96) 44%, rgba(34, 197, 94, 0.06));
+      --feature-card-bg: rgba(17, 17, 17, 0.72);
+      --project-attribution-bg: rgba(15, 15, 15, 0.88);
+      --memory-card-bg: rgba(17, 17, 17, 0.72);
+      --ring-card-bg: rgba(17, 17, 17, 0.72);
+      --thinking-bg: linear-gradient(180deg, rgba(13, 31, 45, 0.95), rgba(8, 18, 26, 0.95));
+      --rejected-bg: #1a0f0f;
+      --orb-1: rgba(16, 172, 235, 0.15);
+      --orb-2: rgba(34, 197, 94, 0.10);
+      --orb-3: rgba(214, 179, 106, 0.08);
     }
 
     .light {
       color-scheme: light;
-      --bg: #f7f5f0;
+      --bg: #f7f7f5;
       --surface: #ffffff;
-      --surface-2: #f0ede6;
-      --surface-3: #e8e4db;
-      --line: #d4d0c5;
-      --line-soft: #e0ddd4;
-      --text: #1a1917;
-      --muted: #6b665c;
-      --faint: #9a958a;
-      --green: #2a9d5c;
-      --blue: #4a7fd4;
+      --surface-2: #f0f0ee;
+      --surface-3: #e8e8e6;
+      --line: #d4d4d0;
+      --line-soft: #e8e8e4;
+      --text: #1a1a1a;
+      --muted: #6b6b6b;
+      --faint: #9a9a9a;
+      --green: #16a34a;
+      --blue: #0284c7;
       --amber: #b5892a;
-      --red: #c44;
-      --shadow: rgba(0, 0, 0, 0.10);
-      --nav-bg: #f0ede6;
-      --nav-active-bg: linear-gradient(180deg, #e5c57c, #c9a45b);
-      --nav-active-text: #15110a;
-      --input-bg: #f7f5f0;
-      --panel-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 245, 240, 0.98));
-      --bubble-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 245, 240, 0.98));
-      --user-bubble-bg: linear-gradient(180deg, #e8f5ee, #dceee6);
-      --composer-bg: rgba(255, 255, 255, 0.92);
-      --chat-top-bg: rgba(247, 245, 240, 0.82);
-      --status-card-bg: linear-gradient(180deg, #ffffff, #f0ede6);
-      --rail-inspector-bg: rgba(255, 255, 255, 0.95);
-      --mobile-nav-bg: rgba(255, 255, 255, 0.98);
-      --overlay-bg: rgba(0, 0, 0, 0.25);
-      --guide-hero-bg: linear-gradient(135deg, rgba(214, 179, 106, 0.10), rgba(247, 245, 240, 0.96) 44%, rgba(103, 216, 155, 0.08));
-      --feature-card-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 245, 240, 0.98));
-      --project-attribution-bg: rgba(247, 245, 240, 0.92);
-      --memory-card-bg: rgba(247, 245, 240, 0.72);
-      --ring-card-bg: rgba(247, 245, 240, 0.72);
-      --thinking-bg: linear-gradient(180deg, rgba(232, 245, 238, 0.98), rgba(220, 238, 230, 0.98));
+      --red: #dc2626;
+      --shadow: rgba(0, 0, 0, 0.08);
+      --nav-bg: rgba(240, 240, 238, 0.6);
+      --nav-active-bg: linear-gradient(180deg, #10aceb, #0a8ec5);
+      --nav-active-text: #ffffff;
+      --input-bg: #f7f7f5;
+      --panel-bg: rgba(255, 255, 255, 0.82);
+      --bubble-bg: rgba(255, 255, 255, 0.88);
+      --user-bubble-bg: linear-gradient(180deg, #e8f4fa, #dceef7);
+      --composer-bg: rgba(247, 247, 245, 0.92);
+      --chat-top-bg: rgba(247, 247, 245, 0.82);
+      --status-card-bg: linear-gradient(180deg, #ffffff, #f0f0ee);
+      --rail-inspector-bg: rgba(255, 255, 255, 0.88);
+      --mobile-nav-bg: rgba(255, 255, 255, 0.95);
+      --overlay-bg: rgba(0, 0, 0, 0.35);
+      --guide-hero-bg: linear-gradient(135deg, rgba(16, 172, 235, 0.06), rgba(247, 247, 245, 0.96) 44%, rgba(34, 197, 94, 0.04));
+      --feature-card-bg: rgba(255, 255, 255, 0.82);
+      --project-attribution-bg: rgba(247, 247, 245, 0.92);
+      --memory-card-bg: rgba(247, 247, 245, 0.72);
+      --ring-card-bg: rgba(247, 247, 245, 0.72);
+      --thinking-bg: linear-gradient(180deg, rgba(232, 244, 250, 0.98), rgba(220, 238, 247, 0.98));
       --rejected-bg: #f5e8e8;
+      --orb-1: rgba(16, 172, 235, 0.10);
+      --orb-2: rgba(34, 197, 94, 0.06);
+      --orb-3: rgba(214, 179, 106, 0.04);
     }
 
     * { box-sizing: border-box; }
@@ -798,27 +809,61 @@ HTML = r"""<!doctype html>
       height: 100%;
       overflow: hidden;
       min-height: 100vh;
-      background:
-        linear-gradient(135deg, rgba(214, 179, 106, 0.08), transparent 36%),
-        radial-gradient(circle at 88% 10%, rgba(103, 216, 155, 0.10), transparent 24%),
-        var(--bg);
+      background: var(--bg);
       color: var(--text);
       font: 14px/1.45 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       transition: background-color 0.3s, color 0.3s;
     }
 
-    .light body {
-      background:
-        linear-gradient(135deg, rgba(214, 179, 106, 0.06), transparent 36%),
-        radial-gradient(circle at 88% 10%, rgba(103, 216, 155, 0.08), transparent 24%),
-        var(--bg);
-    }
-
     button, input, textarea, select { font: inherit; }
     button, a, [role="button"] { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 
-    html {
-      height: 100%;
+    html { height: 100%; }
+
+    /* Orb background field */
+    .orb-field {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      overflow: hidden;
+    }
+    .orb {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(80px);
+      opacity: 0.6;
+      animation: orbFloat 20s ease-in-out infinite;
+    }
+    .orb-1 {
+      width: 500px;
+      height: 500px;
+      background: var(--orb-1);
+      top: -15%;
+      left: -10%;
+      animation-delay: 0s;
+    }
+    .orb-2 {
+      width: 400px;
+      height: 400px;
+      background: var(--orb-2);
+      bottom: -15%;
+      right: -10%;
+      animation-delay: -7s;
+    }
+    .orb-3 {
+      width: 350px;
+      height: 350px;
+      background: var(--orb-3);
+      top: 50%;
+      left: 60%;
+      animation-delay: -14s;
+    }
+    @keyframes orbFloat {
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      25% { transform: translate(30px, -20px) scale(1.05); }
+      50% { transform: translate(-20px, 30px) scale(0.95); }
+      75% { transform: translate(20px, 20px) scale(1.02); }
     }
 
     .app {
@@ -828,6 +873,8 @@ HTML = r"""<!doctype html>
       height: 100dvh;
       min-height: 0;
       overflow: hidden;
+      position: relative;
+      z-index: 1;
     }
 
     .rail, .inspector {
@@ -842,14 +889,24 @@ HTML = r"""<!doctype html>
 
     .rail {
       border-right: 1px solid var(--line);
-      display: grid;
       grid-template-rows: auto minmax(0, 1fr) auto;
+      background: linear-gradient(180deg, #0f0f0f 0%, #111111 100%);
+      position: relative;
+      z-index: 2;
+    }
+
+    .light .rail {
+      background: linear-gradient(180deg, #f0f0ee 0%, #f7f7f5 100%);
+    }
+
+    .inspector {
+      backdrop-filter: blur(20px) saturate(1.2);
     }
 
     .brand {
       padding: 22px 18px;
       border-bottom: 1px solid var(--line-soft);
-      background: linear-gradient(180deg, rgba(214, 179, 106, 0.08), transparent);
+      background: linear-gradient(180deg, rgba(16, 172, 235, 0.06), transparent);
     }
 
     .brand-row {
@@ -862,9 +919,13 @@ HTML = r"""<!doctype html>
     .brand h1 {
       margin: 0;
       font-size: 24px;
-      letter-spacing: 0;
+      letter-spacing: -0.02em;
       line-height: 1.1;
       font-weight: 750;
+      background: linear-gradient(180deg, #ededed, #a3a3a3);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
     }
 
     .brand p {
@@ -884,14 +945,15 @@ HTML = r"""<!doctype html>
       background: var(--nav-bg);
       color: var(--muted);
       cursor: pointer;
-      transition: background-color 0.2s, color 0.2s, border-color 0.2s;
+      transition: background-color 0.2s, color 0.2s, border-color 0.2s, transform 0.15s;
     }
 
     .settings-icon:hover,
     .settings-icon.active {
       color: var(--text);
-      border-color: var(--amber);
+      border-color: var(--blue);
       background: var(--surface-2);
+      transform: scale(1.05);
     }
 
     .theme-toggle {
@@ -910,7 +972,7 @@ HTML = r"""<!doctype html>
 
     .theme-toggle:hover {
       color: var(--text);
-      border-color: var(--amber);
+      border-color: var(--blue);
       background: var(--surface-2);
       transform: scale(1.05);
     }
@@ -923,57 +985,54 @@ HTML = r"""<!doctype html>
     .rail-section {
       padding: 16px;
       display: grid;
-      gap: 14px;
+      gap: 20px;
       align-content: start;
-      overflow: hidden;
+      overflow: auto;
     }
 
     .group {
       display: grid;
-      gap: 8px;
+      gap: 9px;
     }
 
     .nav {
-      display: inline-flex;
-      gap: 0;
-      padding: 0;
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 3px;
+      padding: 3px;
       border: 1px solid var(--line);
-      border-radius: 999px;
-      background: var(--surface);
+      border-radius: 12px;
+      background: rgba(17, 17, 17, 0.8);
       width: 100%;
       overflow: hidden;
     }
 
     .nav button {
-      flex: 1;
-      min-height: 38px;
+      min-height: 34px;
       border: 0;
-      border-radius: 0;
+      border-radius: 8px;
       background: transparent;
       color: var(--muted);
       cursor: pointer;
       font-weight: 700;
-      font-size: 13px;
+      font-size: 12px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      gap: 6px;
-      padding: 0 10px;
+      gap: 5px;
+      padding: 0 8px;
       transition: background-color 0.2s, color 0.2s;
     }
 
-    .nav button:first-child { border-radius: 999px 0 0 999px; }
-    .nav button:last-child { border-radius: 0 999px 999px 0; }
-
     .nav button:hover {
-      background: var(--surface-2);
+      background: rgba(255, 255, 255, 0.04);
       color: var(--text);
     }
 
     .nav button.active {
       color: var(--nav-active-text);
       background: var(--nav-active-bg);
-      box-shadow: 0 2px 8px var(--shadow);
+      box-shadow: 0 2px 12px rgba(16, 172, 235, 0.25);
     }
 
     .nav button svg {
@@ -983,12 +1042,12 @@ HTML = r"""<!doctype html>
     }
 
     label {
-      color: var(--muted);
-      font-size: 12px;
+      color: var(--faint);
+      font-size: 10.5px;
       font-weight: 700;
       letter-spacing: 0.05em;
       text-transform: uppercase;
-      margin-top: 6px;
+      margin-top: 4px;
     }
 
     .rail-section label:first-child,
@@ -1003,7 +1062,7 @@ HTML = r"""<!doctype html>
       border: 1px solid var(--line);
       border-radius: 8px;
       outline: none;
-      transition: background-color 0.3s, border-color 0.2s;
+      transition: background-color 0.3s, border-color 0.2s, box-shadow 0.2s;
     }
 
     input, select {
@@ -1019,8 +1078,8 @@ HTML = r"""<!doctype html>
     }
 
     input:focus, select:focus, textarea:focus {
-      border-color: #4f8d6b;
-      box-shadow: 0 0 0 3px rgba(103, 216, 155, 0.11);
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(16, 172, 235, 0.12);
     }
 
     .hint {
@@ -1058,6 +1117,8 @@ HTML = r"""<!doctype html>
       height: 100dvh;
       min-height: 0;
       overflow: hidden;
+      position: relative;
+      contain: layout paint;
     }
 
     .chat.hidden {
@@ -1096,28 +1157,31 @@ HTML = r"""<!doctype html>
 
     .settings-tabs {
       display: inline-flex;
-      gap: 6px;
+      gap: 4px;
       padding: 4px;
       border: 1px solid var(--line);
-      border-radius: 8px;
-      background: var(--surface);
+      border-radius: 999px;
+      background: var(--nav-bg);
+      backdrop-filter: blur(12px);
       width: fit-content;
     }
 
     .settings-tabs button {
-      min-height: 34px;
+      min-height: 32px;
       border: 0;
-      border-radius: 6px;
+      border-radius: 999px;
       padding: 0 14px;
       background: transparent;
       color: var(--muted);
       cursor: pointer;
-      font-weight: 800;
+      font-weight: 700;
+      font-size: 12px;
+      transition: background-color 0.2s, color 0.2s;
     }
 
     .settings-tabs button.active {
-      background: rgba(214, 179, 106, 0.14);
-      color: var(--amber);
+      background: rgba(16, 172, 235, 0.14);
+      color: var(--blue);
     }
 
     .settings-section.hidden {
@@ -1143,9 +1207,9 @@ HTML = r"""<!doctype html>
 
     .settings-field label {
       color: var(--muted);
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 700;
-      letter-spacing: 0.05em;
+      letter-spacing: 0.06em;
       text-transform: uppercase;
     }
 
@@ -1171,14 +1235,14 @@ HTML = r"""<!doctype html>
       height: 10px;
       border-radius: 50%;
       background: var(--faint);
-      box-shadow: 0 0 0 2px rgba(126, 119, 109, 0.25);
+      box-shadow: 0 0 0 2px rgba(82, 82, 82, 0.25);
       transition: background 0.2s, box-shadow 0.2s;
       flex-shrink: 0;
     }
 
     .status-indicator.ok {
       background: var(--green);
-      box-shadow: 0 0 0 2px rgba(103, 216, 155, 0.25);
+      box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.25);
     }
 
     .status-indicator.warn {
@@ -1188,7 +1252,7 @@ HTML = r"""<!doctype html>
 
     .status-indicator.error {
       background: var(--red);
-      box-shadow: 0 0 0 2px rgba(255, 134, 134, 0.25);
+      box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.25);
     }
 
     .status-label {
@@ -1222,7 +1286,7 @@ HTML = r"""<!doctype html>
     .guide-hero h2 {
       margin: 0;
       font-size: 30px;
-      letter-spacing: 0;
+      letter-spacing: -0.02em;
     }
 
     .guide-hero p {
@@ -1234,27 +1298,31 @@ HTML = r"""<!doctype html>
 
     .guide-controls {
       display: inline-flex;
-      gap: 8px;
-      padding: 5px;
+      gap: 4px;
+      padding: 4px;
       border: 1px solid var(--line);
       border-radius: 999px;
-      background: var(--surface);
+      background: var(--nav-bg);
+      backdrop-filter: blur(12px);
     }
 
     .guide-controls button {
       border: 0;
       border-radius: 999px;
-      min-height: 34px;
+      min-height: 32px;
       padding: 0 14px;
       color: var(--muted);
       background: transparent;
       cursor: pointer;
-      font-weight: 800;
+      font-weight: 700;
+      font-size: 12px;
+      transition: background-color 0.2s, color 0.2s;
     }
 
     .guide-controls button.active {
-      color: #15110a;
-      background: linear-gradient(180deg, #e5c57c, #c9a45b);
+      color: #ffffff;
+      background: linear-gradient(180deg, #10aceb, #0a8ec5);
+      box-shadow: 0 2px 8px rgba(16, 172, 235, 0.25);
     }
 
     .feature-grid {
@@ -1267,14 +1335,20 @@ HTML = r"""<!doctype html>
       border: 1px solid var(--line);
       border-radius: 10px;
       background: var(--feature-card-bg);
+      backdrop-filter: blur(12px);
       padding: 16px;
-      transition: background-color 0.3s;
+      transition: background-color 0.3s, transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .feature-card:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 24px var(--shadow);
     }
 
     .feature-card h3 {
       margin: 0 0 8px;
       font-size: 16px;
-      letter-spacing: 0;
+      letter-spacing: -0.01em;
     }
 
     .feature-card p {
@@ -1313,7 +1387,7 @@ HTML = r"""<!doctype html>
       margin: 0 0 8px;
       color: var(--text);
       font-size: 16px;
-      letter-spacing: 0;
+      letter-spacing: -0.01em;
     }
 
     .project-attribution p {
@@ -1325,8 +1399,8 @@ HTML = r"""<!doctype html>
     }
 
     .project-attribution a {
-      color: var(--amber);
-      font-weight: 800;
+      color: var(--blue);
+      font-weight: 700;
       text-decoration: none;
     }
 
@@ -1350,7 +1424,7 @@ HTML = r"""<!doctype html>
       padding: 16px 22px;
       border-bottom: 1px solid var(--line);
       background: var(--chat-top-bg);
-      backdrop-filter: blur(12px);
+      backdrop-filter: blur(16px) saturate(1.2);
       transition: background-color 0.3s;
     }
 
@@ -1362,6 +1436,7 @@ HTML = r"""<!doctype html>
     .chat-title strong {
       display: block;
       font-size: 16px;
+      letter-spacing: -0.01em;
     }
 
     .chat-title span {
@@ -1386,15 +1461,17 @@ HTML = r"""<!doctype html>
       background: var(--surface);
       color: var(--muted);
       border-radius: 999px;
-      padding: 5px 9px;
-      font-size: 12px;
+      padding: 5px 10px;
+      font-size: 11px;
+      font-weight: 600;
       white-space: nowrap;
+      letter-spacing: 0.01em;
     }
 
-    .badge.ok { color: var(--green); border-color: #35674f; }
-    .badge.warn { color: var(--amber); border-color: #6b5730; }
-    .badge.info { color: var(--blue); border-color: #3b4d76; }
-    .badge.bad { color: var(--red); border-color: #6b3c3c; }
+    .badge.ok { color: var(--green); border-color: rgba(34, 197, 94, 0.3); }
+    .badge.warn { color: var(--amber); border-color: rgba(214, 179, 106, 0.3); }
+    .badge.info { color: var(--blue); border-color: rgba(16, 172, 235, 0.3); }
+    .badge.bad { color: var(--red); border-color: rgba(239, 68, 68, 0.3); }
 
     .messages {
       overflow: auto;
@@ -1418,7 +1495,7 @@ HTML = r"""<!doctype html>
       margin: 0;
       color: var(--text);
       font-size: 28px;
-      letter-spacing: 0;
+      letter-spacing: -0.02em;
     }
 
     .empty p { margin: 0; }
@@ -1441,11 +1518,12 @@ HTML = r"""<!doctype html>
       height: 38px;
       display: grid;
       place-items: center;
-      border-radius: 8px;
+      border-radius: 10px;
       border: 1px solid var(--line);
       background: var(--surface-2);
       color: var(--green);
       font-weight: 800;
+      font-size: 13px;
     }
 
     .message.user .avatar {
@@ -1456,8 +1534,9 @@ HTML = r"""<!doctype html>
     .bubble {
       min-width: 0;
       border: 1px solid var(--line);
-      border-radius: 10px;
+      border-radius: 12px;
       background: var(--bubble-bg);
+      backdrop-filter: blur(12px);
       box-shadow: 0 18px 44px var(--shadow);
       overflow: hidden;
       transition: background-color 0.3s;
@@ -1467,11 +1546,11 @@ HTML = r"""<!doctype html>
       grid-column: 1;
       grid-row: 1;
       background: var(--user-bubble-bg);
-      border-color: var(--green);
+      border-color: rgba(16, 172, 235, 0.35);
     }
 
     .light .message.user .bubble {
-      border-color: #8bc4a8;
+      border-color: #7dd3fc;
     }
 
     .message.rejected .bubble {
@@ -1480,12 +1559,12 @@ HTML = r"""<!doctype html>
     }
 
     .message.thinking-message .bubble {
-      border-color: var(--green);
+      border-color: rgba(16, 172, 235, 0.4);
       background: var(--thinking-bg);
     }
 
     .light .message.thinking-message .bubble {
-      border-color: #8bc4a8;
+      border-color: #7dd3fc;
     }
 
     /* Auth overlay */
@@ -1495,18 +1574,18 @@ HTML = r"""<!doctype html>
       z-index: 200;
       display: grid;
       place-items: center;
-      backdrop-filter: blur(16px) saturate(1.2);
+      backdrop-filter: blur(24px) saturate(1.4);
       background:
-        radial-gradient(circle at 20% 30%, rgba(214, 179, 106, 0.12), transparent 50%),
-        radial-gradient(circle at 80% 70%, rgba(103, 216, 155, 0.10), transparent 50%),
-        rgba(11, 12, 11, 0.88);
+        radial-gradient(circle at 20% 30%, rgba(16, 172, 235, 0.10), transparent 50%),
+        radial-gradient(circle at 80% 70%, rgba(34, 197, 94, 0.08), transparent 50%),
+        rgba(5, 5, 5, 0.92);
       transition: opacity 0.35s ease, visibility 0.35s ease;
     }
     .light .auth-overlay {
       background:
-        radial-gradient(circle at 20% 30%, rgba(214, 179, 106, 0.08), transparent 50%),
-        radial-gradient(circle at 80% 70%, rgba(103, 216, 155, 0.06), transparent 50%),
-        rgba(247, 245, 240, 0.88);
+        radial-gradient(circle at 20% 30%, rgba(16, 172, 235, 0.06), transparent 50%),
+        radial-gradient(circle at 80% 70%, rgba(34, 197, 94, 0.04), transparent 50%),
+        rgba(247, 247, 245, 0.92);
     }
     .auth-overlay.hidden {
       opacity: 0;
@@ -1522,7 +1601,7 @@ HTML = r"""<!doctype html>
       display: grid;
       gap: 18px;
       box-shadow:
-        0 32px 64px -12px rgba(0, 0, 0, 0.50),
+        0 32px 64px -12px rgba(0, 0, 0, 0.55),
         0 0 0 1px rgba(255, 255, 255, 0.03) inset;
       animation: authEnter 0.5s cubic-bezier(0.22, 1, 0.36, 1);
     }
@@ -1540,14 +1619,14 @@ HTML = r"""<!doctype html>
       width: 48px;
       height: 48px;
       border-radius: 14px;
-      background: linear-gradient(135deg, #d6b36a, #a88b4d);
+      background: linear-gradient(135deg, #10aceb, #0a8ec5);
       display: grid;
       place-items: center;
       font-size: 24px;
       font-weight: 900;
-      color: #15110a;
+      color: #ffffff;
       margin: 0 auto;
-      box-shadow: 0 8px 20px rgba(214, 179, 106, 0.25);
+      box-shadow: 0 8px 24px rgba(16, 172, 235, 0.30);
     }
     .auth-card h2 { margin: 0; font-size: 24px; text-align: center; letter-spacing: -0.02em; }
     .auth-card .subtitle { margin: -10px 0 0; color: var(--muted); font-size: 14px; text-align: center; }
@@ -1573,17 +1652,17 @@ HTML = r"""<!doctype html>
       transition: background-color 0.2s, color 0.2s;
     }
     .auth-tabs button.active {
-      color: var(--nav-active-text);
-      background: var(--nav-active-bg);
-      box-shadow: 0 2px 8px rgba(0,0,0,0.20);
+      color: #ffffff;
+      background: linear-gradient(180deg, #10aceb, #0a8ec5);
+      box-shadow: 0 2px 8px rgba(16, 172, 235, 0.25);
     }
     .auth-field { display: grid; gap: 8px; }
     .auth-field label {
       color: var(--muted);
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: 0.06em;
+      letter-spacing: 0.07em;
     }
     .auth-field input {
       height: 44px;
@@ -1596,17 +1675,17 @@ HTML = r"""<!doctype html>
       min-height: 48px;
       border-radius: 12px;
       border: 0;
-      color: #15110a;
-      background: linear-gradient(180deg, #e5c57c, #c9a45b);
+      color: #ffffff;
+      background: linear-gradient(180deg, #10aceb, #0a8ec5);
       cursor: pointer;
       font-weight: 800;
       font-size: 15px;
-      box-shadow: 0 4px 14px rgba(214, 179, 106, 0.25);
+      box-shadow: 0 4px 16px rgba(16, 172, 235, 0.30);
       transition: transform 0.15s ease, box-shadow 0.15s ease;
     }
     .auth-submit:hover {
       transform: translateY(-1px);
-      box-shadow: 0 6px 18px rgba(214, 179, 106, 0.35);
+      box-shadow: 0 6px 20px rgba(16, 172, 235, 0.40);
     }
     .auth-submit:active {
       transform: translateY(0);
@@ -1616,6 +1695,19 @@ HTML = r"""<!doctype html>
     /* Account dropdown */
     .account-wrap {
       position: relative;
+    }
+    .brand > .account-wrap {
+      margin-top: 10px;
+    }
+    .brand > .account-wrap .account-btn {
+      width: 100%;
+      justify-content: flex-start;
+    }
+    .brand > .account-wrap .account-menu {
+      top: 38px;
+      right: 0;
+      left: 0;
+      min-width: unset;
     }
     .account-btn {
       display: inline-flex;
@@ -1634,7 +1726,7 @@ HTML = r"""<!doctype html>
     }
     .account-btn:hover {
       background: var(--surface-3);
-      border-color: var(--amber);
+      border-color: var(--blue);
     }
     .account-menu {
       position: absolute;
@@ -1664,11 +1756,11 @@ HTML = r"""<!doctype html>
     .account-menu button:hover { background: var(--surface-2); }
     .account-menu .account-role {
       padding: 8px 14px;
-      color: var(--amber);
+      color: var(--blue);
       font-size: 11px;
       font-weight: 800;
       text-transform: uppercase;
-      letter-spacing: 0.06em;
+      letter-spacing: 0.07em;
       border-bottom: 1px solid var(--line-soft);
     }
 
@@ -1689,7 +1781,7 @@ HTML = r"""<!doctype html>
       box-shadow: 0 18px 44px var(--shadow);
       margin-bottom: 18px;
     }
-    .marketplace-hero h2 { margin: 0; font-size: 26px; }
+    .marketplace-hero h2 { margin: 0; font-size: 26px; letter-spacing: -0.02em; }
     .marketplace-hero p { margin: 8px 0 0; color: var(--muted); font-size: 15px; }
     .marketplace-filters {
       display: flex;
@@ -1710,13 +1802,19 @@ HTML = r"""<!doctype html>
       background: var(--surface);
       color: var(--muted);
       font-weight: 700;
-      font-size: 13px;
+      font-size: 12px;
       cursor: pointer;
+      transition: background-color 0.2s, color 0.2s;
+    }
+    .filter-pill:hover {
+      background: var(--surface-2);
+      color: var(--text);
     }
     .filter-pill.active {
-      color: var(--nav-active-text);
-      background: var(--nav-active-bg);
+      color: #ffffff;
+      background: linear-gradient(180deg, #10aceb, #0a8ec5);
       border-color: transparent;
+      box-shadow: 0 2px 8px rgba(16, 172, 235, 0.25);
     }
     .marketplace-grid {
       display: grid;
@@ -1727,6 +1825,7 @@ HTML = r"""<!doctype html>
       border: 1px solid var(--line);
       border-radius: 14px;
       background: var(--feature-card-bg);
+      backdrop-filter: blur(12px);
       padding: 16px;
       display: grid;
       gap: 10px;
@@ -1735,7 +1834,7 @@ HTML = r"""<!doctype html>
     }
     .persona-card:hover {
       transform: translateY(-3px);
-      box-shadow: 0 8px 24px var(--shadow);
+      box-shadow: 0 8px 28px var(--shadow);
     }
     .persona-card-header {
       display: flex;
@@ -1757,7 +1856,7 @@ HTML = r"""<!doctype html>
       width: 7px;
       height: 7px;
       border-radius: 50%;
-      background: var(--amber);
+      background: var(--blue);
     }
     .price-badge {
       padding: 4px 10px;
@@ -1765,9 +1864,9 @@ HTML = r"""<!doctype html>
       font-size: 11px;
       font-weight: 800;
     }
-    .price-badge.free { background: rgba(103, 216, 155, 0.14); color: var(--green); }
-    .price-badge.premium { background: rgba(214, 179, 106, 0.14); color: var(--amber); }
-    .persona-card h3 { margin: 0; font-size: 17px; }
+    .price-badge.free { background: rgba(34, 197, 94, 0.14); color: var(--green); }
+    .price-badge.premium { background: rgba(16, 172, 235, 0.14); color: var(--blue); }
+    .persona-card h3 { margin: 0; font-size: 17px; letter-spacing: -0.01em; }
     .persona-card .tagline {
       color: var(--muted);
       font-size: 13px;
@@ -1796,6 +1895,7 @@ HTML = r"""<!doctype html>
       width: min(420px, 90vw);
       z-index: 150;
       background: var(--rail-inspector-bg);
+      backdrop-filter: blur(24px) saturate(1.2);
       border-left: 1px solid var(--line);
       transform: translateX(101%);
       transition: transform 0.3s ease;
@@ -1814,7 +1914,7 @@ HTML = r"""<!doctype html>
       align-items: flex-start;
       gap: 12px;
     }
-    .detail-drawer-head h2 { margin: 0; font-size: 20px; }
+    .detail-drawer-head h2 { margin: 0; font-size: 20px; letter-spacing: -0.01em; }
     .detail-drawer-body {
       overflow: auto;
       padding: 18px;
@@ -1837,7 +1937,7 @@ HTML = r"""<!doctype html>
     .temporal-mass-fill {
       height: 100%;
       border-radius: 999px;
-      background: linear-gradient(90deg, var(--green), var(--amber));
+      background: linear-gradient(90deg, var(--green), var(--blue));
       transition: width 0.6s ease;
     }
 
@@ -1864,9 +1964,9 @@ HTML = r"""<!doctype html>
       border-radius: 6px;
     }
     .status-draft { background: rgba(143, 179, 255, 0.12); color: var(--blue); }
-    .status-pending { background: rgba(214, 179, 106, 0.12); color: var(--amber); }
-    .status-published { background: rgba(103, 216, 155, 0.12); color: var(--green); }
-    .status-archived { background: rgba(126, 119, 109, 0.12); color: var(--faint); }
+    .status-pending { background: rgba(16, 172, 235, 0.12); color: var(--blue); }
+    .status-published { background: rgba(34, 197, 94, 0.12); color: var(--green); }
+    .status-archived { background: rgba(82, 82, 82, 0.12); color: var(--faint); }
 
     .thinking-row {
       display: inline-flex;
@@ -1880,7 +1980,7 @@ HTML = r"""<!doctype html>
       width: 7px;
       height: 7px;
       border-radius: 50%;
-      background: var(--green);
+      background: var(--blue);
       animation: thinkingPulse 1s ease-in-out infinite;
     }
 
@@ -1933,6 +2033,7 @@ HTML = r"""<!doctype html>
       padding: 16px 22px 20px;
       border-top: 1px solid var(--line);
       background: var(--composer-bg);
+      backdrop-filter: blur(16px) saturate(1.2);
       transition: background-color 0.3s;
     }
 
@@ -1947,18 +2048,26 @@ HTML = r"""<!doctype html>
     .send {
       width: 46px;
       min-height: 46px;
-      border-radius: 8px;
-      border: 1px solid #a88b4d;
-      color: #15110a;
-      background: linear-gradient(180deg, #e5c57c, #c9a45b);
+      border-radius: 10px;
+      border: 1px solid rgba(16, 172, 235, 0.5);
+      color: #ffffff;
+      background: linear-gradient(180deg, #10aceb, #0a8ec5);
       cursor: pointer;
       font-size: 18px;
       font-weight: 900;
+      box-shadow: 0 4px 14px rgba(16, 172, 235, 0.25);
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .send:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 18px rgba(16, 172, 235, 0.35);
     }
 
     .send:disabled {
       opacity: 0.55;
       cursor: not-allowed;
+      transform: none;
     }
 
     .composer-warning {
@@ -1968,7 +2077,7 @@ HTML = r"""<!doctype html>
       padding: 10px 12px;
       border: 1px solid var(--amber);
       border-radius: 8px;
-      background: rgba(214, 179, 106, 0.12);
+      background: rgba(214, 179, 106, 0.10);
       color: var(--amber);
       font-size: 13px;
       line-height: 1.45;
@@ -1991,6 +2100,7 @@ HTML = r"""<!doctype html>
     .inspector-head strong {
       display: block;
       font-size: 15px;
+      letter-spacing: -0.01em;
     }
 
     .inspector-head span {
@@ -2012,6 +2122,7 @@ HTML = r"""<!doctype html>
       border: 1px solid var(--line);
       border-radius: 10px;
       background: var(--panel-bg);
+      backdrop-filter: blur(12px);
       overflow: hidden;
       transition: background-color 0.3s;
     }
@@ -2034,8 +2145,8 @@ HTML = r"""<!doctype html>
     .panel-header h2 {
       margin: 0;
       color: var(--muted);
-      font-size: 12px;
-      letter-spacing: 0.06em;
+      font-size: 11px;
+      letter-spacing: 0.07em;
       text-transform: uppercase;
     }
 
@@ -2081,17 +2192,29 @@ HTML = r"""<!doctype html>
     .secondary {
       min-height: 40px;
       border: 1px solid var(--line);
-      border-radius: 7px;
+      border-radius: 8px;
       background: var(--surface-2);
       color: var(--text);
       cursor: pointer;
       font-weight: 700;
+      font-size: 13px;
+      transition: background-color 0.2s, border-color 0.2s, transform 0.1s;
+    }
+
+    .secondary:hover {
+      background: var(--surface-3);
+      border-color: var(--blue);
     }
 
     .secondary.danger {
-      border-color: #7c3c3c;
-      color: #f0b5ad;
+      border-color: rgba(239, 68, 68, 0.4);
+      color: #fca5a5;
       background: rgba(91, 36, 34, 0.32);
+    }
+
+    .secondary.danger:hover {
+      border-color: var(--red);
+      background: rgba(91, 36, 34, 0.45);
     }
 
     .secondary:disabled {
@@ -2152,6 +2275,12 @@ HTML = r"""<!doctype html>
       cursor: pointer;
       font-size: 12px;
       font-weight: 800;
+      transition: background-color 0.2s, border-color 0.2s;
+    }
+
+    .memory-actions button:hover {
+      background: var(--surface-3);
+      border-color: var(--blue);
     }
 
     .ring-list {
@@ -2196,6 +2325,9 @@ HTML = r"""<!doctype html>
       .app { grid-template-columns: 238px minmax(0, 1fr) 300px; }
       .inspector { border-left: 1px solid var(--line); border-top: 0; }
       .feature-grid { grid-template-columns: 1fr; }
+      .nav button { font-size: 0; gap: 0; padding: 0 6px; }
+      .nav button svg { width: 17px; height: 17px; }
+      .nav button.active svg { filter: drop-shadow(0 0 4px rgba(16,172,235,0.5)); }
     }
 
     @media (max-width: 760px) {
@@ -2205,17 +2337,16 @@ HTML = r"""<!doctype html>
       .guide.active { flex: 1; min-height: 0; }
       .settings { height: auto; }
       .settings.active { flex: 1; min-height: 0; }
-      .rail { position: fixed; left: 0; top: 0; bottom: 0; width: min(320px, 86vw); z-index: 100; transform: translateX(-101%); transition: transform .25s ease; border-right: 1px solid var(--line); background: var(--rail-inspector-bg); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+      .rail { position: fixed; left: 0; top: 0; bottom: 0; width: min(320px, 86vw); z-index: 100; transform: translateX(-101%); transition: transform .25s ease; border-right: 1px solid var(--line); background: linear-gradient(180deg, #0f0f0f 0%, #111111 100%); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow-y: auto; -webkit-overflow-scrolling: touch; }
       .rail.open { transform: translateX(0); }
       .brand { padding: 12px 14px; }
       .brand-row { display: block; }
       .rail-section { min-height: 0; overflow-y: auto; padding: 10px 10px 18px; }
-      .nav { display: inline-flex; }
-      .nav button { min-height: 34px; }
-      .nav button { min-height: 40px; font-size: 13px; }
-      .inspector { position: fixed; right: 0; top: 0; bottom: 0; width: min(320px, 85vw); z-index: 100; transform: translateX(101%); transition: transform .25s ease; border-left: 1px solid var(--line); background: var(--rail-inspector-bg); display: grid; grid-template-rows: auto minmax(0, 1fr); overflow-y: auto; -webkit-overflow-scrolling: touch; }
+      .nav { display: grid; grid-template-columns: repeat(2, 1fr); }
+      .nav button { min-height: 38px; font-size: 13px; }
+      .inspector { position: fixed; right: 0; top: 0; bottom: 0; width: min(320px, 85vw); z-index: 100; transform: translateX(101%); transition: transform .25s ease; border-left: 1px solid var(--line); background: var(--rail-inspector-bg); backdrop-filter: blur(24px); display: grid; grid-template-rows: auto minmax(0, 1fr); overflow-y: auto; -webkit-overflow-scrolling: touch; }
       .inspector.open { transform: translateX(0); }
-      .overlay-backdrop { position: fixed; inset: 0; background: var(--overlay-bg); z-index: 99; display: none; backdrop-filter: blur(2px); }
+      .overlay-backdrop { position: fixed; inset: 0; background: var(--overlay-bg); z-index: 99; display: none; }
       .overlay-backdrop.active { display: block; }
       .mobile-only { display: inline-flex; align-items: center; justify-content: center; }
       .guide { padding: 18px; }
@@ -2230,7 +2361,8 @@ HTML = r"""<!doctype html>
       .message, .message.user { grid-template-columns: 1fr; }
       .avatar { display: none; }
       .message.user .bubble { grid-column: auto; grid-row: auto; }
-      .marketplace { padding: 14px; }
+      .marketplace { padding: 14px; height: auto; }
+      .marketplace.active { flex: 1; min-height: 0; }
       .marketplace-hero { padding: 14px; }
       .marketplace-hero h2 { font-size: 20px; }
       .marketplace-grid { grid-template-columns: 1fr; }
@@ -2242,7 +2374,7 @@ HTML = r"""<!doctype html>
     @media (max-width: 640px) {
       .mobile-nav { display: flex; flex: 0 0 56px; border-top: 1px solid var(--line); background: var(--mobile-nav-bg); padding-bottom: max(0px, env(safe-area-inset-bottom)); }
       .mobile-nav button { flex: 1; background: transparent; border: 0; color: var(--muted); font-size: 13px; font-weight: 700; cursor: pointer; }
-      .mobile-nav button.active { color: var(--amber); background: rgba(214, 179, 106, 0.08); }
+      .mobile-nav button.active { color: var(--blue); background: rgba(16, 172, 235, 0.08); }
       .mobile-only { display: inline-flex; align-items: center; justify-content: center; }
       .composer { padding: 10px 12px 14px; }
       .composer-form { gap: 8px; }
@@ -2281,29 +2413,34 @@ HTML = r"""<!doctype html>
       input, select, textarea { font-size: 16px; }
       .status-card { margin: 8px 10px 10px; padding: 10px; font-size: 12px; }
     }
-  </style>
+    </style>
 </head>
 <body>
+  <div class="orb-field" aria-hidden="true">
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+  </div>
   <div class="app">
     <aside class="rail">
       <div class="brand">
         <div class="brand-row">
           <h1>CypherTempre</h1>
           <div class="brand-actions">
-            <div class="account-wrap" id="account-wrap">
-              <button class="account-btn" id="account-btn" type="button" style="display:none;">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
-                <span id="account-name">Account</span>
-              </button>
-              <div class="account-menu" id="account-menu">
-                <div class="account-role" id="account-role"></div>
-                <button id="account-logout" type="button">Log out</button>
-              </div>
-            </div>
             <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Toggle theme" title="Toggle theme">
             <svg id="theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
             <svg id="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
           </button>
+          </div>
+        </div>
+        <div class="account-wrap" id="account-wrap">
+          <button class="account-btn" id="account-btn" type="button" style="display:none;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+            <span id="account-name">Account</span>
+          </button>
+          <div class="account-menu" id="account-menu">
+            <div class="account-role" id="account-role"></div>
+            <button id="account-logout" type="button">Log out</button>
           </div>
         </div>
         <p>Local LLM chat with PoQ-gated memory.</p>
@@ -2353,8 +2490,10 @@ HTML = r"""<!doctype html>
         <div class="group">
           <label for="session-list">Sessions</label>
           <select id="session-list"></select>
-          <input id="session-name" placeholder="New session name">
-          <button id="new-session" class="secondary" type="button">New Session</button>
+          <div class="inline-field">
+            <input id="session-name" placeholder="New session name">
+            <button id="new-session" class="secondary" type="button">New</button>
+          </div>
           <div class="hint">Each session has its own local Timechain memory.</div>
         </div>
       </div>
@@ -2767,6 +2906,38 @@ HTML = r"""<!doctype html>
             <button id="refresh-workbench" type="button" class="secondary">Refresh Workbench</button>
             <button id="copy-sync-snapshot" type="button" class="secondary">Copy Sync Snapshot</button>
           </div>
+          <div class="settings-row">
+            <div class="settings-field">
+              <label for="dream-domains">Dream synthesis</label>
+              <input id="dream-domains" value="architecture,security" placeholder="architecture,security">
+              <input id="dream-cycles" type="number" min="1" max="12" value="3">
+              <button id="run-dream" class="secondary" type="button">Run Dream</button>
+              <div class="hint">Seals cross-domain synthesis rings from existing high-signal domains.</div>
+            </div>
+            <div class="settings-field">
+              <label for="overlay-tag">Overlays</label>
+              <input id="overlay-tag" placeholder="tag">
+              <input id="overlay-weight" type="number" step="0.1" value="1.0">
+              <button id="save-overlay" class="secondary" type="button">Save Overlay</button>
+              <div id="overlay-list" class="hint">No overlays loaded.</div>
+            </div>
+          </div>
+          <div class="settings-row">
+            <div class="settings-field">
+              <label for="fleet-source">Fleet import</label>
+              <input id="fleet-source" placeholder="source agent">
+              <textarea id="fleet-ring-json" placeholder='{"domain":"architecture","query":"...","content":"..."}'></textarea>
+              <button id="run-fleet-import" class="secondary" type="button">Import Ring</button>
+            </div>
+            <div class="settings-field">
+              <label for="challenge-indices">Temporal challenge</label>
+              <input id="challenge-indices" placeholder="0,1">
+              <input id="challenge-nonce" placeholder="optional nonce">
+              <button id="run-challenge" class="secondary" type="button">Run Challenge</button>
+              <button id="run-memory-sync" class="secondary" type="button">Memory Sync</button>
+            </div>
+          </div>
+          <div id="advanced-timechain-results" class="result">Advanced Timechain actions not run yet.</div>
           <div id="cambium-results" class="result">Cambium not loaded yet.</div>
           <div id="ring-timeline" class="ring-list">Ring timeline not loaded yet.</div>
         </section>
@@ -2967,6 +3138,21 @@ HTML = r"""<!doctype html>
       cambiumResults: document.getElementById('cambium-results'),
       refreshWorkbench: document.getElementById('refresh-workbench'),
       copySyncSnapshot: document.getElementById('copy-sync-snapshot'),
+      dreamDomains: document.getElementById('dream-domains'),
+      dreamCycles: document.getElementById('dream-cycles'),
+      runDream: document.getElementById('run-dream'),
+      overlayTag: document.getElementById('overlay-tag'),
+      overlayWeight: document.getElementById('overlay-weight'),
+      saveOverlay: document.getElementById('save-overlay'),
+      overlayList: document.getElementById('overlay-list'),
+      runMemorySync: document.getElementById('run-memory-sync'),
+      fleetSource: document.getElementById('fleet-source'),
+      fleetRingJson: document.getElementById('fleet-ring-json'),
+      runFleetImport: document.getElementById('run-fleet-import'),
+      challengeIndices: document.getElementById('challenge-indices'),
+      challengeNonce: document.getElementById('challenge-nonce'),
+      runChallenge: document.getElementById('run-challenge'),
+      advancedTimechainResults: document.getElementById('advanced-timechain-results'),
       pendingMemories: document.getElementById('pending-memories'),
       acceptedMemories: document.getElementById('accepted-memories'),
       recallForm: document.getElementById('recall-form'),
@@ -3123,28 +3309,13 @@ HTML = r"""<!doctype html>
         .join('');
     }
 
-    function setMainView(view) {
-      const guide = view === 'guide';
-      const settings = view === 'settings';
-      els.chatView.classList.toggle('hidden', guide || settings);
-      els.guideView.classList.toggle('active', guide);
-      els.settingsView.classList.toggle('active', settings);
-      els.navChat.classList.toggle('active', !guide && !settings);
-      els.navGuide.classList.toggle('active', guide);
-      els.navSettings.classList.toggle('active', settings);
-      if (els.mobChat) els.mobChat.classList.toggle('active', !guide && !settings);
-      if (els.mobGuide) els.mobGuide.classList.toggle('active', guide);
-      if (els.mobSettings) els.mobSettings.classList.toggle('active', settings);
-      localStorage.setItem('ct_view', view);
-    }
-
     function initTheme() {
       const saved = localStorage.getItem('ct_theme');
       const prefersLight = saved === 'light' || (!saved && window.matchMedia('(prefers-color-scheme: light)').matches);
       document.documentElement.classList.toggle('light', prefersLight);
       updateThemeIcon(prefersLight);
       const metaTheme = document.querySelector('meta[name="theme-color"]');
-      if (metaTheme) metaTheme.content = prefersLight ? '#f7f5f0' : '#0b0c0b';
+      if (metaTheme) metaTheme.content = prefersLight ? '#f7f7f5' : '#000000';
     }
 
     function toggleTheme() {
@@ -3152,7 +3323,7 @@ HTML = r"""<!doctype html>
       localStorage.setItem('ct_theme', isLight ? 'light' : 'dark');
       updateThemeIcon(isLight);
       const metaTheme = document.querySelector('meta[name="theme-color"]');
-      if (metaTheme) metaTheme.content = isLight ? '#f7f5f0' : '#0b0c0b';
+      if (metaTheme) metaTheme.content = isLight ? '#f7f7f5' : '#000000';
     }
 
     function updateThemeIcon(isLight) {
@@ -3737,13 +3908,23 @@ HTML = r"""<!doctype html>
       els.cambiumResults.textContent = `Gaps\n${gaps}\n\nConsolidations\n${consolidations}\n\nProposals\n${proposals}`;
     }
 
+    function renderOverlays(data) {
+      const overlays = data.overlays || {};
+      const entries = Object.entries(overlays);
+      els.overlayList.textContent = entries.length
+        ? entries.map(([tag, weight]) => `${tag}: ${weight}`).join(' | ')
+        : 'No active overlays.';
+    }
+
     async function refreshWorkbench() {
-      const [rings, cambium] = await Promise.all([
+      const [rings, cambium, overlays] = await Promise.all([
         api(`/api/rings${sessionQuery()}&limit=24`),
-        api(`/api/cambium${sessionQuery()}`)
+        api(`/api/cambium${sessionQuery()}`),
+        api(`/api/overlays${sessionQuery()}`)
       ]);
       renderRings(rings.rings || []);
       renderCambium(cambium);
+      renderOverlays(overlays);
     }
 
     async function copySyncSnapshot() {
@@ -3754,6 +3935,79 @@ HTML = r"""<!doctype html>
       } else {
         els.cambiumResults.textContent = data.snapshot || 'Sync Snapshot unavailable.';
       }
+    }
+
+    function confirmTimechainMutation(label) {
+      return window.confirm(`${label} will modify the active Timechain session. Continue?`);
+    }
+
+    function showAdvancedTimechainResult(label, data) {
+      els.advancedTimechainResults.textContent = `${label}\n${JSON.stringify(data, null, 2)}`;
+    }
+
+    async function runDream() {
+      if (!confirmTimechainMutation('Dream synthesis')) return;
+      const data = await api('/api/dream', {
+        method: 'POST',
+        body: JSON.stringify({
+          session: activeSession,
+          domains: els.dreamDomains.value.trim(),
+          cycles: Number(els.dreamCycles.value || 3)
+        })
+      });
+      showAdvancedTimechainResult('Dream synthesis', data);
+      await refreshOperationalState();
+    }
+
+    async function saveOverlay() {
+      if (!confirmTimechainMutation('Overlay update')) return;
+      const data = await api('/api/overlays', {
+        method: 'POST',
+        body: JSON.stringify({
+          session: activeSession,
+          tag: els.overlayTag.value.trim(),
+          weight: Number(els.overlayWeight.value || 1)
+        })
+      });
+      renderOverlays(data);
+      showAdvancedTimechainResult('Overlay update', data);
+      await refreshSummary();
+    }
+
+    async function runMemorySync() {
+      if (!confirmTimechainMutation('Memory sync')) return;
+      const data = await api('/api/memory-sync', {
+        method: 'POST',
+        body: JSON.stringify({ session: activeSession })
+      });
+      showAdvancedTimechainResult('Memory sync', data);
+      await refreshOperationalState();
+    }
+
+    async function runFleetImport() {
+      if (!confirmTimechainMutation('Fleet import')) return;
+      const data = await api('/api/fleet-import', {
+        method: 'POST',
+        body: JSON.stringify({
+          session: activeSession,
+          source: els.fleetSource.value.trim(),
+          ring: JSON.parse(els.fleetRingJson.value || '{}')
+        })
+      });
+      showAdvancedTimechainResult('Fleet import', data);
+      await refreshOperationalState();
+    }
+
+    async function runChallenge() {
+      const data = await api('/api/challenge', {
+        method: 'POST',
+        body: JSON.stringify({
+          session: activeSession,
+          indices: els.challengeIndices.value.trim(),
+          nonce: els.challengeNonce.value.trim()
+        })
+      });
+      showAdvancedTimechainResult('Temporal challenge', data);
     }
 
     function memoryMeta(memory) {
@@ -4021,6 +4275,21 @@ HTML = r"""<!doctype html>
     });
     els.copySyncSnapshot.addEventListener('click', () => {
       copySyncSnapshot().catch(error => { els.cambiumResults.textContent = error.message; });
+    });
+    els.runDream.addEventListener('click', () => {
+      runDream().catch(error => { els.advancedTimechainResults.textContent = error.message; });
+    });
+    els.saveOverlay.addEventListener('click', () => {
+      saveOverlay().catch(error => { els.advancedTimechainResults.textContent = error.message; });
+    });
+    els.runMemorySync.addEventListener('click', () => {
+      runMemorySync().catch(error => { els.advancedTimechainResults.textContent = error.message; });
+    });
+    els.runFleetImport.addEventListener('click', () => {
+      runFleetImport().catch(error => { els.advancedTimechainResults.textContent = error.message; });
+    });
+    els.runChallenge.addEventListener('click', () => {
+      runChallenge().catch(error => { els.advancedTimechainResults.textContent = error.message; });
     });
     document.querySelector('.inspector')?.addEventListener('click', (event) => {
       const button = event.target.closest('[data-action][data-id]');
@@ -4499,6 +4768,9 @@ HTML = r"""<!doctype html>
       window.addEventListener('resize', () => { if (window.innerWidth > 760) closeAll(); });
       document.querySelectorAll('.rail .nav button, .rail .secondary, .rail .settings-icon').forEach(btn => {
         btn.addEventListener('click', () => { if (window.innerWidth <= 760) closeAll(); });
+      });
+      [els.mobChat, els.mobGuide, els.mobSettings, els.mobMarketplace].forEach(btn => {
+        if (btn) btn.addEventListener('click', closeAll);
       });
     })();
 
@@ -6278,6 +6550,114 @@ class App:
             "rings": len(self.agent.chain),
         }
 
+    def run_dream(self, domains: str, *, cycles: int = 3) -> dict[str, Any]:
+        self.reload_agent()
+        if self.agent.frozen:
+            raise PermissionError("timechain is frozen")
+        domain_list = [part.strip() for part in str(domains or "").split(",") if part.strip()]
+        if len(domain_list) < 2:
+            raise ValueError("At least two dream domains are required.")
+        cycles = max(1, min(int(cycles), 12))
+        dreams = self.agent.dream(domains=domain_list, cycles=cycles)
+        return {
+            "ok": True,
+            "session": self.active_session,
+            "domains": domain_list,
+            "dreams": [
+                {
+                    "n": ring.n,
+                    "kind": ring.kind,
+                    "domain": ring.domain,
+                    "content": ring.content,
+                    "brightness": round(float(ring.brightness), 4),
+                    "epistemic": ring.epistemic,
+                    "tags": ring.tags,
+                    "hash_prefix": ring.hash[:16],
+                }
+                for ring in dreams
+            ],
+        }
+
+    def list_overlays(self) -> dict[str, Any]:
+        return {
+            "ok": True,
+            "session": self.active_session,
+            "overlays": self.timechain.TimechainStore(self.workspace).load_overlays(),
+        }
+
+    def set_overlay(self, tag: str, weight: float) -> dict[str, Any]:
+        tag = str(tag or "").strip()
+        if not tag:
+            raise ValueError("overlay tag is required")
+        try:
+            weight_value = float(weight)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("overlay weight must be a number") from exc
+        store = self.timechain.TimechainStore(self.workspace)
+        overlays = store.load_overlays()
+        overlays[tag] = weight_value
+        store.save_overlays(overlays)
+        return {"ok": True, "session": self.active_session, "overlays": overlays}
+
+    def memory_sync(self) -> dict[str, Any]:
+        self.reload_agent()
+        ok, status = self.timechain.verify_chain(self.agent.chain)
+        if not ok:
+            raise ValueError(f"verification failed: {status}")
+        model = self.agent.self_model()
+        overlays = self.agent.store.load_overlays()
+        lines = [
+            f"- Agent: **{model['name']}** (`{model['agent_id']}`)",
+            f"- Core: {model['core']}",
+            f"- Covenant: {model['covenant'][:80]}...",
+            f"- Rings: {model['ring_count']}",
+            f"- Temporal mass: {model['temporal_mass']}",
+            f"- Frozen: {model['frozen']}",
+            f"- Top domains: {', '.join(model['top_domains']) if model['top_domains'] else '(none)'}",
+            f"- Untouched domains: {', '.join(model['untouched_se_domains']) if model['untouched_se_domains'] else '(none)'}",
+            f"- Gaps: {model['gaps']}",
+            f"- Consolidations: {model['consolidations']}",
+            f"- Active overlays: {json.dumps(overlays, ensure_ascii=False)}",
+            f"- Genesis hash prefix: `{model['genesis_hash'][:16]}`",
+        ]
+        memory_md, daily = self.timechain.ensure_memory_paths(self.workspace)
+        self.timechain.update_memory_summary(memory_md, "\n".join(lines))
+        self.timechain.append_daily_log(
+            daily,
+            f"Timechain sync: rings={model['ring_count']} mass={model['temporal_mass']} top={model['top_domains']}",
+        )
+        return {"ok": True, "session": self.active_session, "memory_md": str(memory_md), "daily": str(daily)}
+
+    def fleet_import(self, ring: dict[str, Any], *, source: str) -> dict[str, Any]:
+        self.reload_agent()
+        if self.agent.frozen:
+            raise PermissionError("timechain is frozen")
+        if not isinstance(ring, dict):
+            raise ValueError("ring must be a JSON object")
+        source = str(source or "").strip()
+        if not source:
+            raise ValueError("source is required")
+        imported = self.agent.fleet_import(ring, source=source)
+        if imported is None:
+            raise ValueError("fleet import rejected by covenant gate")
+        return {
+            "ok": True,
+            "session": self.active_session,
+            "ring": imported.n,
+            "kind": imported.kind,
+            "hash": imported.hash[:16],
+            "brightness": round(float(imported.brightness), 4),
+        }
+
+    def challenge(self, indices: str, *, nonce: str = "") -> dict[str, Any]:
+        self.reload_agent()
+        try:
+            parsed_indices = [int(part.strip()) for part in str(indices or "").split(",") if part.strip()]
+        except ValueError as exc:
+            raise ValueError("indices must be comma-separated integers") from exc
+        challenge = {"indices": parsed_indices, "nonce": str(nonce or "") or os.urandom(8).hex()}
+        return {"ok": True, "session": self.active_session, **self.agent.respond_to_challenge(challenge)}
+
     def archive_active_timechain(self, *, label: str) -> pathlib.Path:
         self.archives_root.mkdir(parents=True, exist_ok=True)
         timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -6667,6 +7047,10 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                     app.use_session(self.query_param("session"))
                     self.send_json({"ok": True, **app.cambium_workbench()})
                     return
+                if path == "/api/overlays":
+                    app.use_session(self.query_param("session"))
+                    self.send_json(app.list_overlays())
+                    return
                 if path == "/api/sync-snapshot":
                     app.use_session(self.query_param("session"))
                     self.send_json({"ok": True, **app.sync_snapshot()})
@@ -6785,6 +7169,21 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                     return
                 if path == "/api/rewind":
                     self.handle_rewind()
+                    return
+                if path == "/api/dream":
+                    self.handle_dream()
+                    return
+                if path == "/api/overlays":
+                    self.handle_overlay_set()
+                    return
+                if path == "/api/memory-sync":
+                    self.handle_memory_sync()
+                    return
+                if path == "/api/fleet-import":
+                    self.handle_fleet_import()
+                    return
+                if path == "/api/challenge":
+                    self.handle_challenge()
                     return
                 if path == "/api/sessions/delete":
                     self.handle_delete_session()
@@ -6971,6 +7370,62 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
                 return
             self.send_json({"ok": True, **result})
+
+        def handle_dream(self) -> None:
+            payload = self.read_json()
+            app.use_session(str(payload.get("session", "")).strip() or self.query_param("session"))
+            try:
+                result = app.run_dream(str(payload.get("domains", "")).strip(), cycles=int(payload.get("cycles", 3)))
+            except PermissionError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.CONFLICT)
+                return
+            except (TypeError, ValueError) as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                return
+            self.send_json(result)
+
+        def handle_overlay_set(self) -> None:
+            payload = self.read_json()
+            app.use_session(str(payload.get("session", "")).strip() or self.query_param("session"))
+            try:
+                result = app.set_overlay(str(payload.get("tag", "")).strip(), payload.get("weight", 1.0))
+            except ValueError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                return
+            self.send_json(result)
+
+        def handle_memory_sync(self) -> None:
+            payload = self.read_json()
+            app.use_session(str(payload.get("session", "")).strip() or self.query_param("session"))
+            try:
+                result = app.memory_sync()
+            except ValueError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                return
+            self.send_json(result)
+
+        def handle_fleet_import(self) -> None:
+            payload = self.read_json()
+            app.use_session(str(payload.get("session", "")).strip() or self.query_param("session"))
+            try:
+                result = app.fleet_import(payload.get("ring"), source=str(payload.get("source", "")).strip())
+            except PermissionError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.CONFLICT)
+                return
+            except ValueError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                return
+            self.send_json(result)
+
+        def handle_challenge(self) -> None:
+            payload = self.read_json()
+            app.use_session(str(payload.get("session", "")).strip() or self.query_param("session"))
+            try:
+                result = app.challenge(str(payload.get("indices", "")).strip(), nonce=str(payload.get("nonce", "")).strip())
+            except ValueError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                return
+            self.send_json(result)
 
         def handle_create_session(self) -> None:
             payload = self.read_json()

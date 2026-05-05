@@ -59,8 +59,13 @@ It includes:
 - A recent Ring timeline with kind, domain, brightness, epistemic status, PoQ score details, hash prefix, retrieved-ring links, and supersession hints.
 - Cambium results from the local Timechain scan, including low-brightness gaps, consolidation candidates, and growth proposals.
 - A Copy Sync Snapshot action that creates a `CT_SYNC_SNAPSHOT` handoff artifact with current state, important recent rings, accepted memories, pending open loops, verification status, risks, and next steps.
+- Dream synthesis, which seals speculative cross-domain synthesis rings from two or more existing domains.
+- Overlays, which store tag weight multipliers in `.timechain/overlays.json` so selected topics can be emphasized by retrieval.
+- Memory Sync, which writes a human-readable `MEMORY.md` summary and daily memory journal for the active session workspace.
+- Fleet import, which accepts a foreign Ring JSON object from another agent only after the local covenant gate accepts it, preserving source provenance.
+- Temporal challenge, which returns a proof response from selected ring hashes and a nonce without mutating the chain.
 
-Workbench output is diagnostic. Cambium proposals are candidates for user or developer review; they are not durable decisions until accepted through the normal Cypher Tempre discipline.
+Workbench output is diagnostic. Cambium proposals and Dream synthesis rings are candidates for user or developer review; they are not durable decisions until accepted through the normal Cypher Tempre discipline. Mutating actions in the Workbench are explicit controls and should be treated as local workspace operations.
 
 ## Chain Verification
 

@@ -1029,6 +1029,11 @@ def cmd_init(args: argparse.Namespace) -> int:
 
 def cmd_verify(args: argparse.Namespace) -> int:
     store = TimechainStore(args.workspace)
+    if not store.exists():
+        # Auto-initialize on first use
+        agent = TimechainAgent(workspace=args.workspace)
+        print(json.dumps({"ok": True, "status": "auto-initialized", "rings": 1, "auto_init": True}))
+        return 0
     rings = store.load_chain()
     ok, msg = verify_chain(rings)
     print(json.dumps({"ok": ok, "status": msg, "rings": len(rings)}))
@@ -1037,6 +1042,11 @@ def cmd_verify(args: argparse.Namespace) -> int:
 
 def cmd_summary(args: argparse.Namespace) -> int:
     store = TimechainStore(args.workspace)
+    if not store.exists():
+        # Auto-initialize on first use
+        agent = TimechainAgent(workspace=args.workspace)
+        print(json.dumps({"ok": True, "auto_init": True, "summary": agent.self_model()}, ensure_ascii=False, indent=2))
+        return 0
     rings = store.load_chain()
     config = store.load_config()
     ok, msg = verify_chain(rings)
