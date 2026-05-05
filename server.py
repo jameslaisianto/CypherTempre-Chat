@@ -23,6 +23,8 @@ from types import SimpleNamespace
 from typing import Any
 from urllib.parse import urlparse
 
+import marketplace
+
 
 DEFAULT_MODEL = "cognitivecomputations/dolphin-mistral-24b-venice-edition:free"
 DEFAULT_PROVIDER = "openrouter"
@@ -852,7 +854,7 @@ HTML = r"""<!doctype html>
 
     .brand-row {
       display: flex;
-      align-items: flex-start;
+      align-items: center;
       justify-content: space-between;
       gap: 10px;
     }
@@ -1486,6 +1488,386 @@ HTML = r"""<!doctype html>
       border-color: #8bc4a8;
     }
 
+    /* Auth overlay */
+    .auth-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 200;
+      display: grid;
+      place-items: center;
+      backdrop-filter: blur(16px) saturate(1.2);
+      background:
+        radial-gradient(circle at 20% 30%, rgba(214, 179, 106, 0.12), transparent 50%),
+        radial-gradient(circle at 80% 70%, rgba(103, 216, 155, 0.10), transparent 50%),
+        rgba(11, 12, 11, 0.88);
+      transition: opacity 0.35s ease, visibility 0.35s ease;
+    }
+    .light .auth-overlay {
+      background:
+        radial-gradient(circle at 20% 30%, rgba(214, 179, 106, 0.08), transparent 50%),
+        radial-gradient(circle at 80% 70%, rgba(103, 216, 155, 0.06), transparent 50%),
+        rgba(247, 245, 240, 0.88);
+    }
+    .auth-overlay.hidden {
+      opacity: 0;
+      pointer-events: none;
+      visibility: hidden;
+    }
+    .auth-card {
+      width: min(400px, 92vw);
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      background: var(--surface);
+      padding: 36px 32px;
+      display: grid;
+      gap: 18px;
+      box-shadow:
+        0 32px 64px -12px rgba(0, 0, 0, 0.50),
+        0 0 0 1px rgba(255, 255, 255, 0.03) inset;
+      animation: authEnter 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    @keyframes authEnter {
+      from { opacity: 0; transform: translateY(28px) scale(0.98); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .brand-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .auth-logo {
+      width: 48px;
+      height: 48px;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #d6b36a, #a88b4d);
+      display: grid;
+      place-items: center;
+      font-size: 24px;
+      font-weight: 900;
+      color: #15110a;
+      margin: 0 auto;
+      box-shadow: 0 8px 20px rgba(214, 179, 106, 0.25);
+    }
+    .auth-card h2 { margin: 0; font-size: 24px; text-align: center; letter-spacing: -0.02em; }
+    .auth-card .subtitle { margin: -10px 0 0; color: var(--muted); font-size: 14px; text-align: center; }
+    .auth-tabs {
+      display: inline-flex;
+      gap: 0;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--surface-2);
+      overflow: hidden;
+      padding: 3px;
+    }
+    .auth-tabs button {
+      flex: 1;
+      min-height: 36px;
+      border: 0;
+      border-radius: 9px;
+      background: transparent;
+      color: var(--muted);
+      font-weight: 700;
+      cursor: pointer;
+      font-size: 13px;
+      transition: background-color 0.2s, color 0.2s;
+    }
+    .auth-tabs button.active {
+      color: var(--nav-active-text);
+      background: var(--nav-active-bg);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.20);
+    }
+    .auth-field { display: grid; gap: 8px; }
+    .auth-field label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .auth-field input {
+      height: 44px;
+      padding: 0 14px;
+      border-radius: 10px;
+      font-size: 14px;
+      background: var(--input-bg);
+    }
+    .auth-submit {
+      min-height: 48px;
+      border-radius: 12px;
+      border: 0;
+      color: #15110a;
+      background: linear-gradient(180deg, #e5c57c, #c9a45b);
+      cursor: pointer;
+      font-weight: 800;
+      font-size: 15px;
+      box-shadow: 0 4px 14px rgba(214, 179, 106, 0.25);
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .auth-submit:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 18px rgba(214, 179, 106, 0.35);
+    }
+    .auth-submit:active {
+      transform: translateY(0);
+    }
+    .auth-hint { color: var(--faint); font-size: 13px; text-align: center; min-height: 20px; }
+
+    /* Account dropdown */
+    .account-wrap {
+      position: relative;
+    }
+    .account-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 12px;
+      height: 34px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: var(--surface-2);
+      color: var(--text);
+      font-weight: 700;
+      font-size: 13px;
+      cursor: pointer;
+      transition: background-color 0.2s, border-color 0.2s;
+    }
+    .account-btn:hover {
+      background: var(--surface-3);
+      border-color: var(--amber);
+    }
+    .account-menu {
+      position: absolute;
+      right: 0;
+      top: 42px;
+      min-width: 180px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--surface);
+      box-shadow: 0 12px 36px var(--shadow);
+      display: none;
+      z-index: 50;
+      overflow: hidden;
+    }
+    .account-menu.open { display: block; }
+    .account-menu button {
+      width: 100%;
+      text-align: left;
+      padding: 10px 14px;
+      border: 0;
+      background: transparent;
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .account-menu button:hover { background: var(--surface-2); }
+    .account-menu .account-role {
+      padding: 8px 14px;
+      color: var(--amber);
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      border-bottom: 1px solid var(--line-soft);
+    }
+
+    /* Marketplace */
+    .marketplace {
+      display: none;
+      min-width: 0;
+      min-height: 100vh;
+      overflow: auto;
+      padding: 30px;
+    }
+    .marketplace.active { display: block; }
+    .marketplace-hero {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 24px;
+      background: var(--guide-hero-bg);
+      box-shadow: 0 18px 44px var(--shadow);
+      margin-bottom: 18px;
+    }
+    .marketplace-hero h2 { margin: 0; font-size: 26px; }
+    .marketplace-hero p { margin: 8px 0 0; color: var(--muted); font-size: 15px; }
+    .marketplace-filters {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 18px;
+      align-items: center;
+    }
+    .marketplace-filters input {
+      flex: 1 1 220px;
+      min-width: 180px;
+    }
+    .filter-pill {
+      min-height: 34px;
+      padding: 0 14px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--muted);
+      font-weight: 700;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .filter-pill.active {
+      color: var(--nav-active-text);
+      background: var(--nav-active-bg);
+      border-color: transparent;
+    }
+    .marketplace-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 16px;
+    }
+    .persona-card {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--feature-card-bg);
+      padding: 16px;
+      display: grid;
+      gap: 10px;
+      cursor: pointer;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .persona-card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 8px 24px var(--shadow);
+    }
+    .persona-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .domain-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 800;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .domain-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--amber);
+    }
+    .price-badge {
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 800;
+    }
+    .price-badge.free { background: rgba(103, 216, 155, 0.14); color: var(--green); }
+    .price-badge.premium { background: rgba(214, 179, 106, 0.14); color: var(--amber); }
+    .persona-card h3 { margin: 0; font-size: 17px; }
+    .persona-card .tagline {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+      min-height: 38px;
+    }
+    .persona-card-meta {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      font-size: 12px;
+      color: var(--faint);
+    }
+    .persona-card-meta span {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* Detail drawer */
+    .detail-drawer {
+      position: fixed;
+      right: 0;
+      top: 0;
+      bottom: 0;
+      width: min(420px, 90vw);
+      z-index: 150;
+      background: var(--rail-inspector-bg);
+      border-left: 1px solid var(--line);
+      transform: translateX(101%);
+      transition: transform 0.3s ease;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      overflow: hidden;
+    }
+    .detail-drawer.open {
+      transform: translateX(0);
+    }
+    .detail-drawer-head {
+      padding: 18px;
+      border-bottom: 1px solid var(--line-soft);
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+    }
+    .detail-drawer-head h2 { margin: 0; font-size: 20px; }
+    .detail-drawer-body {
+      overflow: auto;
+      padding: 18px;
+      display: grid;
+      gap: 16px;
+      align-content: start;
+    }
+    .detail-drawer-foot {
+      padding: 14px 18px;
+      border-top: 1px solid var(--line-soft);
+      display: grid;
+      gap: 8px;
+    }
+    .temporal-mass-bar {
+      height: 6px;
+      border-radius: 999px;
+      background: var(--surface-3);
+      overflow: hidden;
+    }
+    .temporal-mass-fill {
+      height: 100%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, var(--green), var(--amber));
+      transition: width 0.6s ease;
+    }
+
+    /* Creator tab */
+    .creator-persona-list {
+      display: grid;
+      gap: 10px;
+    }
+    .creator-persona-row {
+      display: grid;
+      grid-template-columns: 1fr auto auto auto;
+      gap: 8px;
+      align-items: center;
+      padding: 10px 12px;
+      border: 1px solid var(--line-soft);
+      border-radius: 10px;
+      background: var(--memory-card-bg);
+    }
+    .creator-persona-row .status {
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      padding: 3px 8px;
+      border-radius: 6px;
+    }
+    .status-draft { background: rgba(143, 179, 255, 0.12); color: var(--blue); }
+    .status-pending { background: rgba(214, 179, 106, 0.12); color: var(--amber); }
+    .status-published { background: rgba(103, 216, 155, 0.12); color: var(--green); }
+    .status-archived { background: rgba(126, 119, 109, 0.12); color: var(--faint); }
+
     .thinking-row {
       display: inline-flex;
       align-items: center;
@@ -1848,6 +2230,11 @@ HTML = r"""<!doctype html>
       .message, .message.user { grid-template-columns: 1fr; }
       .avatar { display: none; }
       .message.user .bubble { grid-column: auto; grid-row: auto; }
+      .marketplace { padding: 14px; }
+      .marketplace-hero { padding: 14px; }
+      .marketplace-hero h2 { font-size: 20px; }
+      .marketplace-grid { grid-template-columns: 1fr; }
+      .detail-drawer { width: min(360px, 92vw); }
     }
 
     .mobile-nav { display: none; }
@@ -1902,10 +2289,22 @@ HTML = r"""<!doctype html>
       <div class="brand">
         <div class="brand-row">
           <h1>CypherTempre</h1>
-          <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Toggle theme" title="Toggle theme">
+          <div class="brand-actions">
+            <div class="account-wrap" id="account-wrap">
+              <button class="account-btn" id="account-btn" type="button" style="display:none;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                <span id="account-name">Account</span>
+              </button>
+              <div class="account-menu" id="account-menu">
+                <div class="account-role" id="account-role"></div>
+                <button id="account-logout" type="button">Log out</button>
+              </div>
+            </div>
+            <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Toggle theme" title="Toggle theme">
             <svg id="theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
             <svg id="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
           </button>
+          </div>
         </div>
         <p>Local LLM chat with PoQ-gated memory.</p>
       </div>
@@ -1919,6 +2318,10 @@ HTML = r"""<!doctype html>
           <button id="nav-guide" type="button">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
             Guide
+          </button>
+          <button id="nav-marketplace" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path><line x1="3" y1="6" x2="21" y2="6"></line><path d="M16 10a4 4 0 0 1-8 0"></path></svg>
+            Marketplace
           </button>
           <button id="nav-settings" type="button">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 5 15.4a1.65 1.65 0 0 0-1.51 1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 5 10.6a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 5.4a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82 1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
@@ -2217,6 +2620,25 @@ HTML = r"""<!doctype html>
       </div>
     </main>
 
+    <main id="marketplace-view" class="marketplace">
+      <div class="guide-shell">
+        <section class="marketplace-hero">
+          <h2>Persona Marketplace</h2>
+          <p>Discover, subscribe to, and train personas created by the community. Each persona carries distilled temporal mass — real experience, not just a prompt.</p>
+        </section>
+        <div class="marketplace-filters">
+          <input id="mp-search" placeholder="Search personas...">
+          <button class="filter-pill active" data-filter="all" type="button">All</button>
+          <button class="filter-pill" data-filter="free" type="button">Free</button>
+          <button class="filter-pill" data-filter="premium" type="button">Premium</button>
+          <button class="filter-pill" data-filter="subscribed" type="button">Subscribed</button>
+        </div>
+        <section id="marketplace-grid" class="marketplace-grid">
+          <div style="color:var(--muted);padding:20px 0;">Loading marketplace...</div>
+        </section>
+      </div>
+    </main>
+
     <main id="settings-view" class="settings">
       <div class="guide-shell">
         <section class="guide-hero">
@@ -2229,6 +2651,7 @@ HTML = r"""<!doctype html>
           <button id="settings-persona-tab" type="button">Persona</button>
           <button id="settings-manage-tab" type="button">Manage</button>
           <button id="settings-workbench-tab" type="button">Workbench</button>
+          <button id="settings-creator-tab" type="button" class="hidden">Creator</button>
         </div>
 
         <section id="provider-settings-section" class="feature-card settings-form settings-section">
@@ -2347,6 +2770,38 @@ HTML = r"""<!doctype html>
           <div id="cambium-results" class="result">Cambium not loaded yet.</div>
           <div id="ring-timeline" class="ring-list">Ring timeline not loaded yet.</div>
         </section>
+
+        <section id="creator-settings-section" class="feature-card settings-form settings-section hidden">
+          <h2>Creator Studio</h2>
+          <p style="color:var(--muted);margin:0 0 12px;">Create personas, train them through conversation, and publish them to the marketplace.</p>
+          <div class="settings-row">
+            <div class="settings-field">
+              <label>Create New Persona</label>
+              <input id="creator-name" placeholder="Persona name">
+              <input id="creator-tagline" placeholder="Short tagline">
+              <select id="creator-domain">
+                <option value="auto">auto</option>
+                <option value="architecture">architecture</option>
+                <option value="system-design">system-design</option>
+                <option value="api-design">api-design</option>
+                <option value="debugging">debugging</option>
+                <option value="security">security</option>
+                <option value="testing">testing</option>
+                <option value="performance">performance</option>
+                <option value="finance">finance</option>
+                <option value="creative">creative</option>
+              </select>
+              <textarea id="creator-system" placeholder="Base system prompt for this persona"></textarea>
+              <button id="creator-save" class="secondary" type="button">Create Persona</button>
+            </div>
+            <div class="settings-field">
+              <label>My Personas</label>
+              <div id="creator-list" class="creator-persona-list">
+                <div style="color:var(--muted);font-size:13px;">No personas created yet.</div>
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
     </main>
 
@@ -2418,10 +2873,77 @@ HTML = r"""<!doctype html>
     <nav class="mobile-nav" aria-label="Mobile view">
       <button id="mob-chat" class="active" type="button">Chat</button>
       <button id="mob-guide" type="button">Guide</button>
+      <button id="mob-marketplace" type="button">Market</button>
       <button id="mob-settings" type="button">Settings</button>
     </nav>
   </div>
   <div id="overlay-backdrop" class="overlay-backdrop"></div>
+
+  <!-- Auth Overlay -->
+  <div class="auth-overlay hidden" id="auth-overlay">
+    <div class="auth-card">
+      <div class="auth-logo">C</div>
+      <h2>CypherTempre</h2>
+      <p class="subtitle">Persona-powered conversations</p>
+      <div class="auth-tabs">
+        <button id="auth-tab-login" class="active" type="button">Log in</button>
+        <button id="auth-tab-register" type="button">Register</button>
+      </div>
+      <div id="auth-login-form">
+        <div class="auth-field">
+          <label>Username</label>
+          <input id="auth-login-user" placeholder="your-name" autocomplete="username">
+        </div>
+        <div class="auth-field">
+          <label>Password</label>
+          <input id="auth-login-pass" type="password" placeholder="••••" autocomplete="current-password">
+        </div>
+        <button class="auth-submit" id="auth-login-btn" type="button">Log in</button>
+      </div>
+      <div id="auth-register-form" class="hidden">
+        <div class="auth-field">
+          <label>Username</label>
+          <input id="auth-reg-user" placeholder="your-name" autocomplete="username">
+        </div>
+        <div class="auth-field">
+          <label>Display name</label>
+          <input id="auth-reg-display" placeholder="Your Name" autocomplete="name">
+        </div>
+        <div class="auth-field">
+          <label>Password</label>
+          <input id="auth-reg-pass" type="password" placeholder="••••" autocomplete="new-password">
+        </div>
+        <button class="auth-submit" id="auth-register-btn" type="button">Create account</button>
+      </div>
+      <div class="auth-hint" id="auth-message"></div>
+    </div>
+  </div>
+
+  <!-- Persona Detail Drawer -->
+  <aside class="detail-drawer" id="detail-drawer">
+    <div class="detail-drawer-head">
+      <div>
+        <div class="domain-badge" id="detail-domain"><span class="domain-dot"></span><span id="detail-domain-text">domain</span></div>
+        <h2 id="detail-name">Persona</h2>
+      </div>
+      <button class="settings-icon" id="detail-close" type="button" aria-label="Close">✕</button>
+    </div>
+    <div class="detail-drawer-body">
+      <p id="detail-tagline" style="color:var(--muted);margin:0;"></p>
+      <div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:6px;">
+          <span>Temporal Mass</span>
+          <span id="detail-mass-value">0</span>
+        </div>
+        <div class="temporal-mass-bar"><div class="temporal-mass-fill" id="detail-mass-bar" style="width:0%"></div></div>
+      </div>
+      <div id="detail-capsule" style="display:grid;gap:10px;"></div>
+    </div>
+    <div class="detail-drawer-foot">
+      <button class="auth-submit" id="detail-subscribe" type="button">Subscribe</button>
+      <div class="auth-hint" id="detail-sub-hint"></div>
+    </div>
+  </aside>
 
   <script>
     const els = {
@@ -2507,17 +3029,64 @@ HTML = r"""<!doctype html>
       mobSettings: document.getElementById('mob-settings'),
       themeToggle: document.getElementById('theme-toggle'),
       themeIconMoon: document.getElementById('theme-icon-moon'),
-      themeIconSun: document.getElementById('theme-icon-sun')
+      themeIconSun: document.getElementById('theme-icon-sun'),
+      authOverlay: document.getElementById('auth-overlay'),
+      authTabLogin: document.getElementById('auth-tab-login'),
+      authTabRegister: document.getElementById('auth-tab-register'),
+      authLoginForm: document.getElementById('auth-login-form'),
+      authRegisterForm: document.getElementById('auth-register-form'),
+      authLoginUser: document.getElementById('auth-login-user'),
+      authLoginPass: document.getElementById('auth-login-pass'),
+      authLoginBtn: document.getElementById('auth-login-btn'),
+      authRegUser: document.getElementById('auth-reg-user'),
+      authRegDisplay: document.getElementById('auth-reg-display'),
+      authRegPass: document.getElementById('auth-reg-pass'),
+      authRegisterBtn: document.getElementById('auth-register-btn'),
+      authMessage: document.getElementById('auth-message'),
+      accountWrap: document.getElementById('account-wrap'),
+      accountBtn: document.getElementById('account-btn'),
+      accountName: document.getElementById('account-name'),
+      accountMenu: document.getElementById('account-menu'),
+      accountRole: document.getElementById('account-role'),
+      accountLogout: document.getElementById('account-logout'),
+      navMarketplace: document.getElementById('nav-marketplace'),
+      marketplaceView: document.getElementById('marketplace-view'),
+      mpSearch: document.getElementById('mp-search'),
+      marketplaceGrid: document.getElementById('marketplace-grid'),
+      detailDrawer: document.getElementById('detail-drawer'),
+      detailClose: document.getElementById('detail-close'),
+      detailName: document.getElementById('detail-name'),
+      detailDomain: document.getElementById('detail-domain'),
+      detailDomainText: document.getElementById('detail-domain-text'),
+      detailTagline: document.getElementById('detail-tagline'),
+      detailMassValue: document.getElementById('detail-mass-value'),
+      detailMassBar: document.getElementById('detail-mass-bar'),
+      detailCapsule: document.getElementById('detail-capsule'),
+      detailSubscribe: document.getElementById('detail-subscribe'),
+      detailSubHint: document.getElementById('detail-sub-hint'),
+      mobMarketplace: document.getElementById('mob-marketplace'),
+      settingsCreatorTab: document.getElementById('settings-creator-tab'),
+      creatorSettingsSection: document.getElementById('creator-settings-section'),
+      creatorName: document.getElementById('creator-name'),
+      creatorTagline: document.getElementById('creator-tagline'),
+      creatorDomain: document.getElementById('creator-domain'),
+      creatorSystem: document.getElementById('creator-system'),
+      creatorSave: document.getElementById('creator-save'),
+      creatorList: document.getElementById('creator-list')
     };
 
     let personas = {};
     let customPersonas = {};
+    let marketplacePersonas = {};
     let activeSession = localStorage.getItem('ct_active_session') || 'default';
     let sessionPersonaLocks = {};
     let sessionRows = [];
     let ringRows = [];
     let currentFrozen = false;
     let isSending = false;
+    let currentUser = null;
+    let marketplaceData = [];
+    let currentDetailId = null;
     const providerEndpoints = {
       openrouter: 'https://openrouter.ai/api/v1/chat/completions',
       'kimi-code': 'https://api.kimi.com/coding/v1/chat/completions',
@@ -2691,9 +3260,15 @@ HTML = r"""<!doctype html>
     }
 
     async function api(path, options = {}) {
+      const token = localStorage.getItem('ct_auth_token') || '';
       const response = await fetch(path, {
         ...options,
-        headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'X-Auth-Token': token } : {}),
+          ...(options.headers || {})
+        }
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok || body.ok === false) throw new Error(body.error || `HTTP ${response.status}`);
@@ -2777,7 +3352,14 @@ HTML = r"""<!doctype html>
       const custom = Object.entries(customPersonas)
         .map(([id, persona]) => `<option value="${esc(id)}">${esc(persona.name)} · custom</option>`)
         .join('');
-      els.persona.innerHTML = builtIns + custom;
+      const mp = Object.entries(marketplacePersonas)
+        .map(([id, persona]) => `<option value="${esc(id)}">${esc(persona.name)} · subscribed</option>`)
+        .join('');
+      let options = '';
+      if (builtIns) options += `<optgroup label="Built-in">${builtIns}</optgroup>`;
+      if (custom) options += `<optgroup label="My Personas">${custom}</optgroup>`;
+      if (mp) options += `<optgroup label="Subscribed">${mp}</optgroup>`;
+      els.persona.innerHTML = options || '<option value="companion">Companion</option>';
       renderManagePersonas();
     }
 
@@ -2827,13 +3409,14 @@ HTML = r"""<!doctype html>
     }
 
     function getActivePersona() {
-      return customPersonas[els.persona.value] || personas[els.persona.value] || personas.companion;
+      return marketplacePersonas[els.persona.value] || customPersonas[els.persona.value] || personas[els.persona.value] || personas.companion;
     }
 
     function applyLocalConfig(config) {
       personas = config.personas || {};
       customPersonas = loadCustomPersonas();
       customPersonas = { ...(config.custom_personas || {}), ...customPersonas };
+      marketplacePersonas = config.marketplace_personas || {};
       saveCustomPersonas();
       renderPersonaOptions();
       els.provider.value = config.provider || localStorage.getItem('ct_provider') || 'openrouter';
@@ -3525,6 +4108,371 @@ HTML = r"""<!doctype html>
       }
     });
 
+    // Auth
+    function showAuth() {
+      if (els.authOverlay) els.authOverlay.classList.remove('hidden');
+    }
+    function hideAuth() {
+      if (els.authOverlay) els.authOverlay.classList.add('hidden');
+    }
+    function setAuthTab(tab) {
+      const isLogin = tab === 'login';
+      els.authTabLogin?.classList.toggle('active', isLogin);
+      els.authTabRegister?.classList.toggle('active', !isLogin);
+      els.authLoginForm?.classList.toggle('hidden', !isLogin);
+      els.authRegisterForm?.classList.toggle('hidden', isLogin);
+      if (els.authMessage) els.authMessage.textContent = '';
+    }
+    async function checkAuth() {
+      try {
+        const data = await api('/api/auth/me');
+        if (data.user) {
+          currentUser = data.user;
+          updateAccountUI();
+          hideAuth();
+          return true;
+        }
+      } catch {
+        // not logged in
+      }
+      currentUser = null;
+      updateAccountUI();
+      showAuth();
+      return false;
+    }
+    function updateAccountUI() {
+      if (!currentUser) {
+        if (els.accountBtn) els.accountBtn.style.display = 'none';
+        if (els.settingsCreatorTab) els.settingsCreatorTab.classList.add('hidden');
+        return;
+      }
+      if (els.accountBtn) {
+        els.accountBtn.style.display = 'inline-flex';
+        els.accountName.textContent = currentUser.display_name || currentUser.username;
+      }
+      if (els.accountRole) els.accountRole.textContent = currentUser.role;
+      if (els.settingsCreatorTab) {
+        els.settingsCreatorTab.classList.toggle('hidden', currentUser.role !== 'creator' && currentUser.role !== 'admin');
+      }
+    }
+    async function login() {
+      if (els.authMessage) els.authMessage.textContent = '';
+      try {
+        const data = await api('/api/auth/login', {
+          method: 'POST',
+          body: JSON.stringify({ username: els.authLoginUser.value, password: els.authLoginPass.value })
+        });
+        currentUser = data.user;
+        localStorage.setItem('ct_auth_token', data.token || '');
+        updateAccountUI();
+        hideAuth();
+        els.authLoginUser.value = '';
+        els.authLoginPass.value = '';
+        loadMarketplace();
+        loadCreatorPersonas();
+      } catch (error) {
+        if (els.authMessage) els.authMessage.textContent = error.message;
+      }
+    }
+    async function register() {
+      if (els.authMessage) els.authMessage.textContent = '';
+      try {
+        const data = await api('/api/auth/register', {
+          method: 'POST',
+          body: JSON.stringify({
+            username: els.authRegUser.value,
+            display_name: els.authRegDisplay.value,
+            password: els.authRegPass.value
+          })
+        });
+        currentUser = data.user;
+        localStorage.setItem('ct_auth_token', data.token || '');
+        updateAccountUI();
+        hideAuth();
+        els.authRegUser.value = '';
+        els.authRegDisplay.value = '';
+        els.authRegPass.value = '';
+        loadMarketplace();
+        loadCreatorPersonas();
+      } catch (error) {
+        if (els.authMessage) els.authMessage.textContent = error.message;
+      }
+    }
+    async function logout() {
+      try { await api('/api/auth/logout', { method: 'POST', body: '{}' }); } catch {}
+      localStorage.removeItem('ct_auth_token');
+      currentUser = null;
+      updateAccountUI();
+      showAuth();
+      if (els.accountMenu) els.accountMenu.classList.remove('open');
+    }
+
+    // Marketplace
+    function setMainView(view) {
+      const guide = view === 'guide';
+      const settings = view === 'settings';
+      const marketplace = view === 'marketplace';
+      els.chatView.classList.toggle('hidden', guide || settings || marketplace);
+      els.guideView.classList.toggle('active', guide);
+      els.settingsView.classList.toggle('active', settings);
+      els.marketplaceView.classList.toggle('active', marketplace);
+      els.navChat.classList.toggle('active', !guide && !settings && !marketplace);
+      els.navGuide.classList.toggle('active', guide);
+      els.navSettings.classList.toggle('active', settings);
+      els.navMarketplace.classList.toggle('active', marketplace);
+      if (els.mobChat) els.mobChat.classList.toggle('active', !guide && !settings && !marketplace);
+      if (els.mobGuide) els.mobGuide.classList.toggle('active', guide);
+      if (els.mobSettings) els.mobSettings.classList.toggle('active', settings);
+      if (els.mobMarketplace) els.mobMarketplace.classList.toggle('active', marketplace);
+      localStorage.setItem('ct_view', view);
+      if (marketplace) loadMarketplace();
+    }
+    async function loadMarketplace() {
+      if (!els.marketplaceGrid) return;
+      els.marketplaceGrid.innerHTML = '<div style="color:var(--muted);padding:20px 0;">Loading marketplace...</div>';
+      try {
+        const data = await api('/api/marketplace');
+        marketplaceData = data.personas || [];
+        renderMarketplace();
+      } catch (error) {
+        els.marketplaceGrid.innerHTML = `<div style="color:var(--red);padding:20px 0;">${esc(error.message)}</div>`;
+      }
+    }
+    function renderMarketplace() {
+      const filter = document.querySelector('.filter-pill.active')?.dataset.filter || 'all';
+      const query = (els.mpSearch?.value || '').toLowerCase().trim();
+      let items = marketplaceData;
+      if (filter === 'free') items = items.filter(p => p.price?.model === 'free');
+      if (filter === 'premium') items = items.filter(p => p.price?.model !== 'free');
+      if (filter === 'subscribed') items = items.filter(p => p.is_subscribed);
+      if (query) {
+        items = items.filter(p =>
+          (p.name || '').toLowerCase().includes(query) ||
+          (p.tagline || '').toLowerCase().includes(query) ||
+          (p.domain || '').toLowerCase().includes(query)
+        );
+      }
+      if (!items.length) {
+        els.marketplaceGrid.innerHTML = '<div style="color:var(--muted);padding:20px 0;">No personas found.</div>';
+        return;
+      }
+      els.marketplaceGrid.innerHTML = items.map(p => {
+        const isFree = p.price?.model === 'free';
+        const priceLabel = isFree ? 'Free' : `$${p.price?.amount}`;
+        const priceClass = isFree ? 'free' : 'premium';
+        const mass = p.stats?.temporal_mass || 0;
+        const subs = p.stats?.subscribers || 0;
+        return `
+          <article class="persona-card" data-id="${esc(p.persona_id)}">
+            <div class="persona-card-header">
+              <span class="domain-badge"><span class="domain-dot"></span>${esc(p.domain || 'general')}</span>
+              <span class="price-badge ${priceClass}">${esc(priceLabel)}</span>
+            </div>
+            <h3>${esc(p.name)}</h3>
+            <p class="tagline">${esc(p.tagline || 'No description.')}</p>
+            <div class="persona-card-meta">
+              <span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle></svg> ${subs}</span>
+              <span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M2 12h20"></path></svg> ${Math.round(mass * 10) / 10} mass</span>
+            </div>
+          </article>
+        `;
+      }).join('');
+      els.marketplaceGrid.querySelectorAll('.persona-card').forEach(card => {
+        card.addEventListener('click', () => openDetail(card.dataset.id));
+      });
+    }
+    async function openDetail(personaId) {
+      currentDetailId = personaId;
+      if (els.detailDrawer) els.detailDrawer.classList.add('open');
+      try {
+        const data = await api(`/api/marketplace/${encodeURIComponent(personaId)}`);
+        const p = data.persona;
+        if (els.detailName) els.detailName.textContent = p.name || 'Untitled';
+        if (els.detailDomainText) els.detailDomainText.textContent = p.domain || 'general';
+        if (els.detailTagline) els.detailTagline.textContent = p.tagline || 'No description.';
+        const mass = p.capsule?.temporal_mass || 0;
+        if (els.detailMassValue) els.detailMassValue.textContent = Math.round(mass * 10) / 10;
+        if (els.detailMassBar) els.detailMassBar.style.width = Math.min(100, mass * 5) + '%';
+        const rings = (p.capsule?.rings || []).slice(0, 6);
+        if (els.detailCapsule) {
+          els.detailCapsule.innerHTML = rings.length
+            ? rings.map(r => `
+              <div style="border:1px solid var(--line-soft);border-radius:8px;padding:10px;background:var(--memory-card-bg);">
+                <div style="font-size:12px;color:var(--faint);margin-bottom:4px;">Ring #${esc(r.n)} · ${esc(r.domain)} · brightness ${esc(r.brightness)}</div>
+                <div style="font-size:13px;color:var(--muted);line-height:1.45;">${esc(r.content?.slice(0, 200) || '')}</div>
+              </div>
+            `).join('')
+            : '<div style="color:var(--muted);font-size:13px;">No distilled experience yet.</div>';
+        }
+        const isSubbed = p.is_subscribed;
+        if (els.detailSubscribe) {
+          els.detailSubscribe.textContent = isSubbed ? 'Subscribed' : (p.price?.model === 'free' ? 'Subscribe Free' : `Subscribe — $${p.price?.amount}`);
+          els.detailSubscribe.disabled = isSubbed;
+        }
+        if (els.detailSubHint) els.detailSubHint.textContent = isSubbed ? 'You already have access to this persona.' : '';
+      } catch (error) {
+        if (els.detailTagline) els.detailTagline.textContent = error.message;
+      }
+    }
+    async function doSubscribe() {
+      if (!currentDetailId || !currentUser) return;
+      try {
+        const data = await api(`/api/marketplace/${encodeURIComponent(currentDetailId)}/subscribe`, { method: 'POST', body: '{}' });
+        if (els.detailSubscribe) {
+          els.detailSubscribe.textContent = 'Subscribed';
+          els.detailSubscribe.disabled = true;
+        }
+        if (els.detailSubHint) els.detailSubHint.textContent = 'Subscribed successfully.';
+        loadMarketplace();
+      } catch (error) {
+        if (els.detailSubHint) els.detailSubHint.textContent = error.message;
+      }
+    }
+    function closeDetail() {
+      if (els.detailDrawer) els.detailDrawer.classList.remove('open');
+      currentDetailId = null;
+    }
+
+    // Creator
+    function setSettingsSection(section) {
+      const active = ['provider', 'persona', 'manage', 'workbench', 'creator'].includes(section) ? section : 'provider';
+      els.providerSettingsSection.classList.toggle('hidden', active !== 'provider');
+      els.personaSettingsSection.classList.toggle('hidden', active !== 'persona');
+      els.manageSettingsSection.classList.toggle('hidden', active !== 'manage');
+      els.workbenchSettingsSection.classList.toggle('hidden', active !== 'workbench');
+      els.creatorSettingsSection.classList.toggle('hidden', active !== 'creator');
+      els.settingsProviderTab.classList.toggle('active', active === 'provider');
+      els.settingsPersonaTab.classList.toggle('active', active === 'persona');
+      els.settingsManageTab.classList.toggle('active', active === 'manage');
+      els.settingsWorkbenchTab.classList.toggle('active', active === 'workbench');
+      els.settingsCreatorTab.classList.toggle('active', active === 'creator');
+      localStorage.setItem('ct_settings_section', active);
+      if (active === 'creator') loadCreatorPersonas();
+    }
+    async function loadCreatorPersonas() {
+      if (!els.creatorList || !currentUser) return;
+      els.creatorList.innerHTML = '<div style="color:var(--muted);font-size:13px;">Loading...</div>';
+      try {
+        const data = await api('/api/creator/personas');
+        const personas = data.personas || [];
+        if (!personas.length) {
+          els.creatorList.innerHTML = '<div style="color:var(--muted);font-size:13px;">No personas created yet.</div>';
+          return;
+        }
+        els.creatorList.innerHTML = personas.map(p => {
+          const statusClass = `status-${p.status || 'draft'}`;
+          return `
+            <div class="creator-persona-row">
+              <div>
+                <div style="font-weight:800;font-size:14px;">${esc(p.name)}</div>
+                <div style="font-size:12px;color:var(--faint);">${esc(p.domain)} · ${p.rings} rings</div>
+              </div>
+              <span class="status ${statusClass}">${esc(p.status || 'draft')}</span>
+              <button class="secondary" type="button" data-action="train" data-id="${esc(p.persona_id)}">Train</button>
+              <button class="secondary" type="button" data-action="publish" data-id="${esc(p.persona_id)}">Publish</button>
+            </div>
+          `;
+        }).join('');
+        els.creatorList.querySelectorAll('button[data-action]').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const id = btn.dataset.id;
+            const action = btn.dataset.action;
+            if (action === 'train') {
+              await trainCreatorPersona(id);
+            } else if (action === 'publish') {
+              await publishCreatorPersona(id);
+            }
+          });
+        });
+      } catch (error) {
+        els.creatorList.innerHTML = `<div style="color:var(--red);font-size:13px;">${esc(error.message)}</div>`;
+      }
+    }
+    async function saveCreatorPersona() {
+      if (!currentUser) return;
+      const name = els.creatorName.value.trim();
+      if (!name) { els.manageStatusDetail.textContent = 'Name is required.'; return; }
+      try {
+        await api('/api/creator/personas', {
+          method: 'POST',
+          body: JSON.stringify({
+            persona: {
+              name: name,
+              tagline: els.creatorTagline.value.trim(),
+              domain: els.creatorDomain.value,
+              system: els.creatorSystem.value.trim()
+            }
+          })
+        });
+        els.creatorName.value = '';
+        els.creatorTagline.value = '';
+        els.creatorSystem.value = '';
+        loadCreatorPersonas();
+        els.manageStatusDetail.textContent = 'Persona created.';
+      } catch (error) {
+        els.manageStatusDetail.textContent = error.message;
+      }
+    }
+    async function trainCreatorPersona(personaId) {
+      if (!personaId) return;
+      const sessionName = `train-${personaId}`;
+      const data = await api('/api/sessions', {
+        method: 'POST',
+        body: JSON.stringify({ name: sessionName })
+      });
+      if (data.session?.id) {
+        await switchSession(data.session.id);
+        setMainView('chat');
+        els.setup.textContent = `Training mode for ${personaId}. Chat to build temporal mass.`;
+      }
+    }
+    async function publishCreatorPersona(personaId) {
+      if (!personaId) return;
+      try {
+        await api(`/api/creator/personas/${encodeURIComponent(personaId)}/distill`, { method: 'POST', body: '{}' });
+        await api(`/api/creator/personas/${encodeURIComponent(personaId)}/publish`, { method: 'POST', body: JSON.stringify({ price: { model: 'free', amount: 0, currency: 'USD' } }) });
+        loadCreatorPersonas();
+        els.manageStatusDetail.textContent = 'Published to marketplace (pending approval).';
+      } catch (error) {
+        els.manageStatusDetail.textContent = error.message;
+      }
+    }
+
+    // Event listeners for new UI
+    if (els.authTabLogin) els.authTabLogin.addEventListener('click', () => setAuthTab('login'));
+    if (els.authTabRegister) els.authTabRegister.addEventListener('click', () => setAuthTab('register'));
+    if (els.authLoginBtn) els.authLoginBtn.addEventListener('click', login);
+    if (els.authRegisterBtn) els.authRegisterBtn.addEventListener('click', register);
+    if (els.authLoginUser) els.authLoginUser.addEventListener('keydown', (e) => { if (e.key === 'Enter') login(); });
+    if (els.authLoginPass) els.authLoginPass.addEventListener('keydown', (e) => { if (e.key === 'Enter') login(); });
+    if (els.authRegUser) els.authRegUser.addEventListener('keydown', (e) => { if (e.key === 'Enter') register(); });
+    if (els.authRegDisplay) els.authRegDisplay.addEventListener('keydown', (e) => { if (e.key === 'Enter') register(); });
+    if (els.authRegPass) els.authRegPass.addEventListener('keydown', (e) => { if (e.key === 'Enter') register(); });
+    if (els.accountBtn) els.accountBtn.addEventListener('click', () => els.accountMenu?.classList.toggle('open'));
+    if (els.accountLogout) els.accountLogout.addEventListener('click', logout);
+    if (els.navMarketplace) els.navMarketplace.addEventListener('click', () => setMainView('marketplace'));
+    if (els.mobMarketplace) els.mobMarketplace.addEventListener('click', () => setMainView('marketplace'));
+    if (els.detailClose) els.detailClose.addEventListener('click', closeDetail);
+    if (els.detailSubscribe) els.detailSubscribe.addEventListener('click', doSubscribe);
+    if (els.mpSearch) els.mpSearch.addEventListener('input', renderMarketplace);
+    document.querySelectorAll('.filter-pill').forEach(pill => {
+      pill.addEventListener('click', () => {
+        document.querySelectorAll('.filter-pill').forEach(p => p.classList.remove('active'));
+        pill.classList.add('active');
+        renderMarketplace();
+      });
+    });
+    if (els.settingsCreatorTab) els.settingsCreatorTab.addEventListener('click', () => setSettingsSection('creator'));
+    if (els.creatorSave) els.creatorSave.addEventListener('click', saveCreatorPersona);
+    document.addEventListener('click', (e) => {
+      if (!els.accountWrap?.contains(e.target)) {
+        els.accountMenu?.classList.remove('open');
+      }
+      if (!els.detailDrawer?.contains(e.target) && !e.target.closest('.persona-card')) {
+        closeDetail();
+      }
+    });
+
     (function setupMobileDrawers() {
       const rail = document.querySelector('.rail');
       const inspector = document.querySelector('.inspector');
@@ -3558,19 +4506,21 @@ HTML = r"""<!doctype html>
     initPanels();
     if (els.themeToggle) els.themeToggle.addEventListener('click', toggleTheme);
 
-    api('/api/config')
-      .then(config => {
-        applyLocalConfig(config);
-        return syncCustomPersonasToServer(config).then(() => {
-          setMainView(localStorage.getItem('ct_view') || 'chat');
-          setSettingsSection(localStorage.getItem('ct_settings_section') || 'provider');
-          return loadGuideTopics().then(() => loadSessions().then(() => Promise.all([refreshSummary(), refreshMemories(), refreshWorkbench(), verifyChain(), restoreHistory()])));
+    checkAuth().then(() => {
+      return api('/api/config')
+        .then(config => {
+          applyLocalConfig(config);
+          return syncCustomPersonasToServer(config).then(() => {
+            setMainView(localStorage.getItem('ct_view') || 'chat');
+            setSettingsSection(localStorage.getItem('ct_settings_section') || 'provider');
+            return loadGuideTopics().then(() => loadSessions().then(() => Promise.all([refreshSummary(), refreshMemories(), refreshWorkbench(), verifyChain(), restoreHistory()])));
+          });
+        })
+        .catch(error => {
+          setStatus(error.message, '#6b3c3c');
+          appendMessage('CypherTempre', error.message, { accepted: false }, true);
         });
-      })
-      .catch(error => {
-        setStatus(error.message, '#6b3c3c');
-        appendMessage('CypherTempre', error.message, { accepted: false }, true);
-      });
+    });
 
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(() => {});
@@ -5652,6 +6602,18 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                     self.send_html(HTML)
                     return
                 if path == "/api/config":
+                    user = marketplace.get_auth_user(marketplace.get_cookie_token(dict(self.headers)))
+                    mp_personas = {}
+                    if user:
+                        subs = marketplace.get_subscriptions(user["username"])
+                        for sub in subs:
+                            entry = marketplace.get_marketplace_persona(sub["persona_id"])
+                            if entry:
+                                mp_personas[sub["persona_id"]] = {
+                                    "name": entry.get("name", "Untitled"),
+                                    "domain": entry.get("domain", "auto"),
+                                    "system": entry.get("system", ""),
+                                }
                     self.send_json({
                         "ok": True,
                         "provider": app.provider,
@@ -5663,6 +6625,7 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                             for key, value in PERSONAS.items()
                         },
                         "custom_personas": app.custom_personas(),
+                        "marketplace_personas": mp_personas,
                     })
                     return
                 if path == "/api/guide/topics":
@@ -5713,6 +6676,52 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                     ok, status = app.timechain.verify_chain(app.agent.chain)
                     self.send_json({"ok": ok, "status": status, "rings": len(app.agent.chain)})
                     return
+                if path == "/api/auth/me":
+                    headers = dict(self.headers)
+                    token = marketplace.get_cookie_token(headers) or headers.get("X-Auth-Token", "")
+                    user = marketplace.get_auth_user(token)
+                    self.send_json({"ok": True, "user": user})
+                    return
+                if path == "/api/marketplace":
+                    catalog = marketplace.get_catalog()
+                    user = marketplace.get_auth_user(marketplace.get_cookie_token(dict(self.headers)))
+                    subs = marketplace.get_subscriptions(user["username"]) if user else []
+                    sub_ids = {s["persona_id"] for s in subs}
+                    for entry in catalog:
+                        entry["is_subscribed"] = entry["persona_id"] in sub_ids
+                    self.send_json({"ok": True, "personas": [p for p in catalog if p.get("status") == "published"]})
+                    return
+                if path.startswith("/api/marketplace/"):
+                    persona_id = path[len("/api/marketplace/"):].split("/")[0]
+                    entry = marketplace.get_marketplace_persona(persona_id)
+                    if not entry:
+                        self.send_error(HTTPStatus.NOT_FOUND, "Not found")
+                        return
+                    user = marketplace.get_auth_user(marketplace.get_cookie_token(dict(self.headers)))
+                    entry["is_subscribed"] = marketplace.is_subscribed(user["username"], persona_id) if user else False
+                    self.send_json({"ok": True, "persona": entry})
+                    return
+                if path == "/api/subscriptions":
+                    user = marketplace.require_auth(dict(self.headers))
+                    subs = marketplace.get_subscriptions(user["username"])
+                    self.send_json({"ok": True, "subscriptions": subs})
+                    return
+                if path == "/api/creator/personas":
+                    user = marketplace.require_role(dict(self.headers), "creator")
+                    created = marketplace.list_created_personas(user["username"])
+                    self.send_json({"ok": True, "personas": created})
+                    return
+                if path.startswith("/api/creator/personas/"):
+                    rest = path[len("/api/creator/personas/"):]
+                    if "/" not in rest:
+                        persona_id = rest
+                        user = marketplace.require_role(dict(self.headers), "creator")
+                        entry = marketplace.get_created_persona(user["username"], persona_id)
+                        if not entry:
+                            self.send_error(HTTPStatus.NOT_FOUND, "Not found")
+                            return
+                        self.send_json({"ok": True, "persona": entry})
+                        return
                 if path == "/manifest.json":
                     encoded = MANIFEST_JSON.encode("utf-8")
                     self.send_response(HTTPStatus.OK)
@@ -5780,11 +6789,48 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 if path == "/api/sessions/delete":
                     self.handle_delete_session()
                     return
+                if path == "/api/auth/register":
+                    self.handle_auth_register()
+                    return
+                if path == "/api/auth/login":
+                    self.handle_auth_login()
+                    return
+                if path == "/api/auth/logout":
+                    self.handle_auth_logout()
+                    return
+                if path.startswith("/api/marketplace/") and path.endswith("/subscribe"):
+                    persona_id = path[len("/api/marketplace/"):].rsplit("/", 1)[0]
+                    self.handle_subscribe(persona_id)
+                    return
+                if path.startswith("/api/marketplace/") and path.endswith("/unsubscribe"):
+                    persona_id = path[len("/api/marketplace/"):].rsplit("/", 1)[0]
+                    self.handle_unsubscribe(persona_id)
+                    return
+                if path == "/api/creator/personas":
+                    self.handle_creator_create()
+                    return
+                if path.startswith("/api/creator/personas/") and path.endswith("/distill"):
+                    persona_id = path[len("/api/creator/personas/"):].rsplit("/", 1)[0]
+                    self.handle_creator_distill(persona_id)
+                    return
+                if path.startswith("/api/creator/personas/") and path.endswith("/publish"):
+                    persona_id = path[len("/api/creator/personas/"):].rsplit("/", 1)[0]
+                    self.handle_creator_publish(persona_id)
+                    return
+                if path.startswith("/api/creator/personas/") and path.endswith("/delete"):
+                    persona_id = path[len("/api/creator/personas/"):].rsplit("/", 1)[0]
+                    self.handle_creator_delete(persona_id)
+                    return
                 self.send_error(HTTPStatus.NOT_FOUND, "Not found")
             except Exception as exc:
                 self.send_exception(exc)
 
         def handle_chat(self) -> None:
+            try:
+                user = marketplace.require_auth(dict(self.headers))
+            except PermissionError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                return
             payload = self.read_json()
             app.use_session(str(payload.get("session", "")).strip() or self.query_param("session"))
             message = str(payload.get("message", "")).strip()
@@ -5794,7 +6840,17 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 app.save_custom_persona(persona_id, custom_persona)
             persona_id = app.bind_session_persona(persona_id)
             custom_persona = None
-            persona = custom_persona or app.get_custom_persona(persona_id) or PERSONAS.get(persona_id) or PERSONAS["companion"]
+            # Check marketplace personas
+            mp_persona = None
+            if user:
+                mp_entry = marketplace.get_marketplace_persona(persona_id)
+                if mp_entry and marketplace.is_subscribed(user["username"], persona_id):
+                    mp_persona = {
+                        "name": mp_entry.get("name", "Untitled"),
+                        "domain": mp_entry.get("domain", "auto"),
+                        "system": mp_entry.get("system", ""),
+                    }
+            persona = mp_persona or custom_persona or app.get_custom_persona(persona_id) or PERSONAS.get(persona_id) or PERSONAS["companion"]
             requested_domain = str(payload.get("domain", "auto")).strip() or "auto"
             domain = classify_domain(message, persona, requested_domain)
             model = str(payload.get("model", app.default_model)).strip() or app.default_model
@@ -5997,6 +7053,109 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
                 return
             self.send_json({"ok": True, "id": sanitize_session_id(persona_id), "custom_personas": custom_personas})
+
+        def handle_auth_register(self) -> None:
+            payload = self.read_json()
+            try:
+                result = marketplace.create_user(
+                    str(payload.get("username", "")).strip(),
+                    str(payload.get("display_name", "")).strip(),
+                    str(payload.get("password", "")).strip(),
+                    str(payload.get("role", "subscriber")).strip(),
+                )
+                token = marketplace.create_auth_session(result["username"])
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Set-Cookie", f"ct_auth={token}; HttpOnly; Path=/; Max-Age={60*60*24*7}; SameSite=Strict")
+                self.end_headers()
+                self.wfile.write(json.dumps({"ok": True, "user": result, "token": token}).encode("utf-8"))
+            except ValueError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
+
+        def handle_auth_login(self) -> None:
+            payload = self.read_json()
+            user = marketplace.authenticate_user(
+                str(payload.get("username", "")).strip(),
+                str(payload.get("password", "")).strip(),
+            )
+            if not user:
+                self.send_json({"ok": False, "error": "Invalid credentials."}, HTTPStatus.UNAUTHORIZED)
+                return
+            token = marketplace.create_auth_session(user["username"])
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Set-Cookie", f"ct_auth={token}; HttpOnly; Path=/; Max-Age={60*60*24*7}; SameSite=Strict")
+            self.end_headers()
+            self.wfile.write(json.dumps({"ok": True, "user": user, "token": token}).encode("utf-8"))
+
+        def handle_auth_logout(self) -> None:
+            token = marketplace.get_cookie_token(dict(self.headers))
+            marketplace.delete_auth_session(token)
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Set-Cookie", "ct_auth=; HttpOnly; Path=/; Max-Age=0; SameSite=Strict")
+            self.end_headers()
+            self.wfile.write(json.dumps({"ok": True}).encode("utf-8"))
+
+        def handle_subscribe(self, persona_id: str) -> None:
+            try:
+                user = marketplace.require_auth(dict(self.headers))
+                result = marketplace.subscribe(user["username"], persona_id)
+                self.send_json({"ok": True, **result})
+            except PermissionError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+            except ValueError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
+
+        def handle_unsubscribe(self, persona_id: str) -> None:
+            try:
+                user = marketplace.require_auth(dict(self.headers))
+                result = marketplace.unsubscribe(user["username"], persona_id)
+                self.send_json({"ok": True, **result})
+            except PermissionError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+
+        def handle_creator_create(self) -> None:
+            try:
+                user = marketplace.require_role(dict(self.headers), "creator")
+                payload = self.read_json()
+                data = payload.get("persona", {})
+                persona_id = str(payload.get("id", "")).strip() or None
+                result = marketplace.save_created_persona(user["username"], persona_id, data)
+                self.send_json({"ok": True, "persona": result})
+            except PermissionError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+            except ValueError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
+
+        def handle_creator_distill(self, persona_id: str) -> None:
+            try:
+                user = marketplace.require_role(dict(self.headers), "creator")
+                capsule = marketplace.distill_persona(user["username"], persona_id, app.timechain)
+                self.send_json({"ok": True, "capsule": capsule})
+            except PermissionError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+            except KeyError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.NOT_FOUND)
+
+        def handle_creator_publish(self, persona_id: str) -> None:
+            try:
+                user = marketplace.require_role(dict(self.headers), "creator")
+                payload = self.read_json()
+                result = marketplace.publish_persona(user["username"], persona_id, payload.get("price"))
+                self.send_json({"ok": True, "persona": result})
+            except PermissionError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+            except KeyError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.NOT_FOUND)
+
+        def handle_creator_delete(self, persona_id: str) -> None:
+            try:
+                user = marketplace.require_role(dict(self.headers), "creator")
+                marketplace.delete_created_persona(user["username"], persona_id)
+                self.send_json({"ok": True, "deleted": persona_id})
+            except PermissionError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
 
         def query_param(self, name: str) -> str:
             parsed = urlparse(self.path)
