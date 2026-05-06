@@ -496,6 +496,51 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertEqual(hits[0]["value"], "Ava")
         self.assertEqual(hits[0]["status"], "accepted")
 
+    def test_old_preference_memory_is_stale_but_identity_remains_active(self):
+        old = "2026-01-01T00:00:00+00:00"
+        now = server.dt.datetime(2026, 5, 5, tzinfo=server.dt.timezone.utc)
+        model = {
+            "version": 3,
+            "facts": [
+                {
+                    "id": "pref-old",
+                    "kind": "preference",
+                    "key": "user.preference.tone",
+                    "value": "concise answers",
+                    "confidence": 0.9,
+                    "source_ring": 2,
+                    "status": "accepted",
+                    "scope": "global",
+                    "session_id": "default",
+                    "created_at": old,
+                    "updated_at": old,
+                },
+                {
+                    "id": "name-old",
+                    "kind": "identity",
+                    "key": "user.name",
+                    "value": "Ava",
+                    "confidence": 0.95,
+                    "source_ring": 3,
+                    "status": "accepted",
+                    "scope": "global",
+                    "session_id": "default",
+                    "created_at": old,
+                    "updated_at": old,
+                },
+            ],
+        }
+
+        preference = server.memory_activity(model["facts"][0], now=now)
+        identity = server.memory_activity(model["facts"][1], now=now)
+        hits = server.recall_memory_facts(model, "concise answers Ava", now=now)
+
+        self.assertFalse(preference["active"])
+        self.assertEqual(preference["stale_reason"], "older than 90 days")
+        self.assertTrue(identity["active"])
+        self.assertEqual(hits[0]["key"], "user.name")
+        self.assertNotIn("user.preference.tone", [hit["key"] for hit in hits])
+
     def test_accept_memory_supersedes_prior_accepted_fact_for_same_key_and_scope(self):
         model = server.empty_memory_model()
         first = server.stage_memory_candidates(
@@ -519,6 +564,122 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertEqual(accepted["status"], "accepted")
         self.assertEqual(old["status"], "superseded")
         self.assertEqual(accepted["supersedes"], old["id"])
+        self.assertIn("updated_at", accepted)
+
+    def test_load_memory_model_migrates_v2_records_with_ring_timestamp(self):
+        workspace = self.make_workspace()
+        app = server.App(
+            workspace,
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
+        app.agent.interact("remember preference", override_content="Preference accepted.")
+        ring_ts = app.agent.chain[-1].ts
+        path = server.memory_model_path(workspace)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(server.json.dumps({
+            "version": 2,
+            "facts": [{
+                "id": "legacy",
+                "kind": "preference",
+                "key": "user.preference.legacy",
+                "value": "legacy value",
+                "confidence": 0.7,
+                "source_ring": 1,
+                "status": "accepted",
+                "scope": "global",
+                "session_id": "default",
+            }],
+        }), encoding="utf-8")
+
+        loaded = server.load_memory_model(workspace)
+
+        self.assertEqual(loaded["version"], 3)
+        self.assertEqual(loaded["facts"][0]["created_at"], ring_ts)
+        self.assertEqual(loaded["facts"][0]["updated_at"], ring_ts)
+
+    def test_active_ring_filter_excludes_old_rings_without_deleting_history(self):
+        old = "2026-01-01T00:00:00+00:00"
+        recent = "2026-05-01T00:00:00+00:00"
+        now = server.dt.datetime(2026, 5, 5, tzinfo=server.dt.timezone.utc)
+        chain = [
+            SimpleNamespace(kind="genesis", ts=old),
+            SimpleNamespace(kind="interaction", n=1, ts=old, content="old architecture decision"),
+            SimpleNamespace(kind="interaction", n=2, ts=recent, content="recent architecture decision"),
+        ]
+
+        active, stale = server.split_active_rings(chain, now=now)
+
+        self.assertEqual([ring.n for ring in active], [2])
+        self.assertEqual([ring.n for ring in stale], [1])
+        self.assertEqual(len(chain), 3)
+
+    def test_app_metadata_exposes_active_and_stale_context_counts(self):
+        workspace = self.make_workspace()
+        app = server.App(
+            workspace,
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
+        now = server.dt.datetime(2026, 5, 5, tzinfo=server.dt.timezone.utc)
+        old = "2026-01-01T00:00:00+00:00"
+        recent = "2026-05-01T00:00:00+00:00"
+        model = server.empty_memory_model()
+        model["facts"].extend([
+            {
+                "id": "stale-pref",
+                "kind": "preference",
+                "key": "user.preference.old",
+                "value": "old preference",
+                "confidence": 0.9,
+                "source_ring": 1,
+                "status": "accepted",
+                "scope": "global",
+                "session_id": "default",
+                "created_at": old,
+                "updated_at": old,
+            },
+            {
+                "id": "active-pref",
+                "kind": "preference",
+                "key": "user.preference.new",
+                "value": "new preference",
+                "confidence": 0.9,
+                "source_ring": 2,
+                "status": "accepted",
+                "scope": "global",
+                "session_id": "default",
+                "created_at": recent,
+                "updated_at": recent,
+            },
+        ])
+        server.save_memory_model(workspace, model)
+        app.agent.interact("old context", override_content="old context answer")
+        app.agent.chain[-1].ts = old
+        app.agent.interact("recent context", override_content="recent context answer")
+        app.agent.chain[-1].ts = recent
+
+        memories = app.list_memories(now=now)
+        self_model = app.self_model(now=now)
+        recall = app.recall("preference context", now=now)
+
+        self.assertEqual(self_model["active_context_days"], 90)
+        self.assertEqual(self_model["active_memory_count"], 1)
+        self.assertEqual(self_model["stale_memory_count"], 1)
+        self.assertEqual(self_model["active_ring_count"], 1)
+        self.assertEqual(self_model["stale_ring_count"], 1)
+        self.assertFalse(next(memory for memory in memories["accepted"] if memory["id"] == "stale-pref")["active"])
+        self.assertEqual(recall["active_context_days"], 90)
+        self.assertEqual(recall["filtered_stale_memory_count"], 1)
+        self.assertEqual(recall["filtered_stale_ring_count"], 1)
 
     def test_build_memory_fact_context_uses_only_accepted_memories_with_scope_labels(self):
         facts = [
@@ -1073,6 +1234,10 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertIn("Memory Review Queue", skills_readme)
         self.assertIn("Pending memories are visible in the Memory Inspector", skills_readme)
         self.assertIn("pending memory candidates are not saved as rings", server.HTML)
+        payload = {topic["id"]: topic for topic in server.guide_topics_payload()}
+        self.assertIn("retrieval/prompt conditioning, not model retraining", payload["recall"]["details"])
+        self.assertIn("Active context", server.HTML)
+        self.assertIn("Stale", server.HTML)
 
     def test_guide_documents_timechain_workbench(self):
         topic_ids = {topic["id"] for topic in server.GUIDE_TOPICS}

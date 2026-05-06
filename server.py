@@ -58,6 +58,7 @@ PROVIDERS: dict[str, dict[str, Any]] = {
 
 DEFAULT_TIMECHAIN_PATH = pathlib.Path(__file__).resolve().parent / "timechain.py"
 DEFAULT_ENV_PATH = pathlib.Path(__file__).resolve().parent / ".env.local"
+ACTIVE_CONTEXT_DAYS = 90
 PROMPT_BUDGET_CHARS = 32000
 RECALLED_RING_SNIPPET_CHARS = 700
 TRIMMED_RECALLED_RING_SNIPPET_CHARS = 220
@@ -571,7 +572,7 @@ GUIDE_TOPICS: list[dict[str, Any]] = [
             "Recall uses the same lightweight retrieval primitives as the Timechain CLI.\n"
             "Results include accepted durable memories, score, ring number, brightness, domain, and content.\n"
             "Pending, rejected, superseded, and forgotten memories are excluded from prompt recall.\n"
-            "Recent relevant rings are injected into future LLM prompts.\n"
+            "Accepted memories and recent rings steer future prompts through retrieval/prompt conditioning, not model retraining.\n"
             "Recall reads accepted rings from .timechain/chain.jsonl and accepted continuity memories from .timechain/memory_model.json."
         ),
         "sources": ["Guide: Recall", "README.md", "SKILLS/README.md"],
@@ -597,6 +598,7 @@ GUIDE_TOPICS: list[dict[str, Any]] = [
             "The self model summarizes local Timechain state.\n"
             "Ring count shows accepted memory size.\n"
             "Memory counts distinguish accepted durable facts from pending review candidates.\n"
+            "Active context tracks the 90-day prompt window while stale items remain in the audit trail.\n"
             "Temporal mass is accumulated brightness.\n"
             "Top domains show where the system has experience."
         ),
@@ -874,7 +876,6 @@ HTML = r"""<!doctype html>
       min-height: 0;
       overflow: hidden;
       position: relative;
-      z-index: 1;
     }
 
     .rail, .inspector {
@@ -2644,7 +2645,7 @@ HTML = r"""<!doctype html>
               <ul>
                 <li>Results include accepted durable memories, score, ring number, brightness, domain, and content.</li>
                 <li>Pending, rejected, superseded, and forgotten memories are excluded from prompt recall.</li>
-                <li>Recent relevant rings are injected into future LLM prompts.</li>
+                <li>Accepted memories and recent rings steer prompts through retrieval/prompt conditioning, not model retraining.</li>
                 <li>Recall reads from `.timechain/chain.jsonl` and `.timechain/memory_model.json`.</li>
               </ul>
             </div>
@@ -2672,6 +2673,7 @@ HTML = r"""<!doctype html>
               <ul>
                 <li>Ring count shows accepted memory size.</li>
                 <li>Memory counts distinguish accepted durable facts from pending review candidates.</li>
+                <li>Active context uses a 90-day prompt window while stale items remain in the audit trail.</li>
                 <li>Temporal mass is accumulated brightness.</li>
                 <li>Top domains show where the system has experience.</li>
               </ul>
@@ -3848,6 +3850,9 @@ HTML = r"""<!doctype html>
         mass: model.temporal_mass,
         frozen: model.frozen,
         facts: model.memory_fact_count || 0,
+        active: `${model.active_memory_count || 0} memories, ${model.active_ring_count || 0} rings`,
+        stale: `${model.stale_memory_count || 0} memories, ${model.stale_ring_count || 0} rings`,
+        window: `${model.active_context_days || 90} days`,
         domains: (model.top_domains || []).join(', ') || '(none)',
         genesis: String(model.genesis_hash || '').slice(0, 16),
         memory: factSummary
@@ -4014,8 +4019,12 @@ HTML = r"""<!doctype html>
       const scope = memory.scope || 'legacy';
       const confidence = Number(memory.confidence || 0).toFixed(2);
       const source = memory.source_ring || '?';
-      const session = memory.scope === 'session' ? ` · ${memory.session_id || activeSession}` : '';
-      return `${scope} · ${memory.kind || 'memory'} · confidence ${confidence} · ring #${source}${session}`;
+      const session = memory.scope === 'session' ? ` | ${memory.session_id || activeSession}` : '';
+      const state = memory.active ? 'Active context' : (memory.status === 'pending' ? 'Pending' : 'Stale');
+      const age = Number.isFinite(Number(memory.age_days)) ? ` | ${Number(memory.age_days)}d old` : '';
+      const reason = memory.stale_reason ? ` | ${memory.stale_reason}` : '';
+      const supersedes = memory.supersedes ? ` | supersedes ${memory.supersedes}` : '';
+      return `${state} | ${scope} | ${memory.kind || 'memory'} | confidence ${confidence} | ring #${source}${session}${age}${reason}${supersedes}`;
     }
 
     function renderMemoryCard(memory, pending) {
@@ -4248,7 +4257,7 @@ HTML = r"""<!doctype html>
       try {
         const data = await api('/api/recall', {
           method: 'POST',
-          body: JSON.stringify({ query, session: activeSession, domain: els.domain.value === 'auto' ? '' : els.domain.value, limit: 6 })
+          body: JSON.stringify({ query, session: activeSession, domain: els.domain.value === 'auto' ? '' : els.domain.value, limit: 12 })
         });
         const factText = data.facts?.length
           ? data.facts.map(f => `fact ${f.key}=${f.value} confidence=${f.confidence} source=#${f.source_ring} score=${f.score}`).join('\n')
@@ -4778,7 +4787,8 @@ HTML = r"""<!doctype html>
     initPanels();
     if (els.themeToggle) els.themeToggle.addEventListener('click', toggleTheme);
 
-    checkAuth().then(() => {
+    checkAuth().then((authenticated) => {
+      if (!authenticated) return;
       return api('/api/config')
         .then(config => {
           applyLocalConfig(config);
@@ -4862,14 +4872,85 @@ MEMORY_KINDS = {"identity", "preference", "goal", "correction", "boundary", "sty
 MEMORY_ACCEPTED_STATUSES = {"accepted", "known", "uncertain"}
 MEMORY_INACTIVE_STATUSES = {"pending", "rejected", "superseded", "forgotten"}
 GLOBAL_MEMORY_KINDS = {"identity", "preference", "boundary", "style", "persona"}
+ALWAYS_ACTIVE_MEMORY_KINDS = {"identity", "boundary", "persona"}
+
+
+def utc_now() -> dt.datetime:
+    return dt.datetime.now(dt.timezone.utc)
+
+
+def iso_now() -> str:
+    return utc_now().isoformat()
+
+
+def parse_iso_datetime(value: Any) -> dt.datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = dt.datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=dt.timezone.utc)
+    return parsed.astimezone(dt.timezone.utc)
+
+
+def age_days(value: Any, *, now: dt.datetime | None = None) -> int | None:
+    parsed = parse_iso_datetime(value)
+    if not parsed:
+        return None
+    current = now or utc_now()
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=dt.timezone.utc)
+    delta = current.astimezone(dt.timezone.utc) - parsed
+    return max(0, delta.days)
 
 
 def empty_memory_model() -> dict[str, Any]:
-    return {"version": 2, "facts": []}
+    return {"version": 3, "facts": []}
 
 
 def memory_model_path(workspace: pathlib.Path) -> pathlib.Path:
     return workspace / ".timechain" / "memory_model.json"
+
+
+def ring_timestamp_map(workspace: pathlib.Path) -> dict[int, str]:
+    path = workspace / ".timechain" / "chain.jsonl"
+    timestamps: dict[int, str] = {}
+    if not path.exists():
+        return timestamps
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return timestamps
+    for line in lines:
+        try:
+            raw = json.loads(line)
+            number = int(raw.get("n", 0) or 0)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            continue
+        timestamp = str(raw.get("ts", "")).strip()
+        if timestamp:
+            timestamps[number] = timestamp
+    return timestamps
+
+
+def ensure_memory_model_v3(model: dict[str, Any], *, ring_timestamps: dict[int, str] | None = None, now: dt.datetime | None = None) -> dict[str, Any]:
+    model["version"] = max(3, int(model.get("version", 3) or 3))
+    ring_timestamps = ring_timestamps or {}
+    fallback = (now or utc_now()).isoformat()
+    for fact in model.setdefault("facts", []):
+        try:
+            source_ring = int(fact.get("source_ring", 0) or 0)
+        except (TypeError, ValueError):
+            source_ring = 0
+        created = str(fact.get("created_at") or fact.get("updated_at") or ring_timestamps.get(source_ring) or fallback)
+        fact.setdefault("created_at", created)
+        fact.setdefault("updated_at", created)
+        fact.setdefault("scope", _memory_scope_for_fact(fact, session_id=str(fact.get("session_id", "default"))))
+        fact.setdefault("session_id", "default")
+    return model
 
 
 def load_memory_model(workspace: pathlib.Path) -> dict[str, Any]:
@@ -4882,13 +4963,13 @@ def load_memory_model(workspace: pathlib.Path) -> dict[str, Any]:
         return empty_memory_model()
     if not isinstance(model, dict) or not isinstance(model.get("facts"), list):
         return empty_memory_model()
-    model.setdefault("version", 2)
-    return model
+    return ensure_memory_model_v3(model, ring_timestamps=ring_timestamp_map(workspace))
 
 
 def save_memory_model(workspace: pathlib.Path, model: dict[str, Any]) -> None:
     path = memory_model_path(workspace)
     path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_memory_model_v3(model, ring_timestamps=ring_timestamp_map(workspace))
     path.write_text(json.dumps(model, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
@@ -4944,6 +5025,33 @@ def save_custom_personas(workspace: pathlib.Path, personas: dict[str, dict[str, 
     path.write_text(json.dumps(personas, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def load_user_custom_personas(root_workspace: pathlib.Path, username: str) -> dict[str, dict[str, str]]:
+    path = root_workspace / "data" / "users" / username / "custom_personas.json"
+    if not path.exists():
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    personas: dict[str, dict[str, str]] = {}
+    for key, value in raw.items():
+        persona_id = sanitize_session_id(str(key))
+        if not persona_id:
+            continue
+        persona = normalize_custom_persona(value)
+        if persona:
+            personas[persona_id] = persona
+    return personas
+
+
+def save_user_custom_personas(root_workspace: pathlib.Path, username: str, personas: dict[str, dict[str, str]]) -> None:
+    path = root_workspace / "data" / "users" / username / "custom_personas.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(personas, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def _clean_fact_value(value: str, *, max_words: int = 12) -> str:
     cleaned = re.sub(r"\s+", " ", value or "").strip(" .,!?:;\"'")
     words = cleaned.split()
@@ -4979,6 +5087,7 @@ def _fact(
     evidence: str,
     status: str = "known",
 ) -> dict[str, Any]:
+    timestamp = iso_now()
     return {
         "id": uuid.uuid4().hex,
         "kind": kind,
@@ -4989,6 +5098,8 @@ def _fact(
         "evidence": trim_for_prompt(evidence, 260),
         "status": status,
         "supersedes": None,
+        "created_at": timestamp,
+        "updated_at": timestamp,
     }
 
 
@@ -5050,6 +5161,7 @@ def normalize_memory_candidate(
     if source == "llm":
         confidence = min(confidence, 0.82)
     scope = _memory_scope_for_fact({"scope": raw.get("scope"), "kind": kind, "key": key}, session_id=session_id)
+    timestamp = str(raw.get("created_at") or raw.get("updated_at") or iso_now())
     return {
         "id": str(raw.get("id") or uuid.uuid4().hex),
         "kind": kind,
@@ -5063,6 +5175,8 @@ def normalize_memory_candidate(
         "session_id": sanitize_session_id(str(raw.get("session_id") or session_id or "default")),
         "supersedes": raw.get("supersedes"),
         "source": source,
+        "created_at": timestamp,
+        "updated_at": str(raw.get("updated_at") or timestamp),
     }
 
 
@@ -5082,6 +5196,67 @@ def _memory_duplicate(facts: list[dict[str, Any]], candidate: dict[str, Any]) ->
     return None
 
 
+def memory_activity(fact: dict[str, Any], *, now: dt.datetime | None = None) -> dict[str, Any]:
+    status = str(fact.get("status", "")).strip().lower()
+    kind = str(fact.get("kind", "")).strip().lower()
+    days = age_days(fact.get("created_at") or fact.get("updated_at"), now=now)
+    if status == "pending":
+        return {"active": False, "age_days": days, "stale_reason": "pending review"}
+    if status in {"rejected", "forgotten"}:
+        return {"active": False, "age_days": days, "stale_reason": status}
+    if status == "superseded":
+        return {"active": False, "age_days": days, "stale_reason": "superseded"}
+    if status not in MEMORY_ACCEPTED_STATUSES:
+        return {"active": False, "age_days": days, "stale_reason": "inactive"}
+    if kind in ALWAYS_ACTIVE_MEMORY_KINDS:
+        return {"active": True, "age_days": days, "stale_reason": ""}
+    if days is not None and days > ACTIVE_CONTEXT_DAYS:
+        return {"active": False, "age_days": days, "stale_reason": f"older than {ACTIVE_CONTEXT_DAYS} days"}
+    return {"active": True, "age_days": days, "stale_reason": ""}
+
+
+def annotate_memory(fact: dict[str, Any], *, now: dt.datetime | None = None) -> dict[str, Any]:
+    annotated = dict(fact)
+    annotated.update(memory_activity(annotated, now=now))
+    return annotated
+
+
+def active_memory_facts(facts: list[dict[str, Any]], *, now: dt.datetime | None = None) -> list[dict[str, Any]]:
+    return [
+        annotate_memory(fact, now=now)
+        for fact in facts
+        if memory_activity(fact, now=now)["active"]
+    ]
+
+
+def ring_is_active(ring: Any, *, now: dt.datetime | None = None) -> bool:
+    if getattr(ring, "kind", "") == "genesis":
+        return False
+    days = age_days(getattr(ring, "ts", ""), now=now)
+    return days is None or days <= ACTIVE_CONTEXT_DAYS
+
+
+def split_active_rings(chain: list[Any], *, now: dt.datetime | None = None) -> tuple[list[Any], list[Any]]:
+    active: list[Any] = []
+    stale: list[Any] = []
+    for ring in chain:
+        if getattr(ring, "kind", "") == "genesis":
+            continue
+        if ring_is_active(ring, now=now):
+            active.append(ring)
+        else:
+            stale.append(ring)
+    return active, stale
+
+
+def active_recall_chain(chain: list[Any], *, now: dt.datetime | None = None) -> list[Any]:
+    if not chain:
+        return []
+    genesis = [ring for ring in chain if getattr(ring, "kind", "") == "genesis"][:1]
+    active, _ = split_active_rings(chain, now=now)
+    return genesis + active
+
+
 def stage_memory_candidates(
     model: dict[str, Any],
     ring: Any,
@@ -5090,7 +5265,7 @@ def stage_memory_candidates(
     session_id: str = "default",
     llm_candidates: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    model.setdefault("version", 2)
+    model.setdefault("version", 3)
     facts = model.setdefault("facts", [])
     source_ring = int(getattr(ring, "n", 0) or 0)
     evidence = str(getattr(ring, "query", "") or "")
@@ -5132,6 +5307,9 @@ def _find_memory(model: dict[str, Any], memory_id: str) -> dict[str, Any]:
 def accept_memory(model: dict[str, Any], memory_id: str) -> dict[str, Any]:
     fact = _find_memory(model, memory_id)
     previous_status = str(fact.get("status", "pending"))
+    timestamp = iso_now()
+    fact.setdefault("created_at", timestamp)
+    fact["updated_at"] = timestamp
     fact["status"] = "accepted"
     fact.setdefault("scope", _memory_scope_for_fact(fact))
     fact.setdefault("session_id", "default")
@@ -5146,6 +5324,8 @@ def accept_memory(model: dict[str, Any], memory_id: str) -> dict[str, Any]:
             if str(fact.get("scope", "global")) == "session" and str(existing.get("session_id", "")) != str(fact.get("session_id", "")):
                 continue
             existing["status"] = "superseded"
+            existing.setdefault("created_at", existing.get("updated_at") or timestamp)
+            existing["updated_at"] = timestamp
             fact["supersedes"] = existing.get("id")
     return fact
 
@@ -5153,12 +5333,14 @@ def accept_memory(model: dict[str, Any], memory_id: str) -> dict[str, Any]:
 def reject_memory(model: dict[str, Any], memory_id: str) -> dict[str, Any]:
     fact = _find_memory(model, memory_id)
     fact["status"] = "rejected"
+    fact["updated_at"] = iso_now()
     return fact
 
 
 def forget_memory(model: dict[str, Any], memory_id: str) -> dict[str, Any]:
     fact = _find_memory(model, memory_id)
     fact["status"] = "forgotten"
+    fact["updated_at"] = iso_now()
     return fact
 
 
@@ -5175,6 +5357,7 @@ def edit_memory(model: dict[str, Any], memory_id: str, patch: dict[str, Any]) ->
         raise ValueError("Memory edit requires a non-empty value.")
     for key in ("kind", "key", "value", "confidence", "scope", "session_id", "evidence"):
         fact[key] = updated[key]
+    fact["updated_at"] = iso_now()
     return fact
 
 
@@ -5267,7 +5450,7 @@ def extract_memory_facts(ring: Any, *, persona_name: str) -> list[dict[str, Any]
 
 
 def update_memory_model(model: dict[str, Any], ring: Any, *, persona_name: str) -> list[dict[str, Any]]:
-    model.setdefault("version", 1)
+    model.setdefault("version", 3)
     facts = model.setdefault("facts", [])
     extracted = extract_memory_facts(ring, persona_name=persona_name)
     correction = bool(re.match(r"^\s*(?:no|nope|actually|correction|wrong)\b", str(getattr(ring, "query", "")), re.I))
@@ -5300,7 +5483,15 @@ def update_memory_model(model: dict[str, Any], ring: Any, *, persona_name: str) 
     return extracted
 
 
-def recall_memory_facts(model: dict[str, Any], query: str, *, limit: int = 6, session_id: str = "default") -> list[dict[str, Any]]:
+def recall_memory_facts(
+    model: dict[str, Any],
+    query: str,
+    *,
+    limit: int = 16,
+    session_id: str = "default",
+    now: dt.datetime | None = None,
+    active_only: bool = True,
+) -> list[dict[str, Any]]:
     query_tokens = set(re.findall(r"[A-Za-z0-9_-]+", query.lower()))
     wants_name = bool(re.search(r"\b(?:my name|call me|who am i|what is my name)\b", query, re.I))
     wants_persona = bool(re.search(r"\b(?:who are you|your name|what is your name)\b", query, re.I))
@@ -5309,6 +5500,9 @@ def recall_memory_facts(model: dict[str, Any], query: str, *, limit: int = 6, se
     for fact in model.get("facts", []):
         status = str(fact.get("status", "known"))
         if status not in MEMORY_ACCEPTED_STATUSES:
+            continue
+        activity = memory_activity(fact, now=now)
+        if active_only and not activity["active"]:
             continue
         scope = str(fact.get("scope", "global"))
         if scope == "session" and str(fact.get("session_id", "")) not in {"", active_session}:
@@ -5329,6 +5523,7 @@ def recall_memory_facts(model: dict[str, Any], query: str, *, limit: int = 6, se
             score -= 0.25
         if score > 0.3:
             hit = dict(fact)
+            hit.update(activity)
             hit["score"] = round(score, 4)
             scored.append((score, hit))
     scored.sort(key=lambda item: item[0], reverse=True)
@@ -5343,7 +5538,7 @@ def build_memory_fact_context(facts: list[dict[str, Any]] | None) -> str:
     if not active_facts:
         return "No durable memories matched this query."
     lines = []
-    for fact in active_facts[:8]:
+    for fact in active_facts[:16]:
         status = fact.get("status", "known")
         key = fact.get("key", "memory")
         value = fact.get("value", "")
@@ -5570,7 +5765,7 @@ def build_memory_context(
     if not rings:
         return "No prior relevant rings."
     lines = []
-    for ring in rings[:6]:
+    for ring in rings[:12]:
         content = ring.content.strip().replace("\n", " ")
         if len(content) > snippet_limit:
             content = content[: max(0, snippet_limit - 3)].rstrip() + "..."
@@ -5905,7 +6100,7 @@ def build_messages(
             model=model,
         )
     if prompt_budget_chars > 0 and prompt_size(messages) > prompt_budget_chars and retrieved:
-        memory_context = f"{len(retrieved[:6])} retrieved rings omitted to preserve prompt budget."
+        memory_context = f"{len(retrieved[:12])} retrieved rings omitted to preserve prompt budget."
         messages = build_prompt_messages(
             persona=persona,
             query=query,
@@ -6237,6 +6432,7 @@ class App:
         self.base_url = base_url
         self.timeout = timeout
         self.active_session = "default"
+        self.user_active_sessions: dict[str, str] = {}
         self.workspace = self.workspace_for_session(self.active_session)
         self.agent = self.timechain.TimechainAgent(workspace=self.workspace)
 
@@ -6248,24 +6444,40 @@ class App:
     def archives_root(self) -> pathlib.Path:
         return self.root_workspace / ".timechain_archives"
 
-    def workspace_for_session(self, session_id: str) -> pathlib.Path:
+    def user_sessions_root(self, username: str) -> pathlib.Path:
+        return self.root_workspace / "data" / "users" / username / "sessions"
+
+    def user_custom_personas_path(self, username: str) -> pathlib.Path:
+        return self.root_workspace / "data" / "users" / username / "custom_personas.json"
+
+    def workspace_for_session(self, session_id: str, username: str | None = None) -> pathlib.Path:
         session_id = sanitize_session_id(session_id)
-        if session_id == "default":
+        if username:
+            path = self.user_sessions_root(username) / session_id
+        elif session_id == "default":
             path = self.root_workspace
         else:
             path = self.sessions_root / session_id
         path.mkdir(parents=True, exist_ok=True)
         return path.resolve()
 
-    def use_session(self, session_id: str | None) -> str:
+    def use_session(self, session_id: str | None, username: str | None = None) -> str:
         self.active_session = sanitize_session_id(session_id or self.active_session or "default")
-        self.workspace = self.workspace_for_session(self.active_session)
+        self.workspace = self.workspace_for_session(self.active_session, username=username)
         self.reload_agent()
+        if username:
+            self.user_active_sessions[username] = self.active_session
         return self.active_session
 
-    def list_sessions(self) -> list[dict[str, Any]]:
+    def list_sessions(self, username: str | None = None) -> list[dict[str, Any]]:
         sessions: list[dict[str, Any]] = []
-        for session_id, path in [("default", self.root_workspace)]:
+        if username:
+            default_path = self.workspace_for_session("default", username=username)
+            sessions_dir = self.user_sessions_root(username)
+        else:
+            default_path = self.root_workspace
+            sessions_dir = self.sessions_root
+        for session_id, path in [("default", default_path)]:
             chain_path = path / ".timechain" / "chain.jsonl"
             if chain_path.exists():
                 with chain_path.open("r", encoding="utf-8") as handle:
@@ -6281,8 +6493,8 @@ class App:
                 "persona_id": persona_id,
                 "persona_name": self.persona_name_for_id(persona_id),
             })
-        if self.sessions_root.exists():
-            for path in sorted(p for p in self.sessions_root.iterdir() if p.is_dir()):
+        if sessions_dir.exists():
+            for path in sorted(p for p in sessions_dir.iterdir() if p.is_dir() and p.name != "default"):
                 session_id = sanitize_session_id(path.name)
                 chain_path = path / ".timechain" / "chain.jsonl"
                 if chain_path.exists():
@@ -6301,16 +6513,17 @@ class App:
                 })
         return sessions
 
-    def create_session(self, name: str, *, persona_id: str = "") -> dict[str, Any]:
+    def create_session(self, name: str, *, username: str | None = None, persona_id: str = "") -> dict[str, Any]:
         base = sanitize_session_id(name or "New conversation")
         if base == "default":
             base = "conversation"
         session_id = base
         index = 2
-        while (self.sessions_root / session_id).exists():
+        sessions_dir = self.user_sessions_root(username) if username else self.sessions_root
+        while (sessions_dir / session_id).exists():
             session_id = f"{base}-{index}"
             index += 1
-        self.use_session(session_id)
+        self.use_session(session_id, username=username)
         if persona_id:
             self.bind_session_persona(persona_id)
         metadata = load_session_metadata(self.workspace)
@@ -6323,21 +6536,22 @@ class App:
             "persona_name": self.persona_name_for_id(locked_persona),
         }
 
-    def delete_session(self, session_id: str) -> dict[str, Any]:
+    def delete_session(self, session_id: str, username: str | None = None) -> dict[str, Any]:
         session_id = sanitize_session_id(session_id)
         if session_id == "default":
             raise ValueError("Default session cannot be deleted.")
-        target = (self.sessions_root / session_id).resolve()
-        sessions_root = self.sessions_root.resolve()
-        if sessions_root not in target.parents or not target.exists() or not target.is_dir():
+        sessions_dir = self.user_sessions_root(username) if username else self.sessions_root
+        target = (sessions_dir / session_id).resolve()
+        sessions_root_resolved = sessions_dir.resolve()
+        if sessions_root_resolved not in target.parents or not target.exists() or not target.is_dir():
             raise KeyError(f"Unknown session: {session_id}")
         shutil.rmtree(target)
         if self.active_session == session_id:
-            self.use_session("default")
+            self.use_session("default", username=username)
         return {
             "deleted": session_id,
-            "active": self.active_session,
-            "sessions": self.list_sessions(),
+            "active": self.user_active_sessions.get(username or "", "default") if username else self.active_session,
+            "sessions": self.list_sessions(username=username),
         }
 
     def reload_agent(self) -> None:
@@ -6373,7 +6587,7 @@ class App:
         else:
             session_model = load_memory_model(self.workspace)
             model = {
-                "version": max(int(global_model.get("version", 2)), int(session_model.get("version", 2))),
+                "version": max(int(global_model.get("version", 3)), int(session_model.get("version", 3))),
                 "facts": list(global_model.get("facts", [])) + list(session_model.get("facts", [])),
             }
         if not model.get("facts") and len(getattr(self.agent, "chain", [])) > 1:
@@ -6434,9 +6648,9 @@ class App:
             save_memory_model(self.workspace, session_model)
         return staged
 
-    def list_memories(self) -> dict[str, Any]:
+    def list_memories(self, *, now: dt.datetime | None = None) -> dict[str, Any]:
         model = self.memory_model()
-        facts = list(model.get("facts", []))
+        facts = [annotate_memory(fact, now=now) for fact in model.get("facts", [])]
         pending = [fact for fact in facts if fact.get("status") == "pending"]
         accepted = [fact for fact in facts if fact.get("status") in MEMORY_ACCEPTED_STATUSES]
         inactive = [fact for fact in facts if fact.get("status") in MEMORY_INACTIVE_STATUSES]
@@ -6466,44 +6680,117 @@ class App:
             return memory
         raise KeyError(f"Unknown memory: {memory_id}")
 
-    def custom_personas(self) -> dict[str, dict[str, str]]:
+    def recall(
+        self,
+        query: str,
+        *,
+        domain: str | None = None,
+        limit: int = 12,
+        now: dt.datetime | None = None,
+    ) -> dict[str, Any]:
+        memory_model = self.memory_model()
+        fact_hits = recall_memory_facts(memory_model, query, limit=limit, session_id=self.active_session, now=now)
+        accepted = [fact for fact in memory_model.get("facts", []) if fact.get("status") in MEMORY_ACCEPTED_STATUSES]
+        stale_facts = [
+            fact for fact in accepted
+            if not memory_activity(fact, now=now)["active"]
+        ]
+        active_chain = active_recall_chain(self.agent.chain, now=now)
+        _, stale_rings = split_active_rings(self.agent.chain, now=now)
+        retrieved = self.timechain.retrieve(
+            active_chain,
+            query,
+            domain=domain,
+            cphy_weights=self.agent.cphy_weights,
+            config=self.timechain.RetrieverConfig(limit=max(1, min(limit, 20))),
+        )
+        results = []
+        for score, ring in retrieved:
+            content = ring.content[:500] if len(ring.content) > 500 else ring.content
+            results.append({
+                "score": round(float(score), 4),
+                "n": ring.n,
+                "ts": ring.ts,
+                "brightness": ring.brightness,
+                "kind": ring.kind,
+                "domain": ring.domain,
+                "query": ring.query,
+                "content": content,
+                "tags": ring.tags,
+                "hash_prefix": ring.hash[:16],
+                "epistemic": ring.epistemic,
+            })
+        diagnostics = [
+            f"durable facts matched: {len(fact_hits)}",
+            f"rings matched: {len(results)}",
+            f"domain filter: {domain or 'none'}",
+            f"active context days: {ACTIVE_CONTEXT_DAYS}",
+            f"stale durable facts filtered: {len(stale_facts)}",
+            f"stale rings filtered: {len(stale_rings)}",
+        ]
+        return {
+            "query": query,
+            "facts": fact_hits,
+            "rings": results,
+            "results": results,
+            "diagnostics": diagnostics,
+            "active_context_days": ACTIVE_CONTEXT_DAYS,
+            "filtered_stale_memory_count": len(stale_facts),
+            "filtered_stale_ring_count": len(stale_rings),
+        }
+
+    def custom_personas(self, username: str | None = None) -> dict[str, dict[str, str]]:
+        if username:
+            return load_user_custom_personas(self.root_workspace, username)
         return load_custom_personas(self.root_workspace)
 
-    def get_custom_persona(self, persona_id: str) -> dict[str, str] | None:
-        return self.custom_personas().get(sanitize_session_id(persona_id))
+    def get_custom_persona(self, persona_id: str, username: str | None = None) -> dict[str, str] | None:
+        return self.custom_personas(username=username).get(sanitize_session_id(persona_id))
 
-    def save_custom_persona(self, persona_id: str, persona: dict[str, str]) -> dict[str, str]:
+    def save_custom_persona(self, persona_id: str, persona: dict[str, str], username: str | None = None) -> dict[str, str]:
         persona_id = sanitize_session_id(persona_id)
         normalized = normalize_custom_persona(persona)
         if not normalized:
             raise ValueError("Invalid custom persona.")
-        personas = self.custom_personas()
+        personas = self.custom_personas(username=username)
         personas[persona_id] = normalized
-        save_custom_personas(self.root_workspace, personas)
+        if username:
+            save_user_custom_personas(self.root_workspace, username, personas)
+        else:
+            save_custom_personas(self.root_workspace, personas)
         return normalized
 
-    def delete_custom_persona(self, persona_id: str) -> dict[str, dict[str, str]]:
+    def delete_custom_persona(self, persona_id: str, username: str | None = None) -> dict[str, dict[str, str]]:
         persona_id = sanitize_session_id(persona_id)
         if not persona_id or persona_id in PERSONAS:
             raise ValueError("Built-in personas cannot be deleted.")
-        personas = self.custom_personas()
+        personas = self.custom_personas(username=username)
         if persona_id not in personas:
             raise KeyError(f"Unknown custom persona: {persona_id}")
         personas.pop(persona_id, None)
-        save_custom_personas(self.root_workspace, personas)
+        if username:
+            save_user_custom_personas(self.root_workspace, username, personas)
+        else:
+            save_custom_personas(self.root_workspace, personas)
         return personas
 
-    def self_model(self) -> dict[str, Any]:
-        self.reload_agent()
+    def self_model(self, *, now: dt.datetime | None = None) -> dict[str, Any]:
         model = self.agent.self_model()
         memory_model = self.memory_model()
+        facts = [annotate_memory(fact, now=now) for fact in memory_model.get("facts", [])]
+        accepted_facts = [fact for fact in facts if fact.get("status") in MEMORY_ACCEPTED_STATUSES]
+        active_memories = [fact for fact in accepted_facts if fact.get("active")]
+        stale_memories = [fact for fact in accepted_facts if not fact.get("active")]
+        active_rings, stale_rings = split_active_rings(self.agent.chain, now=now)
         model["workspace"] = str(self.workspace)
-        model["memory_facts"] = [
-            fact for fact in memory_model.get("facts", [])
-            if fact.get("status") in MEMORY_ACCEPTED_STATUSES
-        ]
+        model["active_context_days"] = ACTIVE_CONTEXT_DAYS
+        model["memory_facts"] = accepted_facts
         model["memory_fact_count"] = len(model["memory_facts"])
         model["pending_memory_count"] = sum(1 for fact in memory_model.get("facts", []) if fact.get("status") == "pending")
+        model["active_memory_count"] = len(active_memories)
+        model["stale_memory_count"] = len(stale_memories)
+        model["active_ring_count"] = len(active_rings)
+        model["stale_ring_count"] = len(stale_rings)
         return model
 
     def ring_workbench(self, *, limit: int = 24) -> dict[str, Any]:
@@ -6794,13 +7081,14 @@ class App:
         persona_id = self.bind_session_persona(persona_id)
         persona = custom_persona or self.get_custom_persona(persona_id) or PERSONAS.get(persona_id) or PERSONAS["companion"]
         memory_model = self.memory_model()
-        durable_hits = recall_memory_facts(memory_model, query, limit=6, session_id=self.active_session)
+        durable_hits = recall_memory_facts(memory_model, query, limit=16, session_id=self.active_session)
+        active_chain = active_recall_chain(self.agent.chain)
         retrieved_scored = self.timechain.retrieve(
-            self.agent.chain,
+            active_chain,
             query,
             domain=domain,
             cphy_weights=self.agent.cphy_weights,
-            config=self.timechain.RetrieverConfig(limit=6),
+            config=self.timechain.RetrieverConfig(limit=12),
         )
         retrieved = [ring for _, ring in retrieved_scored]
         recent_turns = build_recent_turns(self.agent.chain, limit=8)
@@ -6975,6 +7263,10 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
         def log_message(self, fmt: str, *args: Any) -> None:
             print(f"{self.address_string()} - {fmt % args}")
 
+        def _auth_user(self) -> dict[str, Any]:
+            user = marketplace.require_auth(dict(self.headers))
+            return user
+
         def do_GET(self) -> None:
             path = urlparse(self.path).path
             try:
@@ -6984,6 +7276,7 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 if path == "/api/config":
                     user = marketplace.get_auth_user(marketplace.get_cookie_token(dict(self.headers)))
                     mp_personas = {}
+                    custom_personas = {}
                     if user:
                         subs = marketplace.get_subscriptions(user["username"])
                         for sub in subs:
@@ -6994,6 +7287,7 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                                     "domain": entry.get("domain", "auto"),
                                     "system": entry.get("system", ""),
                                 }
+                        custom_personas = app.custom_personas(username=user["username"])
                     self.send_json({
                         "ok": True,
                         "provider": app.provider,
@@ -7004,7 +7298,7 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                             key: {"name": value["name"], "domain": value["domain"]}
                             for key, value in PERSONAS.items()
                         },
-                        "custom_personas": app.custom_personas(),
+                        "custom_personas": custom_personas,
                         "marketplace_personas": mp_personas,
                     })
                     return
@@ -7012,26 +7306,52 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                     self.send_json({"ok": True, "topics": guide_topics_payload()})
                     return
                 if path == "/api/sessions":
+                    try:
+                        user = self._auth_user()
+                    except PermissionError as exc:
+                        self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                        return
+                    username = user["username"]
                     self.send_json({
                         "ok": True,
-                        "active": app.active_session,
-                        "sessions": app.list_sessions(),
+                        "active": app.user_active_sessions.get(username, "default"),
+                        "sessions": app.list_sessions(username=username),
                     })
                     return
                 if path == "/api/self-model":
-                    app.use_session(self.query_param("session"))
+                    try:
+                        user = self._auth_user()
+                    except PermissionError as exc:
+                        self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                        return
+                    app.use_session(self.query_param("session"), username=user["username"])
                     self.send_json({"ok": True, "model": app.self_model()})
                     return
                 if path == "/api/memory-model":
-                    app.use_session(self.query_param("session"))
+                    try:
+                        user = self._auth_user()
+                    except PermissionError as exc:
+                        self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                        return
+                    app.use_session(self.query_param("session"), username=user["username"])
                     self.send_json({"ok": True, "model": app.memory_model()})
                     return
                 if path == "/api/memories":
-                    app.use_session(self.query_param("session"))
+                    try:
+                        user = self._auth_user()
+                    except PermissionError as exc:
+                        self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                        return
+                    app.use_session(self.query_param("session"), username=user["username"])
                     self.send_json({"ok": True, **app.list_memories()})
                     return
                 if path == "/api/history":
-                    app.use_session(self.query_param("session"))
+                    try:
+                        user = self._auth_user()
+                    except PermissionError as exc:
+                        self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                        return
+                    app.use_session(self.query_param("session"), username=user["username"])
                     self.send_json({
                         "ok": True,
                         "history": serialize_history(app.agent.chain),
@@ -7039,24 +7359,49 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                     })
                     return
                 if path == "/api/rings":
-                    app.use_session(self.query_param("session"))
+                    try:
+                        user = self._auth_user()
+                    except PermissionError as exc:
+                        self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                        return
+                    app.use_session(self.query_param("session"), username=user["username"])
                     limit = int(self.query_param("limit") or "24")
                     self.send_json({"ok": True, **app.ring_workbench(limit=limit)})
                     return
                 if path == "/api/cambium":
-                    app.use_session(self.query_param("session"))
+                    try:
+                        user = self._auth_user()
+                    except PermissionError as exc:
+                        self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                        return
+                    app.use_session(self.query_param("session"), username=user["username"])
                     self.send_json({"ok": True, **app.cambium_workbench()})
                     return
                 if path == "/api/overlays":
-                    app.use_session(self.query_param("session"))
+                    try:
+                        user = self._auth_user()
+                    except PermissionError as exc:
+                        self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                        return
+                    app.use_session(self.query_param("session"), username=user["username"])
                     self.send_json(app.list_overlays())
                     return
                 if path == "/api/sync-snapshot":
-                    app.use_session(self.query_param("session"))
+                    try:
+                        user = self._auth_user()
+                    except PermissionError as exc:
+                        self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                        return
+                    app.use_session(self.query_param("session"), username=user["username"])
                     self.send_json({"ok": True, **app.sync_snapshot()})
                     return
                 if path == "/api/verify":
-                    app.use_session(self.query_param("session"))
+                    try:
+                        user = self._auth_user()
+                    except PermissionError as exc:
+                        self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                        return
+                    app.use_session(self.query_param("session"), username=user["username"])
                     ok, status = app.timechain.verify_chain(app.agent.chain)
                     self.send_json({"ok": ok, "status": status, "rings": len(app.agent.chain)})
                     return
@@ -7231,12 +7576,13 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
                 return
             payload = self.read_json()
-            app.use_session(str(payload.get("session", "")).strip() or self.query_param("session"))
+            username = user["username"]
+            app.use_session(str(payload.get("session", "")).strip() or self.query_param("session"), username=username)
             message = str(payload.get("message", "")).strip()
             persona_id = str(payload.get("persona", "companion")).strip() or "companion"
             custom_persona = normalize_custom_persona(payload.get("customPersona"))
             if custom_persona:
-                app.save_custom_persona(persona_id, custom_persona)
+                app.save_custom_persona(persona_id, custom_persona, username=username)
             persona_id = app.bind_session_persona(persona_id)
             custom_persona = None
             # Check marketplace personas
@@ -7249,7 +7595,7 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                         "domain": mp_entry.get("domain", "auto"),
                         "system": mp_entry.get("system", ""),
                     }
-            persona = mp_persona or custom_persona or app.get_custom_persona(persona_id) or PERSONAS.get(persona_id) or PERSONAS["companion"]
+            persona = mp_persona or custom_persona or app.get_custom_persona(persona_id, username=username) or PERSONAS.get(persona_id) or PERSONAS["companion"]
             requested_domain = str(payload.get("domain", "auto")).strip() or "auto"
             domain = classify_domain(message, persona, requested_domain)
             model = str(payload.get("model", app.default_model)).strip() or app.default_model
@@ -7282,58 +7628,34 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
             self.send_json(response)
 
         def handle_recall(self) -> None:
+            try:
+                user = self._auth_user()
+            except PermissionError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                return
             payload = self.read_json()
-            app.use_session(str(payload.get("session", "")).strip() or self.query_param("session"))
+            app.use_session(str(payload.get("session", "")).strip() or self.query_param("session"), username=user["username"])
             query = str(payload.get("query", "")).strip()
             domain = str(payload.get("domain", "")).strip() or None
-            limit = int(payload.get("limit", 6))
+            limit = int(payload.get("limit", 12))
             if not query:
                 self.send_json({"ok": False, "error": "query is required"}, HTTPStatus.BAD_REQUEST)
                 return
 
-            app.reload_agent()
-            memory_model = app.memory_model()
-            fact_hits = recall_memory_facts(memory_model, query, limit=limit, session_id=app.active_session)
-            retrieved = app.timechain.retrieve(
-                app.agent.chain,
-                query,
-                domain=domain,
-                cphy_weights=app.agent.cphy_weights,
-                config=app.timechain.RetrieverConfig(limit=max(1, min(limit, 20))),
-            )
-            results = []
-            for score, ring in retrieved:
-                content = ring.content[:500] if len(ring.content) > 500 else ring.content
-                results.append({
-                    "score": round(float(score), 4),
-                    "n": ring.n,
-                    "ts": ring.ts,
-                    "brightness": ring.brightness,
-                    "kind": ring.kind,
-                    "domain": ring.domain,
-                    "query": ring.query,
-                    "content": content,
-                    "tags": ring.tags,
-                    "hash_prefix": ring.hash[:16],
-                    "epistemic": ring.epistemic,
-                })
-            diagnostics = [
-                f"durable facts matched: {len(fact_hits)}",
-                f"rings matched: {len(results)}",
-                f"domain filter: {domain or 'none'}",
-            ]
+            recall = app.recall(query, domain=domain, limit=limit)
             self.send_json({
                 "ok": True,
-                "query": query,
-                "facts": fact_hits,
-                "rings": results,
-                "results": results,
-                "diagnostics": diagnostics,
+                **recall,
             })
 
         def handle_memory_action(self) -> None:
+            try:
+                user = self._auth_user()
+            except PermissionError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                return
             payload = self.read_json()
-            app.use_session(str(payload.get("session", "")).strip() or self.query_param("session"))
+            app.use_session(str(payload.get("session", "")).strip() or self.query_param("session"), username=user["username"])
             memory_id = str(payload.get("id", "")).strip()
             action = str(payload.get("action", "")).strip().lower()
             if not memory_id or not action:
@@ -7350,19 +7672,34 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
             self.send_json({"ok": True, "memory": memory, **app.list_memories()})
 
         def handle_reset(self) -> None:
-            app.use_session(self.query_param("session"))
+            try:
+                user = self._auth_user()
+            except PermissionError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                return
+            app.use_session(self.query_param("session"), username=user["username"])
             result = app.reset_chain()
             self.send_json({"ok": True, **result})
 
         def handle_freeze(self) -> None:
+            try:
+                user = self._auth_user()
+            except PermissionError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                return
             payload = self.read_json()
-            app.use_session(str(payload.get("session", "")).strip() or self.query_param("session"))
+            app.use_session(str(payload.get("session", "")).strip() or self.query_param("session"), username=user["username"])
             result = app.set_frozen(bool(payload.get("frozen")))
             self.send_json({"ok": True, **result})
 
         def handle_rewind(self) -> None:
+            try:
+                user = self._auth_user()
+            except PermissionError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                return
             payload = self.read_json()
-            app.use_session(str(payload.get("session", "")).strip() or self.query_param("session"))
+            app.use_session(str(payload.get("session", "")).strip() or self.query_param("session"), username=user["username"])
             try:
                 ring_number = int(payload.get("ring"))
                 result = app.rewind_to_ring(ring_number)
@@ -7372,8 +7709,13 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
             self.send_json({"ok": True, **result})
 
         def handle_dream(self) -> None:
+            try:
+                user = self._auth_user()
+            except PermissionError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                return
             payload = self.read_json()
-            app.use_session(str(payload.get("session", "")).strip() or self.query_param("session"))
+            app.use_session(str(payload.get("session", "")).strip() or self.query_param("session"), username=user["username"])
             try:
                 result = app.run_dream(str(payload.get("domains", "")).strip(), cycles=int(payload.get("cycles", 3)))
             except PermissionError as exc:
@@ -7385,8 +7727,13 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
             self.send_json(result)
 
         def handle_overlay_set(self) -> None:
+            try:
+                user = self._auth_user()
+            except PermissionError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                return
             payload = self.read_json()
-            app.use_session(str(payload.get("session", "")).strip() or self.query_param("session"))
+            app.use_session(str(payload.get("session", "")).strip() or self.query_param("session"), username=user["username"])
             try:
                 result = app.set_overlay(str(payload.get("tag", "")).strip(), payload.get("weight", 1.0))
             except ValueError as exc:
@@ -7395,8 +7742,13 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
             self.send_json(result)
 
         def handle_memory_sync(self) -> None:
+            try:
+                user = self._auth_user()
+            except PermissionError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                return
             payload = self.read_json()
-            app.use_session(str(payload.get("session", "")).strip() or self.query_param("session"))
+            app.use_session(str(payload.get("session", "")).strip() or self.query_param("session"), username=user["username"])
             try:
                 result = app.memory_sync()
             except ValueError as exc:
@@ -7405,8 +7757,13 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
             self.send_json(result)
 
         def handle_fleet_import(self) -> None:
+            try:
+                user = self._auth_user()
+            except PermissionError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                return
             payload = self.read_json()
-            app.use_session(str(payload.get("session", "")).strip() or self.query_param("session"))
+            app.use_session(str(payload.get("session", "")).strip() or self.query_param("session"), username=user["username"])
             try:
                 result = app.fleet_import(payload.get("ring"), source=str(payload.get("source", "")).strip())
             except PermissionError as exc:
@@ -7418,8 +7775,13 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
             self.send_json(result)
 
         def handle_challenge(self) -> None:
+            try:
+                user = self._auth_user()
+            except PermissionError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                return
             payload = self.read_json()
-            app.use_session(str(payload.get("session", "")).strip() or self.query_param("session"))
+            app.use_session(str(payload.get("session", "")).strip() or self.query_param("session"), username=user["username"])
             try:
                 result = app.challenge(str(payload.get("indices", "")).strip(), nonce=str(payload.get("nonce", "")).strip())
             except ValueError as exc:
@@ -7428,22 +7790,33 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
             self.send_json(result)
 
         def handle_create_session(self) -> None:
+            try:
+                user = self._auth_user()
+            except PermissionError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                return
             payload = self.read_json()
             persona_id = str(payload.get("persona", "")).strip()
             custom_persona = normalize_custom_persona(payload.get("customPersona"))
             if persona_id and custom_persona:
-                app.save_custom_persona(persona_id, custom_persona)
+                app.save_custom_persona(persona_id, custom_persona, username=user["username"])
             session = app.create_session(
                 str(payload.get("name", "")).strip() or "New conversation",
+                username=user["username"],
                 persona_id=persona_id,
             )
-            self.send_json({"ok": True, "session": session, "sessions": app.list_sessions()})
+            self.send_json({"ok": True, "session": session, "sessions": app.list_sessions(username=user["username"])})
 
         def handle_delete_session(self) -> None:
+            try:
+                user = self._auth_user()
+            except PermissionError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                return
             payload = self.read_json()
             session_id = str(payload.get("session", "")).strip()
             try:
-                result = app.delete_session(session_id)
+                result = app.delete_session(session_id, username=user["username"])
             except KeyError:
                 self.send_json({"ok": False, "error": f"Unknown session: {session_id}"}, HTTPStatus.NOT_FOUND)
                 return
@@ -7486,21 +7859,31 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
             self.send_json({"ok": True, **result})
 
         def handle_save_persona(self) -> None:
+            try:
+                user = self._auth_user()
+            except PermissionError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                return
             payload = self.read_json()
             persona_id = str(payload.get("id", "")).strip() or f"custom_{uuid.uuid4().hex[:12]}"
-            persona = app.save_custom_persona(persona_id, payload.get("persona"))
+            persona = app.save_custom_persona(persona_id, payload.get("persona"), username=user["username"])
             self.send_json({
                 "ok": True,
                 "id": sanitize_session_id(persona_id),
                 "persona": persona,
-                "custom_personas": app.custom_personas(),
+                "custom_personas": app.custom_personas(username=user["username"]),
             })
 
         def handle_delete_persona(self) -> None:
+            try:
+                user = self._auth_user()
+            except PermissionError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                return
             payload = self.read_json()
             persona_id = str(payload.get("id", "")).strip()
             try:
-                custom_personas = app.delete_custom_persona(persona_id)
+                custom_personas = app.delete_custom_persona(persona_id, username=user["username"])
             except KeyError:
                 self.send_json({"ok": False, "error": f"Unknown custom persona: {persona_id}"}, HTTPStatus.NOT_FOUND)
                 return
@@ -7705,6 +8088,35 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def migrate_global_data_to_users(app: App) -> None:
+    users_path = app.root_workspace / "data" / "users.json"
+    if not users_path.exists():
+        return
+    try:
+        users = json.loads(users_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return
+    if not users or len(users) != 1:
+        return
+    username = next(iter(users.keys()))
+    if app.sessions_root.exists():
+        user_sessions = app.user_sessions_root(username)
+        user_sessions.mkdir(parents=True, exist_ok=True)
+        for path in list(app.sessions_root.iterdir()):
+            if path.is_dir():
+                dest = user_sessions / path.name
+                if not dest.exists():
+                    shutil.move(str(path), str(dest))
+                    print(f"Migrated session '{path.name}' to user '{username}'")
+    global_personas = custom_personas_path(app.root_workspace)
+    if global_personas.exists():
+        user_personas = app.user_custom_personas_path(username)
+        user_personas.parent.mkdir(parents=True, exist_ok=True)
+        if not user_personas.exists():
+            shutil.copy2(str(global_personas), str(user_personas))
+            print(f"Migrated custom personas to user '{username}'")
+
+
 def main() -> int:
     args = build_parser().parse_args()
     load_local_env(args.env_file)
@@ -7732,6 +8144,7 @@ def main() -> int:
         base_url=base_url,
         timeout=timeout,
     )
+    migrate_global_data_to_users(app)
     handler = make_handler(app)
     server = ThreadingHTTPServer((args.host, args.port), handler)
     url = f"http://{args.host}:{args.port}"

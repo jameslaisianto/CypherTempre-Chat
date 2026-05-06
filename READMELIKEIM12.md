@@ -83,6 +83,16 @@ Open:
 http://127.0.0.1:8765
 ```
 
+## 6. Log In or Register
+
+When the page loads, you will see a login screen.
+
+1. Click **Register** if this is your first time.
+2. Pick a username and password.
+3. Click **Log in** after you register.
+
+Your chats, sessions, and custom personas are saved under your account. They are private to you.
+
 ## Use It On Your Phone
 
 The app works on your phone too.
@@ -107,7 +117,7 @@ In Chrome or Samsung Internet on your phone:
 3. Tap **"Add to Home screen"**.
 4. It now opens like a real app with no browser bar.
 
-## 6. Test OpenRouter
+## 7. Test OpenRouter
 
 In the app:
 
@@ -119,7 +129,7 @@ If OpenRouter is working, you will see an OK message.
 
 If it says `429 Too Many Requests`, the free model is rate-limited. Wait a bit or use another OpenRouter model.
 
-## 7. Start Chatting
+## 8. Start Chatting
 
 Click `Chat`, type a message, and press Enter.
 
@@ -130,7 +140,7 @@ The app will:
 3. Save accepted replies into local memory.
 4. Show memory metadata under the response.
 
-## 8. Use The Guide
+## 9. Use The Guide
 
 Click `Guide`.
 
@@ -138,7 +148,7 @@ Each card has an `Explain` button.
 
 Clicking `Explain` creates a new chat session that explains that topic using local guide text and local docs.
 
-## 9. Stop The App
+## 10. Stop The App
 
 Go back to PowerShell and press:
 
@@ -148,22 +158,22 @@ Ctrl+C
 
 ## Where Stuff Is Saved
 
-Chat memory:
+Your chat history and sessions are saved under your username:
+
+```text
+data\users\<your-username>\sessions\<session-name>\.timechain\chain.jsonl
+```
+
+Your custom personas:
+
+```text
+data\users\<your-username>\custom_personas.json
+```
+
+Global memory (shared):
 
 ```text
 .timechain\chain.jsonl
-```
-
-Custom personas:
-
-```text
-.timechain\custom_personas.json
-```
-
-Separate sessions:
-
-```text
-sessions\<session-name>\.timechain\chain.jsonl
 ```
 
 App-local guide source notes:

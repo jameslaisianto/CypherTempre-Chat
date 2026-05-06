@@ -44,11 +44,11 @@ Supported scopes:
 
 Recall searches accepted durable memories and previously accepted rings, then returns the most relevant local context. Accepted global profile facts outrank ordinary rings for direct continuity questions. Active session notes outrank unrelated global facts when they match the current conversation.
 
-Pending, rejected, superseded, and forgotten memories are not used in prompt assembly. Guide and chat explanations should treat recalled rings and accepted durable memories as local memory, not as live external facts.
+Pending, rejected, superseded, forgotten, and stale memories are not used in active prompt assembly. Accepted memories and recent rings steer future prompts through retrieval/prompt conditioning, not model retraining. Guide and chat explanations should treat recalled rings and accepted durable memories as local memory, not as live external facts.
 
 ## Self Model
 
-The self model summarizes the local chain: ring count, temporal mass, top domains, gaps, current verification state, accepted durable memory count, and pending memory count. It is a diagnostic view of local memory state.
+The self model summarizes the local chain: ring count, temporal mass, top domains, gaps, current verification state, accepted durable memory count, pending memory count, and active/stale context counts. It is a diagnostic view of local memory state.
 
 ## Timechain Workbench
 

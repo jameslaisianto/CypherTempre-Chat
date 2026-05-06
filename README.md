@@ -15,6 +15,7 @@ Settings to configure llm provider
 ## Features
 
 - ChatGPT-style local chat UI
+- **User accounts with login/register** — sessions and custom personas are private per-user
 - Provider-agnostic model support (OpenRouter, Kimi, etc.)
 - Venice Uncensored free model default
 - Built-in personas
@@ -130,7 +131,16 @@ Open:
 http://127.0.0.1:8765
 ```
 
-### 7. Confirm the provider is active
+### 7. Log in or create an account
+
+The first time you open the app, you will see a login screen.
+
+- Click **Register** to create a new account.
+- Or click **Log in** if you already have one.
+
+Your sessions, chat history, and custom personas are tied to your account. No one else can see them.
+
+### 8. Confirm the provider is active
 
 Open the gear icon in the left rail. The Settings status card should say the provider is ready.
 
@@ -140,7 +150,7 @@ Send a message. The response metadata should show a real model, not:
 local-default-generator
 ```
 
-### 8. Use automatic memory domain
+### 9. Use automatic memory domain
 
 Leave `Memory domain` set to:
 
@@ -150,7 +160,7 @@ auto
 
 The server will classify messages into domains such as `debugging`, `security`, `testing`, `performance`, `api-design`, `system-design`, or `architecture`.
 
-### 9. Reset local memory for demos
+### 10. Reset local memory for demos
 
 Use:
 
@@ -179,18 +189,18 @@ The guide explainer can read only files inside `cyphertempre-chat-poc`, includin
 
 Use the `Sessions` control in the left sidebar to create and switch conversations.
 
-- `Default` uses the main PoC workspace.
-- New sessions are stored under:
+- `Default` is your personal default session.
+- New sessions are stored under your user folder:
 
 ```text
-cyphertempre-chat-poc/sessions/<session-id>/.timechain/chain.jsonl
+cyphertempre-chat-poc/data/users/<username>/sessions/<session-id>/.timechain/chain.jsonl
 ```
 
 - Each session has its own Timechain memory and session-local memory notes.
-- Stable global user profile memories are shared from the main workspace memory model.
 - Switching sessions reloads chat history, memory review state, recall, self-model, and verify state.
 - `Reset Chain Memory` clears only the active session.
-- Provider settings and custom personas are shared across sessions.
+- Provider settings are shared across sessions.
+- Custom personas are private to your account.
 
 ## Persistence model
 
@@ -206,21 +216,23 @@ Durable memory candidates and accepted continuity memories are stored beside the
 cyphertempre-chat-poc/.timechain/memory_model.json
 ```
 
-Session-local memory notes live under the active session workspace:
+Session-local memory notes live under your user session workspace:
 
 ```text
-cyphertempre-chat-poc/sessions/<session-id>/.timechain/memory_model.json
+cyphertempre-chat-poc/data/users/<username>/sessions/<session-id>/.timechain/memory_model.json
 ```
 
-Custom personas are stored in the main PoC workspace and mirrored to browser storage:
+Custom personas are stored in your user folder:
 
 ```text
-cyphertempre-chat-poc/.timechain/custom_personas.json
+cyphertempre-chat-poc/data/users/<username>/custom_personas.json
 ```
 
 Server restarts and browser reloads keep sealed rings, reviewed durable memories, pending memory candidates, and custom personas. The UI reconstructs visible chat from the Timechain rings through `/api/history`, and the Memory Inspector shows pending and accepted memories through `/api/memories`, `/api/self-model`, and `/api/recall`.
 
-The memory model is intentionally generic rather than a hardcoded name fix. It proposes identity facts, persona naming, preferences, corrections, goals, boundaries, style notes, and uncertainties with source-ring references. Proposed memories are pending by default; pending, rejected, superseded, and forgotten memories are not used in prompts or durable recall. Direct memory questions prioritize accepted high-confidence durable facts before ordinary ring recall.
+The memory model is intentionally generic rather than a hardcoded name fix. It proposes identity facts, persona naming, preferences, corrections, goals, boundaries, style notes, and uncertainties with source-ring references. Proposed memories are pending by default; pending, rejected, superseded, forgotten, and stale memories are not used in active prompt recall. Direct memory questions prioritize accepted high-confidence durable facts before ordinary ring recall.
+
+Active context is a prompt-window policy, not model retraining. Accepted identity, boundary, and persona facts stay active until changed or forgotten. Accepted preferences, goals, style notes, corrections, uncertainties, and relevant rings are active for the current 90-day context window; older items remain in the audit trail.
 
 Not persisted as rings:
 
