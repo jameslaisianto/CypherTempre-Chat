@@ -16,8 +16,8 @@ Settings to configure llm provider
 
 - ChatGPT-style local chat UI
 - **User accounts with login/register** — sessions and custom personas are private per-user
-- Provider-agnostic model support (OpenRouter, Kimi, etc.)
-- Venice Uncensored free model default
+- Provider-agnostic model support (Morpheus, OpenRouter, Kimi, etc.)
+- Morpheus `venice-uncensored` model default
 - Built-in personas
 - Persona Studio for custom fictional personas
 - **Cypher Tempre OpenClaw Runtime** — full prompt-layer v5.0 persona with Timechain-oriented self-modeling
@@ -77,12 +77,12 @@ python .\cyphertempre-chat-poc\server.py --timechain-path "path\to\timechain.py"
 
 ### 3. Create an API key
 
-Create an API key from your chosen provider (e.g., OpenRouter or Kimi).
+Create an API key from your chosen provider (e.g., Morpheus, OpenRouter, or Kimi).
 
-Recommended free uncensored model:
+Default Morpheus uncensored model:
 
 ```text
-cognitivecomputations/dolphin-mistral-24b-venice-edition:free
+venice-uncensored
 ```
 
 ### 4. Create local env file
@@ -102,9 +102,10 @@ cyphertempre-chat-poc/.env.local
 Set:
 
 ```text
-PROVIDER=openrouter
+PROVIDER=morpheus
 API_KEY=YOUR_API_KEY
-MODEL=cognitivecomputations/dolphin-mistral-24b-venice-edition:free
+MODEL=venice-uncensored
+BASE_URL=https://api.mor.org/api/v1
 ```
 
 `.env.local` is ignored by git. Do not commit real keys.
@@ -357,9 +358,10 @@ py -m unittest discover .\cyphertempre-chat-poc
 If the UI says the provider is not ready:
 
 - check that `.env.local` exists
-- check that `API_KEY` (or `OPENROUTER_API_KEY`) is spelled correctly
+- check that `API_KEY` (or `MORPHEUS_API_KEY`) is spelled correctly
 - restart the server after editing `.env.local`
-- confirm the model is set to `cognitivecomputations/dolphin-mistral-24b-venice-edition:free`
+- confirm the provider is `morpheus`
+- confirm the model is set to `venice-uncensored`
 
 If responses use `local-default-generator`, the server did not receive an API key.
 

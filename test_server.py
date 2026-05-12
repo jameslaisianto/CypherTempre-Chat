@@ -397,6 +397,56 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertEqual(persona["name"], "Mira Vale")
         self.assertEqual(persona["domain"], "auto")
         self.assertIn("Fictional", persona["system"])
+        self.assertEqual(persona["visibility"], "private")
+
+    def test_normalize_custom_persona_visibility(self):
+        public_persona = server.normalize_custom_persona({
+            "name": "Public Mira",
+            "system": "Public persona.",
+            "visibility": "public",
+        })
+        self.assertEqual(public_persona["visibility"], "public")
+
+        private_persona = server.normalize_custom_persona({
+            "name": "Private Mira",
+            "system": "Private persona.",
+            "visibility": "private",
+        })
+        self.assertEqual(private_persona["visibility"], "private")
+
+        invalid_persona = server.normalize_custom_persona({
+            "name": "Invalid Mira",
+            "system": "Invalid visibility.",
+            "visibility": "secret",
+        })
+        self.assertEqual(invalid_persona["visibility"], "private")
+
+    def test_load_all_public_custom_personas_aggregates_public(self):
+        root = self.make_workspace()
+        alice_dir = root / "data" / "users" / "alice"
+        alice_dir.mkdir(parents=True)
+        bob_dir = root / "data" / "users" / "bob"
+        bob_dir.mkdir(parents=True)
+
+        alice_personas = {
+            "custom_public": {"name": "Public Alice", "system": "Public.", "visibility": "public"},
+            "custom_private": {"name": "Private Alice", "system": "Private.", "visibility": "private"},
+        }
+        bob_personas = {
+            "custom_bob_pub": {"name": "Public Bob", "system": "Public bob.", "visibility": "public"},
+        }
+
+        server.save_user_custom_personas(root, "alice", alice_personas)
+        server.save_user_custom_personas(root, "bob", bob_personas)
+
+        public_personas = server.load_all_public_custom_personas(root)
+
+        self.assertIn("alice:custom_public", public_personas)
+        self.assertEqual(public_personas["alice:custom_public"]["name"], "Public Alice")
+        self.assertEqual(public_personas["alice:custom_public"]["owner"], "alice")
+        self.assertNotIn("alice:custom_private", public_personas)
+        self.assertIn("bob:custom_bob_pub", public_personas)
+        self.assertEqual(public_personas["bob:custom_bob_pub"]["owner"], "bob")
 
     def test_classify_domain_respects_manual_domain(self):
         persona = {"name": "Companion", "domain": "architecture", "system": ""}
@@ -864,11 +914,16 @@ class PromptAssemblyTests(unittest.TestCase):
     def test_default_model_is_venice_uncensored(self):
         self.assertEqual(
             server.DEFAULT_MODEL,
-            "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
+            "venice-uncensored",
         )
+        self.assertEqual(server.DEFAULT_PROVIDER, "morpheus")
         self.assertIn(server.DEFAULT_MODEL, server.HTML)
 
     def test_resolve_chat_completions_url_accepts_base_or_full_endpoint(self):
+        self.assertEqual(
+            server.resolve_chat_completions_url("morpheus", "https://api.mor.org/api/v1"),
+            "https://api.mor.org/api/v1/chat/completions",
+        )
         self.assertEqual(
             server.resolve_chat_completions_url("kimi", "https://api.moonshot.ai/v1"),
             "https://api.moonshot.ai/v1/chat/completions",
@@ -1140,6 +1195,8 @@ class PromptAssemblyTests(unittest.TestCase):
     def test_provider_key_ui_has_test_button_and_clearable_storage(self):
         self.assertIn('id="test-provider"', server.HTML)
         self.assertIn('id="base-url"', server.HTML)
+        self.assertIn('value="morpheus"', server.HTML)
+        self.assertIn("venice-uncensored", server.HTML)
         self.assertIn('value="kimi-code"', server.HTML)
         self.assertIn("kimi-for-coding", server.HTML)
         self.assertIn("providerEndpoints", server.HTML)
