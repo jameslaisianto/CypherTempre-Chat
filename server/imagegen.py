@@ -1,4 +1,4 @@
-"""Image forge route handlers."""
+"""ImageGen route handlers — generate, edit, redefine, and delete images."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from server.config import IMAGE_PROVIDERS
 from server.llm import call_image_generation
 
 
-def handle_forge_generate(handler: Any, app: Any) -> None:
+def handle_imagegen_generate(handler: Any, app: Any) -> None:
     try:
         user = handler._auth_user()
     except PermissionError as exc:
@@ -63,7 +63,7 @@ def handle_forge_generate(handler: Any, app: Any) -> None:
     })
 
 
-def handle_forge_edit(handler: Any, app: Any) -> None:
+def handle_imagegen_edit(handler: Any, app: Any) -> None:
     try:
         user = handler._auth_user()
     except PermissionError as exc:
@@ -125,7 +125,7 @@ def handle_forge_edit(handler: Any, app: Any) -> None:
     })
 
 
-def handle_forge_redefine(handler: Any, app: Any) -> None:
+def handle_imagegen_redefine(handler: Any, app: Any) -> None:
     try:
         user = handler._auth_user()
     except PermissionError as exc:
@@ -191,7 +191,7 @@ def handle_forge_redefine(handler: Any, app: Any) -> None:
     })
 
 
-def handle_forge_delete(handler: Any, app: Any) -> None:
+def handle_imagegen_delete(handler: Any, app: Any) -> None:
     try:
         user = handler._auth_user()
     except PermissionError as exc:
@@ -204,4 +204,3 @@ def handle_forge_delete(handler: Any, app: Any) -> None:
         return
     ok = app.delete_gallery_image(user["username"], image_id)
     handler.send_json({"ok": ok})
-

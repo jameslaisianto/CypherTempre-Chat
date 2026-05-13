@@ -201,7 +201,7 @@ server\
   chat.py          chat, sessions, personas, memory actions
   auth.py          login, register, logout
   marketplace.py   marketplace and creator routes
-  forge.py         image forge routes
+  imagegen.py      image generation routes
   timechain.py     app Timechain/session logic
   llm.py           provider calls and prompt building
   config.py        settings, personas, guide topics

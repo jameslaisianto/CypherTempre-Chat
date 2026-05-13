@@ -889,6 +889,7 @@ class App:
         self.timeout = timeout
         self.active_session = "default"
         self.user_active_sessions: dict[str, str] = {}
+        self._image_agents: dict[str, Any] = {}
         self.workspace = self.workspace_for_session(self.active_session)
         self.agent = self.timechain.TimechainAgent(workspace=self.workspace)
 
@@ -910,6 +911,165 @@ class App:
         path = self.root_workspace / "data" / "users" / username / "gallery"
         path.mkdir(parents=True, exist_ok=True)
         return path
+
+    def image_timechain_agent(self, username: str) -> Any:
+        """Return a TimechainAgent whose workspace is the user's gallery directory.
+
+        The agent's ``.timechain/`` subdirectory lives alongside the gallery
+        images, keeping image lineage independent from chat session chains.
+        Agents are cached per user for the lifetime of the App.
+        """
+        agent = self._image_agents.get(username)
+        if agent is not None:
+            return agent
+        workspace = self.user_gallery_root(username)
+        agent = self.timechain.TimechainAgent(
+            name="ImageGen",
+            values=self.timechain.ENGINEERING_COVENANT,
+            core="imagegen-core",
+            workspace=workspace,
+        )
+        self._image_agents[username] = agent
+        return agent
+
+    def _seal_image_ring(
+        self,
+        username: str,
+        *,
+        kind: str,
+        prompt: str,
+        model: str,
+        provider: str,
+        aspect_ratio: str,
+        mode: str,
+        image_id: str,
+        source_id: str = "",
+    ) -> int:
+        """Seal a timechain Ring for an image operation and return the ring number.
+
+        Ring kinds: ``image_generate``, ``image_edit``, ``image_redefine``.
+
+        Uses covenant-only gating (like ``seal_cambium_event``) because the
+        ring content is structured metadata, not prose that would pass the
+        full brightness gate.
+        """
+        agent = self.image_timechain_agent(username)
+        content = json.dumps({
+            "image_id": image_id,
+            "prompt": prompt,
+            "mode": mode,
+            "model": model,
+            "provider": provider,
+            "aspect_ratio": aspect_ratio,
+            "source_id": source_id,
+        }, ensure_ascii=False)
+
+        supersedes: int | None = None
+        if kind == "image_redefine" and source_id:
+            supersedes = self._resolve_image_ring_n(username, source_id)
+
+        # Covenant-only gate — same pattern as seal_cambium_event
+        scores, brightness = agent.poq.evaluate(
+            query=prompt,
+            content=content,
+            covenant=agent.values,
+            retrieved=[],
+            chain=agent.chain,
+        )
+        if scores["covenant"] < agent.poq.config.covenant_hard_floor:
+            return 0
+
+        neuro = self.timechain.compute_neuro(agent.chain, "image")
+        candidate = self.timechain.Ring(
+            n=len(agent.chain),
+            prev=agent.chain[-1].hash,
+            ts=dt.datetime.now(dt.timezone.utc).isoformat(),
+            kind=kind,
+            domain="image",
+            query=prompt,
+            content=content,
+            brightness=max(brightness, 0.5),
+            scores=scores,
+            neuro=neuro,
+            retrieved=[],
+            epistemic="known",
+            tags=[kind, mode, "image"],
+            supersedes=supersedes,
+        )
+        sealed = agent._append(candidate)
+        return sealed.n
+
+    def _resolve_image_ring_n(self, username: str, image_id: str) -> int:
+        """Find the ring_n for a previously sealed image operation."""
+        index = self.load_gallery_index(username)
+        for entry in index.get("images", []):
+            if entry.get("id") == image_id:
+                return entry.get("ring_n", 0)
+        return 0
+
+    def image_lineage(self, username: str, image_id: str) -> dict[str, Any]:
+        """Return the timechain lineage for an image.
+
+        Returns the ancestry chain (image → source → source-of-source),
+        any images that were redefined *from* this one (children), and the
+        full ordered ring trail with timestamps and hashes.
+        """
+        index = self.load_gallery_index(username)
+        images = {e["id"]: e for e in index.get("images", [])}
+        entry = images.get(image_id)
+        if not entry:
+            return {"ok": False, "error": "Image not found", "chain": [], "children": []}
+
+        agent = self.image_timechain_agent(username)
+
+        # Walk backwards: image_id → source_id → ring_n → source_id → ...
+        ancestors: list[dict[str, Any]] = []
+        seen: set[int] = set()
+        current_id = image_id
+        while current_id:
+            ent = images.get(current_id)
+            if not ent:
+                break
+            rn = ent.get("ring_n", 0)
+            if rn <= 0 or rn in seen:
+                break
+            seen.add(rn)
+            ring_dict = None
+            for r in agent.chain:
+                if r.n == rn:
+                    ring_dict = r.to_dict()
+                    break
+            ancestors.append({
+                "image_id": ent["id"],
+                "ring_n": rn,
+                "supersedes_ring": ent.get("supersedes_ring", 0),
+                "mode": ent.get("mode", ""),
+                "prompt": ent.get("prompt", ""),
+                "created_at": ent.get("created_at", ""),
+                "source_id": ent.get("source_id", ""),
+                "ring": ring_dict,
+            })
+            current_id = ent.get("source_id", "")
+
+        # Walk forwards: find images whose source_id is our image_id
+        children: list[dict[str, Any]] = []
+        for e in index.get("images", []):
+            if e.get("source_id") == image_id:
+                children.append({
+                    "image_id": e["id"],
+                    "ring_n": e.get("ring_n", 0),
+                    "supersedes_ring": e.get("supersedes_ring", 0),
+                    "mode": e.get("mode", ""),
+                    "prompt": e.get("prompt", ""),
+                    "created_at": e.get("created_at", ""),
+                })
+
+        return {
+            "ok": True,
+            "image_id": image_id,
+            "chain": ancestors,
+            "children": children,
+        }
 
     def user_gallery_index_path(self, username: str) -> pathlib.Path:
         return self.user_gallery_root(username) / "index.json"
@@ -952,6 +1112,23 @@ class App:
         except Exception as exc:
             raise RuntimeError(f"Invalid base64 image data: {exc}") from exc
         path.write_bytes(raw)
+
+        # Seal a timechain Ring for image lineage tracking
+        kind_map = {"generate": "image_generate", "edit": "image_edit", "redefine": "image_redefine"}
+        ring_kind = kind_map.get(mode, "image_generate")
+        supersedes_ring = self._resolve_image_ring_n(username, source_id) if source_id else 0
+        ring_n = self._seal_image_ring(
+            username,
+            kind=ring_kind,
+            prompt=prompt,
+            model=model,
+            provider=provider,
+            aspect_ratio=aspect_ratio,
+            mode=mode,
+            image_id=image_id,
+            source_id=source_id,
+        )
+
         entry = {
             "id": image_id,
             "prompt": prompt,
@@ -962,6 +1139,8 @@ class App:
             "created_at": dt.datetime.now(dt.timezone.utc).isoformat(),
             "filename": f"{image_id}.png",
             "source_id": source_id,
+            "ring_n": ring_n,
+            "supersedes_ring": supersedes_ring,
         }
         index = self.load_gallery_index(username)
         index["images"].insert(0, entry)

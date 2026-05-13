@@ -134,34 +134,35 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       detailSubscribe: document.getElementById('detail-subscribe'),
       detailSubHint: document.getElementById('detail-sub-hint'),
       mobMarketplace: document.getElementById('mob-marketplace'),
-      navForge: document.getElementById('nav-forge'),
-      mobForge: document.getElementById('mob-forge'),
-      forgeView: document.getElementById('forge-view'),
-      forgeModeGenerate: document.getElementById('forge-mode-generate'),
-      forgeModeEdit: document.getElementById('forge-mode-edit'),
-      forgeModeRedefine: document.getElementById('forge-mode-redefine'),
-      forgePanelGenerate: document.getElementById('forge-panel-generate'),
-      forgePanelEdit: document.getElementById('forge-panel-edit'),
-      forgePanelRedefine: document.getElementById('forge-panel-redefine'),
-      forgePrompt: document.getElementById('forge-prompt'),
-      forgeModel: document.getElementById('forge-model'),
-      forgeAspect: document.getElementById('forge-aspect'),
-      forgeGenerateBtn: document.getElementById('forge-generate-btn'),
-      forgeStatus: document.getElementById('forge-status'),
-      forgeResult: document.getElementById('forge-result'),
-      forgeEditDropzone: document.getElementById('forge-edit-dropzone'),
-      forgeEditFile: document.getElementById('forge-edit-file'),
-      forgeEditPreview: document.getElementById('forge-edit-preview'),
-      forgeEditPrompt: document.getElementById('forge-edit-prompt'),
-      forgeEditBtn: document.getElementById('forge-edit-btn'),
-      forgeEditResult: document.getElementById('forge-edit-result'),
-      forgeRedefineGallery: document.getElementById('forge-redefine-gallery'),
-      forgeRedefinePrompt: document.getElementById('forge-redefine-prompt'),
-      forgeRedefineBtn: document.getElementById('forge-redefine-btn'),
-      forgeRedefineResult: document.getElementById('forge-redefine-result'),
-      forgeGalleryGrid: document.getElementById('forge-gallery-grid'),
-      forgeGalleryCount: document.getElementById('forge-gallery-count'),
-      forgeEditModel: document.getElementById('forge-edit-model'),
+      navImagegen: document.getElementById('nav-imagegen'),
+      mobImagegen: document.getElementById('mob-imagegen'),
+      imagegenView: document.getElementById('imagegen-view'),
+      imagegenModeGenerate: document.getElementById('imagegen-mode-generate'),
+      imagegenModeEdit: document.getElementById('imagegen-mode-edit'),
+      imagegenModeRedefine: document.getElementById('imagegen-mode-redefine'),
+      imagegenPanelGenerate: document.getElementById('imagegen-panel-generate'),
+      imagegenPanelEdit: document.getElementById('imagegen-panel-edit'),
+      imagegenPanelRedefine: document.getElementById('imagegen-panel-redefine'),
+      imagegenPrompt: document.getElementById('imagegen-prompt'),
+      imagegenModel: document.getElementById('imagegen-model'),
+      imagegenAspect: document.getElementById('imagegen-aspect'),
+      imagegenGenerateBtn: document.getElementById('imagegen-generate-btn'),
+      imagegenStatus: document.getElementById('imagegen-status'),
+      imagegenResult: document.getElementById('imagegen-result'),
+      imagegenLineage: document.getElementById('imagegen-lineage'),
+      imagegenEditDropzone: document.getElementById('imagegen-edit-dropzone'),
+      imagegenEditFile: document.getElementById('imagegen-edit-file'),
+      imagegenEditPreview: document.getElementById('imagegen-edit-preview'),
+      imagegenEditPrompt: document.getElementById('imagegen-edit-prompt'),
+      imagegenEditBtn: document.getElementById('imagegen-edit-btn'),
+      imagegenEditResult: document.getElementById('imagegen-edit-result'),
+      imagegenRedefineGallery: document.getElementById('imagegen-redefine-gallery'),
+      imagegenRedefinePrompt: document.getElementById('imagegen-redefine-prompt'),
+      imagegenRedefineBtn: document.getElementById('imagegen-redefine-btn'),
+      imagegenRedefineResult: document.getElementById('imagegen-redefine-result'),
+      imagegenGalleryGrid: document.getElementById('imagegen-gallery-grid'),
+      imagegenGalleryCount: document.getElementById('imagegen-gallery-count'),
+      imagegenEditModel: document.getElementById('imagegen-edit-model'),
       settingsCreatorTab: document.getElementById('settings-creator-tab'),
       creatorSettingsSection: document.getElementById('creator-settings-section'),
       creatorName: document.getElementById('creator-name'),
@@ -1407,28 +1408,29 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
 
     // Marketplace
     function setMainView(view) {
+      if (view === 'forge') view = 'imagegen';
       const guide = view === 'guide';
       const settings = view === 'settings';
       const marketplace = view === 'marketplace';
-      const forge = view === 'forge';
-      els.chatView.classList.toggle('hidden', guide || settings || marketplace || forge);
+      const imagegen = view === 'imagegen';
+      els.chatView.classList.toggle('hidden', guide || settings || marketplace || imagegen);
       els.guideView.classList.toggle('active', guide);
       els.settingsView.classList.toggle('active', settings);
       els.marketplaceView.classList.toggle('active', marketplace);
-      if (els.forgeView) els.forgeView.classList.toggle('hidden', !forge);
-      els.navChat.classList.toggle('active', !guide && !settings && !marketplace && !forge);
+      if (els.imagegenView) els.imagegenView.classList.toggle('hidden', !imagegen);
+      els.navChat.classList.toggle('active', !guide && !settings && !marketplace && !imagegen);
       els.navGuide.classList.toggle('active', guide);
       els.navSettings.classList.toggle('active', settings);
       els.navMarketplace.classList.toggle('active', marketplace);
-      if (els.navForge) els.navForge.classList.toggle('active', forge);
-      if (els.mobChat) els.mobChat.classList.toggle('active', !guide && !settings && !marketplace && !forge);
+      if (els.navImagegen) els.navImagegen.classList.toggle('active', imagegen);
+      if (els.mobChat) els.mobChat.classList.toggle('active', !guide && !settings && !marketplace && !imagegen);
       if (els.mobGuide) els.mobGuide.classList.toggle('active', guide);
       if (els.mobSettings) els.mobSettings.classList.toggle('active', settings);
       if (els.mobMarketplace) els.mobMarketplace.classList.toggle('active', marketplace);
-      if (els.mobForge) els.mobForge.classList.toggle('active', forge);
+      if (els.mobImagegen) els.mobImagegen.classList.toggle('active', imagegen);
       localStorage.setItem('ct_view', view);
       if (marketplace) loadMarketplace();
-      if (forge) loadForge();
+      if (imagegen) loadImagegen();
     }
     async function loadMarketplace() {
       if (!els.marketplaceGrid) return;
@@ -1655,8 +1657,8 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     if (els.accountLogout) els.accountLogout.addEventListener('click', logout);
     if (els.navMarketplace) els.navMarketplace.addEventListener('click', () => setMainView('marketplace'));
     if (els.mobMarketplace) els.mobMarketplace.addEventListener('click', () => setMainView('marketplace'));
-    if (els.navForge) els.navForge.addEventListener('click', () => setMainView('forge'));
-    if (els.mobForge) els.mobForge.addEventListener('click', () => setMainView('forge'));
+    if (els.navImagegen) els.navImagegen.addEventListener('click', () => setMainView('imagegen'));
+    if (els.mobImagegen) els.mobImagegen.addEventListener('click', () => setMainView('imagegen'));
     if (els.detailClose) els.detailClose.addEventListener('click', closeDetail);
     if (els.detailSubscribe) els.detailSubscribe.addEventListener('click', doSubscribe);
     if (els.mpSearch) els.mpSearch.addEventListener('input', renderMarketplace);
@@ -1705,135 +1707,176 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       document.querySelectorAll('.rail .nav button, .rail .secondary, .rail .settings-icon').forEach(btn => {
         btn.addEventListener('click', () => { if (window.innerWidth <= 760) closeAll(); });
       });
-      [els.mobChat, els.mobGuide, els.mobSettings, els.mobMarketplace].forEach(btn => {
+      [els.mobChat, els.mobGuide, els.mobSettings, els.mobMarketplace, els.mobImagegen].forEach(btn => {
         if (btn) btn.addEventListener('click', closeAll);
       });
     })();
 
-    // Forge Studio
-    let forgeActiveMode = 'generate';
-    let forgeSelectedImageId = '';
-    let forgeBusy = false;
+    // ImageGen Studio
+    let imagegenActiveMode = 'generate';
+    let imagegenSelectedImageId = '';
+    let imagegenBusy = false;
 
-    function setForgeMode(mode) {
-      forgeActiveMode = mode;
-      els.forgeModeGenerate.classList.toggle('active', mode === 'generate');
-      els.forgeModeEdit.classList.toggle('active', mode === 'edit');
-      els.forgeModeRedefine.classList.toggle('active', mode === 'redefine');
-      els.forgePanelGenerate.classList.toggle('hidden', mode !== 'generate');
-      els.forgePanelEdit.classList.toggle('hidden', mode !== 'edit');
-      els.forgePanelRedefine.classList.toggle('hidden', mode !== 'redefine');
-      if (mode === 'redefine') renderForgeRedefineGallery();
+    function setImagegenMode(mode) {
+      imagegenActiveMode = mode;
+      els.imagegenModeGenerate.classList.toggle('active', mode === 'generate');
+      els.imagegenModeEdit.classList.toggle('active', mode === 'edit');
+      els.imagegenModeRedefine.classList.toggle('active', mode === 'redefine');
+      els.imagegenPanelGenerate.classList.toggle('hidden', mode !== 'generate');
+      els.imagegenPanelEdit.classList.toggle('hidden', mode !== 'edit');
+      els.imagegenPanelRedefine.classList.toggle('hidden', mode !== 'redefine');
+      if (mode === 'redefine') renderImagegenRedefineGallery();
     }
 
-    async function loadForge() {
-      if (!els.forgeGalleryGrid) return;
-      renderForgeGallery([]);
+    async function loadImagegen() {
+      if (!els.imagegenGalleryGrid) return;
+      renderImagegenGallery([]);
       try {
-        const data = await api('/api/forge/gallery');
-        renderForgeGallery(data.images || []);
+        const data = await api('/api/imagegen/gallery');
+        renderImagegenGallery(data.images || []);
       } catch (error) {
-        if (els.forgeGalleryGrid) els.forgeGalleryGrid.innerHTML = `<div style="color:var(--red);padding:8px;">${esc(error.message)}</div>`;
+        if (els.imagegenGalleryGrid) els.imagegenGalleryGrid.innerHTML = `<div style="color:var(--red);padding:8px;">${esc(error.message)}</div>`;
       }
     }
 
-    function renderForgeGallery(images) {
-      if (!els.forgeGalleryGrid) return;
-      if (els.forgeGalleryCount) els.forgeGalleryCount.textContent = images.length;
+    function imagegenLineageLabel(item) {
+      const mode = item.mode === 'redefine' ? 'Refine' : (item.mode === 'edit' ? 'Edit' : 'Gen');
+      const ring = Number(item.ring_n || 0);
+      return ring > 0 ? `${mode} v${ring}` : mode;
+    }
+
+    function renderImagegenLineage(data) {
+      if (!els.imagegenLineage) return;
+      if (!data || !data.ok || !data.chain?.length) {
+        els.imagegenLineage.classList.add('hidden');
+        els.imagegenLineage.innerHTML = '';
+        return;
+      }
+      const chain = [...data.chain].reverse();
+      els.imagegenLineage.innerHTML = chain.map((item, index) => {
+        const arrow = index ? '<span class="arrow">/</span>' : '';
+        return `${arrow}<span class="crumb" title="${esc(item.prompt || '')}">${esc(imagegenLineageLabel(item))}</span>`;
+      }).join('');
+      els.imagegenLineage.classList.remove('hidden');
+    }
+
+    async function loadImagegenLineage(imageId) {
+      if (!imageId) {
+        renderImagegenLineage(null);
+        return;
+      }
+      try {
+        const data = await api(`/api/imagegen/lineage?image_id=${encodeURIComponent(imageId)}`);
+        renderImagegenLineage(data);
+      } catch {
+        renderImagegenLineage(null);
+      }
+    }
+
+    function renderImagegenGallery(images) {
+      if (!els.imagegenGalleryGrid) return;
+      if (els.imagegenGalleryCount) els.imagegenGalleryCount.textContent = images.length;
       if (!images.length) {
-        els.forgeGalleryGrid.innerHTML = `
+        renderImagegenLineage(null);
+        els.imagegenGalleryGrid.innerHTML = `
           <div class="empty">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
             <div>No images yet</div>
           </div>`;
         return;
       }
-      els.forgeGalleryGrid.innerHTML = images.map(img => `
-        <div class="thumb" data-id="${esc(img.id)}" title="${esc(img.prompt)}">
-          <img src="/api/forge/image/${esc(img.id)}" loading="lazy" alt="">
-          <button class="del" data-id="${esc(img.id)}" title="Delete">×</button>
+      els.imagegenGalleryGrid.innerHTML = images.map(img => `
+        <div class="thumb" data-id="${esc(img.id)}" data-ring="${esc(img.ring_n || '')}" title="${esc(img.prompt)}">
+          <img src="/api/imagegen/image/${esc(img.id)}" loading="lazy" alt="">
+          ${img.ring_n ? `<span class="ring">v${esc(img.ring_n)}</span>` : ''}
+          <button class="del" data-id="${esc(img.id)}" title="Delete">&times;</button>
         </div>
       `).join('');
-      els.forgeGalleryGrid.querySelectorAll('.thumb').forEach(thumb => {
+      els.imagegenGalleryGrid.querySelectorAll('.thumb').forEach(thumb => {
         thumb.addEventListener('click', (e) => {
           if (e.target.classList.contains('del')) {
             e.stopPropagation();
-            deleteForgeImage(thumb.dataset.id);
+            deleteImagegenImage(thumb.dataset.id);
+            return;
           }
+          imagegenSelectedImageId = thumb.dataset.id;
+          renderImagegenRedefineGallery();
+          loadImagegenLineage(thumb.dataset.id);
         });
       });
     }
 
-    function renderForgeRedefineGallery() {
-      if (!els.forgeRedefineGallery) return;
-      const thumbs = els.forgeGalleryGrid?.querySelectorAll('.thumb');
+    function renderImagegenRedefineGallery() {
+      if (!els.imagegenRedefineGallery) return;
+      const thumbs = els.imagegenGalleryGrid?.querySelectorAll('.thumb');
       if (!thumbs || !thumbs.length) {
-        els.forgeRedefineGallery.innerHTML = '<div style="color:var(--muted);font-size:12px;">Generate some images first.</div>';
-        forgeSelectedImageId = '';
+        els.imagegenRedefineGallery.innerHTML = '<div style="color:var(--muted);font-size:12px;">Generate some images first.</div>';
+        imagegenSelectedImageId = '';
         return;
       }
-      els.forgeRedefineGallery.innerHTML = Array.from(thumbs).map(thumb => {
+      els.imagegenRedefineGallery.innerHTML = Array.from(thumbs).map(thumb => {
         const id = thumb.dataset.id;
         const src = thumb.querySelector('img')?.src || '';
-        return `<div class="thumb ${id === forgeSelectedImageId ? 'active' : ''}" data-id="${esc(id)}"><img src="${esc(src)}" loading="lazy" alt=""></div>`;
+        return `<div class="thumb ${id === imagegenSelectedImageId ? 'active' : ''}" data-id="${esc(id)}"><img src="${esc(src)}" loading="lazy" alt=""></div>`;
       }).join('');
-      els.forgeRedefineGallery.querySelectorAll('.thumb').forEach(t => {
+      els.imagegenRedefineGallery.querySelectorAll('.thumb').forEach(t => {
         t.addEventListener('click', () => {
-          forgeSelectedImageId = t.dataset.id;
-          renderForgeRedefineGallery();
+          imagegenSelectedImageId = t.dataset.id;
+          renderImagegenRedefineGallery();
         });
       });
     }
 
-    async function forgeGenerate() {
-      if (forgeBusy) return;
-      const prompt = els.forgePrompt?.value?.trim();
-      if (!prompt) { els.forgeStatus.innerHTML = '<span class="forge-error" style="display:inline-flex;padding:6px 12px;">Enter a prompt first.</span>'; return; }
-      forgeBusy = true;
-      els.forgeStatus.innerHTML = '<div class="forge-spinner"></div><span>Forging your image...</span>';
-      els.forgeResult.innerHTML = '';
+    async function imagegenGenerate() {
+      if (imagegenBusy) return;
+      const prompt = els.imagegenPrompt?.value?.trim();
+      if (!prompt) { els.imagegenStatus.innerHTML = '<span class="imagegen-error" style="display:inline-flex;padding:6px 12px;">Enter a prompt first.</span>'; return; }
+      imagegenBusy = true;
+      els.imagegenStatus.innerHTML = '<div class="imagegen-spinner"></div><span>Generating your image...</span>';
+      els.imagegenResult.innerHTML = '';
       try {
-        const data = await api('/api/forge/generate', {
+        const data = await api('/api/imagegen/generate', {
           method: 'POST',
           body: JSON.stringify({
             prompt,
-            model: els.forgeModel?.value,
-            aspect_ratio: els.forgeAspect?.value,
+            model: els.imagegenModel?.value,
+            aspect_ratio: els.imagegenAspect?.value,
             apiKey: localStorage.getItem('ct_api_key') || '',
             provider: localStorage.getItem('ct_provider') || 'morpheus',
           })
         });
-        els.forgeStatus.textContent = '';
-        els.forgeResult.innerHTML = `
-          <div class="forge-result-card">
+        els.imagegenStatus.textContent = '';
+        els.imagegenResult.innerHTML = `
+          <div class="imagegen-result-card">
             <img src="${esc(data.data_url)}" alt="Generated image">
-            <div class="forge-result-meta">
+            <div class="imagegen-result-meta">
               <span class="badge">${esc(data.image.model)}</span>
               <span>${esc(data.image.aspect_ratio)} · ${new Date(data.image.created_at).toLocaleString()}</span>
             </div>
           </div>`;
-        loadForge();
+        renderImagegenLineage({ ok: true, chain: [data.image] });
+        loadImagegen();
       } catch (error) {
-        els.forgeStatus.textContent = '';
-        els.forgeResult.innerHTML = `<div class="forge-error">${esc(error.message)}</div>`;
+        els.imagegenStatus.textContent = '';
+        els.imagegenResult.innerHTML = `<div class="imagegen-error">${esc(error.message)}</div>`;
       } finally {
-        forgeBusy = false;
+        imagegenBusy = false;
       }
     }
 
-    async function forgeEdit() {
-      if (forgeBusy) return;
-      const prompt = els.forgeEditPrompt?.value?.trim();
-      const fileInput = els.forgeEditFile;
-      if (!prompt) { els.forgeEditResult.innerHTML = '<div class="forge-error">Enter a prompt first.</div>'; return; }
-      if (!fileInput?.files?.length && !els.forgeEditPreview?.src?.startsWith('data:')) {
-        els.forgeEditResult.innerHTML = '<div class="forge-error">Upload an image first.</div>'; return;
+    async function imagegenEdit() {
+      if (imagegenBusy) return;
+      const prompt = els.imagegenEditPrompt?.value?.trim();
+      const fileInput = els.imagegenEditFile;
+      if (!prompt) { els.imagegenEditResult.innerHTML = '<div class="imagegen-error">Enter a prompt first.</div>'; return; }
+      if (!fileInput?.files?.length && !els.imagegenEditPreview?.src?.startsWith('data:')) {
+        els.imagegenEditResult.innerHTML = '<div class="imagegen-error">Upload an image first.</div>'; return;
       }
-      forgeBusy = true;
-      els.forgeEditResult.innerHTML = '<div class="forge-status"><div class="forge-spinner"></div><span>Editing image...</span></div>';
+      imagegenBusy = true;
+      els.imagegenEditResult.innerHTML = '<div class="imagegen-status"><div class="imagegen-spinner"></div><span>Editing image...</span></div>';
       let imageData = '';
-      if (els.forgeEditPreview?.src?.startsWith('data:')) {
-        imageData = els.forgeEditPreview.src;
+      if (els.imagegenEditPreview?.src?.startsWith('data:')) {
+        imageData = els.imagegenEditPreview.src;
       } else if (fileInput.files[0]) {
         imageData = await new Promise((resolve, reject) => {
           const reader = new FileReader();
@@ -1843,119 +1886,124 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
         });
       }
       try {
-        const data = await api('/api/forge/edit', {
+        const data = await api('/api/imagegen/edit', {
           method: 'POST',
           body: JSON.stringify({
             prompt,
             image: imageData,
-            model: els.forgeEditModel?.value || els.forgeModel?.value,
-            aspect_ratio: els.forgeAspect?.value,
+            model: els.imagegenEditModel?.value || els.imagegenModel?.value,
+            aspect_ratio: els.imagegenAspect?.value,
             apiKey: localStorage.getItem('ct_api_key') || '',
             provider: localStorage.getItem('ct_provider') || 'morpheus',
           })
         });
-        els.forgeEditResult.innerHTML = `
-          <div class="forge-result-card">
+        els.imagegenEditResult.innerHTML = `
+          <div class="imagegen-result-card">
             <img src="${esc(data.data_url)}" alt="Edited image">
-            <div class="forge-result-meta">
+            <div class="imagegen-result-meta">
               <span class="badge">${esc(data.image.model)}</span>
               <span>Edit · ${esc(data.image.aspect_ratio)}</span>
             </div>
           </div>`;
-        loadForge();
+        renderImagegenLineage({ ok: true, chain: [data.image] });
+        loadImagegen();
       } catch (error) {
-        els.forgeEditResult.innerHTML = `<div class="forge-error">${esc(error.message)}</div>`;
+        els.imagegenEditResult.innerHTML = `<div class="imagegen-error">${esc(error.message)}</div>`;
       } finally {
-        forgeBusy = false;
+        imagegenBusy = false;
       }
     }
 
-    async function forgeRedefine() {
-      if (forgeBusy) return;
-      if (!forgeSelectedImageId) {
-        els.forgeRedefineResult.innerHTML = '<div class="forge-error">Select a source image from the gallery above.</div>';
+    async function imagegenRedefine() {
+      if (imagegenBusy) return;
+      if (!imagegenSelectedImageId) {
+        els.imagegenRedefineResult.innerHTML = '<div class="imagegen-error">Select a source image from the gallery above.</div>';
         return;
       }
-      const prompt = els.forgeRedefinePrompt?.value?.trim();
+      const prompt = els.imagegenRedefinePrompt?.value?.trim();
       if (!prompt) {
-        els.forgeRedefineResult.innerHTML = '<div class="forge-error">Enter a prompt first.</div>';
+        els.imagegenRedefineResult.innerHTML = '<div class="imagegen-error">Enter a prompt first.</div>';
         return;
       }
-      forgeBusy = true;
-      els.forgeRedefineResult.innerHTML = '<div class="forge-status"><div class="forge-spinner"></div><span>Redefining image...</span></div>';
+      imagegenBusy = true;
+      els.imagegenRedefineResult.innerHTML = '<div class="imagegen-status"><div class="imagegen-spinner"></div><span>Redefining image...</span></div>';
       try {
-        const data = await api('/api/forge/redefine', {
+        const data = await api('/api/imagegen/redefine', {
           method: 'POST',
           body: JSON.stringify({
-            source_id: forgeSelectedImageId,
+            source_id: imagegenSelectedImageId,
             prompt,
-            model: els.forgeModel?.value,
-            aspect_ratio: els.forgeAspect?.value,
+            model: els.imagegenModel?.value,
+            aspect_ratio: els.imagegenAspect?.value,
             apiKey: localStorage.getItem('ct_api_key') || '',
             provider: localStorage.getItem('ct_provider') || 'morpheus',
           })
         });
-        els.forgeRedefineResult.innerHTML = `
-          <div class="forge-result-card">
+        els.imagegenRedefineResult.innerHTML = `
+          <div class="imagegen-result-card">
             <img src="${esc(data.data_url)}" alt="Redefined image">
-            <div class="forge-result-meta">
+            <div class="imagegen-result-meta">
               <span class="badge">${esc(data.image.model)}</span>
               <span>Redefine · ${esc(data.image.aspect_ratio)}</span>
             </div>
           </div>`;
-        loadForge();
+        loadImagegenLineage(data.image.id);
+        loadImagegen();
       } catch (error) {
-        els.forgeRedefineResult.innerHTML = `<div class="forge-error">${esc(error.message)}</div>`;
+        els.imagegenRedefineResult.innerHTML = `<div class="imagegen-error">${esc(error.message)}</div>`;
       } finally {
-        forgeBusy = false;
+        imagegenBusy = false;
       }
     }
 
-    async function deleteForgeImage(imageId) {
+    async function deleteImagegenImage(imageId) {
       if (!imageId) return;
       try {
-        await api('/api/forge/delete', { method: 'POST', body: JSON.stringify({ image_id: imageId }) });
-        loadForge();
-        if (forgeSelectedImageId === imageId) forgeSelectedImageId = '';
+        await api('/api/imagegen/delete', { method: 'POST', body: JSON.stringify({ image_id: imageId }) });
+        loadImagegen();
+        if (imagegenSelectedImageId === imageId) {
+          imagegenSelectedImageId = '';
+          renderImagegenLineage(null);
+        }
       } catch (error) {
         alert('Delete failed: ' + error.message);
       }
     }
 
-    if (els.forgeModeGenerate) els.forgeModeGenerate.addEventListener('click', () => setForgeMode('generate'));
-    if (els.forgeModeEdit) els.forgeModeEdit.addEventListener('click', () => setForgeMode('edit'));
-    if (els.forgeModeRedefine) els.forgeModeRedefine.addEventListener('click', () => setForgeMode('redefine'));
-    if (els.forgeGenerateBtn) els.forgeGenerateBtn.addEventListener('click', forgeGenerate);
-    if (els.forgeEditBtn) els.forgeEditBtn.addEventListener('click', forgeEdit);
-    if (els.forgeRedefineBtn) els.forgeRedefineBtn.addEventListener('click', forgeRedefine);
-    if (els.forgeEditFile) {
-      els.forgeEditFile.addEventListener('change', (e) => {
+    if (els.imagegenModeGenerate) els.imagegenModeGenerate.addEventListener('click', () => setImagegenMode('generate'));
+    if (els.imagegenModeEdit) els.imagegenModeEdit.addEventListener('click', () => setImagegenMode('edit'));
+    if (els.imagegenModeRedefine) els.imagegenModeRedefine.addEventListener('click', () => setImagegenMode('redefine'));
+    if (els.imagegenGenerateBtn) els.imagegenGenerateBtn.addEventListener('click', imagegenGenerate);
+    if (els.imagegenEditBtn) els.imagegenEditBtn.addEventListener('click', imagegenEdit);
+    if (els.imagegenRedefineBtn) els.imagegenRedefineBtn.addEventListener('click', imagegenRedefine);
+    if (els.imagegenEditFile) {
+      els.imagegenEditFile.addEventListener('change', (e) => {
         const file = e.target.files[0];
         if (!file) return;
         const reader = new FileReader();
         reader.onload = () => {
-          els.forgeEditPreview.src = reader.result;
-          els.forgeEditPreview.classList.remove('hidden');
+          els.imagegenEditPreview.src = reader.result;
+          els.imagegenEditPreview.classList.remove('hidden');
         };
         reader.readAsDataURL(file);
       });
     }
-    if (els.forgeEditDropzone) {
-      els.forgeEditDropzone.addEventListener('click', () => els.forgeEditFile?.click());
-      els.forgeEditDropzone.addEventListener('dragover', (e) => { e.preventDefault(); els.forgeEditDropzone.style.borderColor = 'var(--accent)'; });
-      els.forgeEditDropzone.addEventListener('dragleave', () => { els.forgeEditDropzone.style.borderColor = ''; });
-      els.forgeEditDropzone.addEventListener('drop', (e) => {
+    if (els.imagegenEditDropzone) {
+      els.imagegenEditDropzone.addEventListener('click', () => els.imagegenEditFile?.click());
+      els.imagegenEditDropzone.addEventListener('dragover', (e) => { e.preventDefault(); els.imagegenEditDropzone.style.borderColor = 'var(--accent)'; });
+      els.imagegenEditDropzone.addEventListener('dragleave', () => { els.imagegenEditDropzone.style.borderColor = ''; });
+      els.imagegenEditDropzone.addEventListener('drop', (e) => {
         e.preventDefault();
-        els.forgeEditDropzone.style.borderColor = '';
+        els.imagegenEditDropzone.style.borderColor = '';
         const file = e.dataTransfer.files[0];
         if (!file || !file.type.startsWith('image/')) return;
         const dt = new DataTransfer();
         dt.items.add(file);
-        els.forgeEditFile.files = dt.files;
+        els.imagegenEditFile.files = dt.files;
         const reader = new FileReader();
         reader.onload = () => {
-          els.forgeEditPreview.src = reader.result;
-          els.forgeEditPreview.classList.remove('hidden');
+          els.imagegenEditPreview.src = reader.result;
+          els.imagegenEditPreview.classList.remove('hidden');
         };
         reader.readAsDataURL(file);
       });

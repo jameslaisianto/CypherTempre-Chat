@@ -17,7 +17,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 import marketplace
-from server import auth, chat, forge
+from server import auth, chat, imagegen
 from server import marketplace as marketplace_routes
 
 from server.config import (
@@ -271,7 +271,7 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                     self.end_headers()
                     self.wfile.write(encoded)
                     return
-                if path == "/api/forge/gallery":
+                if path == "/api/imagegen/gallery":
                     try:
                         user = self._auth_user()
                     except PermissionError as exc:
@@ -280,13 +280,25 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                     index = app.load_gallery_index(user["username"])
                     self.send_json({"ok": True, "images": index.get("images", [])})
                     return
-                if path.startswith("/api/forge/image/"):
+                if path == "/api/imagegen/lineage":
                     try:
                         user = self._auth_user()
                     except PermissionError as exc:
                         self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
                         return
-                    image_id = path[len("/api/forge/image/"):]
+                    image_id = self.query_param("image_id") or ""
+                    if not image_id:
+                        self.send_json({"ok": False, "error": "image_id is required"}, HTTPStatus.BAD_REQUEST)
+                        return
+                    self.send_json(app.image_lineage(user["username"], image_id))
+                    return
+                if path.startswith("/api/imagegen/image/"):
+                    try:
+                        user = self._auth_user()
+                    except PermissionError as exc:
+                        self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                        return
+                    image_id = path[len("/api/imagegen/image/"):]
                     if not image_id or "/" in image_id or ".." in image_id:
                         self.send_error(HTTPStatus.NOT_FOUND, "Not found")
                         return
@@ -391,33 +403,33 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                     persona_id = path[len("/api/creator/personas/"):].rsplit("/", 1)[0]
                     self.handle_creator_delete(persona_id)
                     return
-                if path == "/api/forge/generate":
-                    self.handle_forge_generate()
+                if path == "/api/imagegen/generate":
+                    self.handle_imagegen_generate()
                     return
-                if path == "/api/forge/edit":
-                    self.handle_forge_edit()
+                if path == "/api/imagegen/edit":
+                    self.handle_imagegen_edit()
                     return
-                if path == "/api/forge/redefine":
-                    self.handle_forge_redefine()
+                if path == "/api/imagegen/redefine":
+                    self.handle_imagegen_redefine()
                     return
-                if path == "/api/forge/delete":
-                    self.handle_forge_delete()
+                if path == "/api/imagegen/delete":
+                    self.handle_imagegen_delete()
                     return
                 self.send_error(HTTPStatus.NOT_FOUND, "Not found")
             except Exception as exc:
                 self.send_exception(exc)
 
-        def handle_forge_generate(self) -> None:
-            forge.handle_forge_generate(self, app)
+        def handle_imagegen_generate(self) -> None:
+            imagegen.handle_imagegen_generate(self, app)
 
-        def handle_forge_edit(self) -> None:
-            forge.handle_forge_edit(self, app)
+        def handle_imagegen_edit(self) -> None:
+            imagegen.handle_imagegen_edit(self, app)
 
-        def handle_forge_redefine(self) -> None:
-            forge.handle_forge_redefine(self, app)
+        def handle_imagegen_redefine(self) -> None:
+            imagegen.handle_imagegen_redefine(self, app)
 
-        def handle_forge_delete(self) -> None:
-            forge.handle_forge_delete(self, app)
+        def handle_imagegen_delete(self) -> None:
+            imagegen.handle_imagegen_delete(self, app)
 
         def handle_chat(self) -> None:
             chat.handle_chat(self, app)

@@ -1397,6 +1397,49 @@ class PromptAssemblyTests(unittest.TestCase):
             self.assertIn(endpoint, server.HTML)
         self.assertIn("confirmTimechainMutation", server.HTML)
 
+    def test_imagegen_ui_and_routes_use_imagegen_namespace(self):
+        handler_source = inspect.getsource(server.make_handler)
+
+        for expected in [
+            'id="nav-imagegen"',
+            'id="mob-imagegen"',
+            'id="imagegen-view"',
+            'id="imagegen-lineage"',
+            "ImageGen Studio",
+            "/api/imagegen/gallery",
+            "/api/imagegen/generate",
+            "/api/imagegen/edit",
+            "/api/imagegen/redefine",
+            "/api/imagegen/delete",
+            "/api/imagegen/image/",
+            "/api/imagegen/lineage",
+        ]:
+            self.assertIn(expected, server.HTML + handler_source)
+
+        for legacy in [
+            'id="nav-forge"',
+            'id="mob-forge"',
+            'id="forge-view"',
+            "/api/forge/",
+            "Forge Studio",
+            "handle_forge",
+        ]:
+            self.assertNotIn(legacy, server.HTML + handler_source)
+
+    def test_imagegen_gallery_renders_lineage_badges_and_fetches_lineage(self):
+        self.assertIn("imagegen-lineage", server.HTML)
+        self.assertIn("renderImagegenLineage", server.HTML)
+        self.assertIn("loadImagegenLineage", server.HTML)
+        self.assertIn("data-ring=", server.HTML)
+        self.assertIn("/api/imagegen/lineage?image_id=", server.HTML)
+
+    def test_gallery_entries_store_image_lineage_metadata(self):
+        add_source = inspect.getsource(server.App.add_gallery_image)
+
+        self.assertIn('"ring_n": ring_n', add_source)
+        self.assertIn('"supersedes_ring": supersedes_ring', add_source)
+        self.assertIn("source_id=source_id", add_source)
+
     def test_handler_routes_expose_advanced_timechain_endpoints(self):
         handler_source = inspect.getsource(server.make_handler)
 

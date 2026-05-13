@@ -1704,77 +1704,82 @@ HTML_TEMPLATE = r"""<!doctype html>
       .status-card { margin: 8px 10px 10px; padding: 10px; font-size: 12px; }
     }
 
-    /* Forge Studio */
-    .forge { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
-    .forge-shell { display: grid; grid-template-columns: 1fr 300px; gap: 20px; height: 100%; overflow: hidden; padding: 24px; }
-    .forge-workspace { display: flex; flex-direction: column; gap: 16px; overflow: hidden; min-width: 0; }
-    .forge-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-shrink: 0; }
-    .forge-header h2 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.3px; }
-    .forge-header p { margin: 0; font-size: 13px; color: var(--muted); }
-    .forge-modes { display: inline-flex; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 4px; gap: 2px; flex-shrink: 0; }
-    .forge-modes button { padding: 8px 16px; border-radius: 8px; border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 13px; font-weight: 500; transition: all .2s; }
-    .forge-modes button:hover { color: var(--text); }
-    .forge-modes button.active { background: var(--accent); color: #fff; }
-    .forge-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px; display: flex; flex-direction: column; gap: 14px; overflow: auto; }
-    .forge-panel { display: flex; flex-direction: column; gap: 14px; }
-    .forge-panel.hidden { display: none; }
-    .forge-prompt-wrap { position: relative; }
-    .forge-prompt-wrap textarea { width: 100%; min-height: 100px; resize: vertical; border-radius: 12px; border: 1px solid var(--border); background: var(--bg); color: var(--text); padding: 14px; font-size: 14px; line-height: 1.5; }
-    .forge-prompt-wrap textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(16,172,235,0.12); }
-    .forge-controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-    .forge-controls select { flex: 1; min-width: 160px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 13px; cursor: pointer; }
-    .forge-controls button.primary { min-width: 120px; padding: 10px 20px; border-radius: 10px; border: none; background: linear-gradient(135deg, var(--accent), #0ea5e9); color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; transition: transform .15s, box-shadow .15s; }
-    .forge-controls button.primary:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(16,172,235,0.35); }
-    .forge-controls button.primary:active { transform: translateY(0); }
-    .forge-status { font-size: 13px; color: var(--muted); min-height: 18px; display: flex; align-items: center; gap: 8px; }
-    .forge-spinner { width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: forge-spin 0.8s linear infinite; }
-    @keyframes forge-spin { to { transform: rotate(360deg); } }
-    .forge-result { display: flex; flex-direction: column; gap: 12px; }
-    .forge-result-card { background: var(--bg); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
-    .forge-result-card img { display: block; width: 100%; height: auto; }
-    .forge-result-meta { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; font-size: 12px; color: var(--muted); background: var(--surface); border-top: 1px solid var(--border); }
-    .forge-result-meta .badge { background: rgba(16,172,235,0.12); color: var(--accent); padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; }
-    .forge-dropzone { border: 2px dashed var(--border); border-radius: 14px; padding: 40px 24px; text-align: center; color: var(--muted); cursor: pointer; transition: all .2s; background: var(--bg); }
-    .forge-dropzone:hover { border-color: var(--accent); background: rgba(16,172,235,0.06); }
-    .forge-dropzone svg { width: 36px; height: 36px; stroke-width: 1.5; margin-bottom: 10px; opacity: 0.6; }
-    .forge-dropzone p { margin: 0; font-size: 13px; }
-    .forge-dropzone .hint { font-size: 11px; margin-top: 6px; opacity: 0.7; }
-    .forge-dropzone input { display: none; }
-    .forge-preview { max-width: 100%; max-height: 260px; border-radius: 12px; border: 1px solid var(--border); object-fit: contain; background: var(--bg); }
-    .forge-preview.hidden { display: none; }
-    .forge-sidebar { display: flex; flex-direction: column; gap: 12px; overflow: hidden; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px; }
-    .forge-sidebar-head { display: flex; align-items: center; justify-content: space-between; }
-    .forge-sidebar-head h3 { margin: 0; font-size: 14px; font-weight: 600; }
-    .forge-sidebar-head .count { font-size: 12px; color: var(--muted); background: var(--bg); padding: 2px 8px; border-radius: 10px; }
-    .forge-gallery-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; overflow: auto; }
-    .forge-gallery-grid .empty { color: var(--muted); font-size: 12px; text-align: center; padding: 24px 8px; }
-    .forge-gallery-grid .empty svg { width: 32px; height: 32px; stroke-width: 1.5; margin-bottom: 8px; opacity: 0.5; }
-    .forge-gallery-grid .thumb { position: relative; aspect-ratio: 1; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); cursor: pointer; background: var(--bg); transition: transform .15s, box-shadow .15s; }
-    .forge-gallery-grid .thumb:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,0,0,0.25); }
-    .forge-gallery-grid .thumb img { width: 100%; height: 100%; object-fit: cover; }
-    .forge-gallery-grid .thumb .del { position: absolute; top: 6px; right: 6px; width: 26px; height: 26px; border-radius: 8px; background: rgba(0,0,0,0.55); color: #fff; border: none; display: none; align-items: center; justify-content: center; font-size: 14px; cursor: pointer; backdrop-filter: blur(4px); transition: background .2s; }
-    .forge-gallery-grid .thumb .del:hover { background: rgba(180,40,40,0.85); }
-    .forge-gallery-grid .thumb:hover .del { display: flex; }
-    .forge-mini-gallery { display: flex; gap: 10px; overflow-x: auto; padding: 6px 0; }
-    .forge-mini-gallery .thumb { width: 88px; height: 88px; flex-shrink: 0; border-radius: 10px; overflow: hidden; border: 2px solid transparent; cursor: pointer; background: var(--bg); transition: transform .15s; }
-    .forge-mini-gallery .thumb:hover { transform: translateY(-2px); }
-    .forge-mini-gallery .thumb img { width: 100%; height: 100%; object-fit: cover; }
-    .forge-mini-gallery .thumb.active { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(16,172,235,0.18); }
-    .forge-error { color: var(--red); font-size: 13px; padding: 10px 14px; background: rgba(180,40,40,0.08); border-radius: 10px; border: 1px solid rgba(180,40,40,0.15); }
+    /* ImageGen Studio */
+    .imagegen { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+    .imagegen-shell { display: grid; grid-template-columns: 1fr 300px; gap: 20px; height: 100%; overflow: hidden; padding: 24px; }
+    .imagegen-workspace { display: flex; flex-direction: column; gap: 16px; overflow: hidden; min-width: 0; }
+    .imagegen-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-shrink: 0; }
+    .imagegen-header h2 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.3px; }
+    .imagegen-header p { margin: 0; font-size: 13px; color: var(--muted); }
+    .imagegen-modes { display: inline-flex; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 4px; gap: 2px; flex-shrink: 0; }
+    .imagegen-modes button { padding: 8px 16px; border-radius: 8px; border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 13px; font-weight: 500; transition: all .2s; }
+    .imagegen-modes button:hover { color: var(--text); }
+    .imagegen-modes button.active { background: var(--accent); color: #fff; }
+    .imagegen-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px; display: flex; flex-direction: column; gap: 14px; overflow: auto; }
+    .imagegen-panel { display: flex; flex-direction: column; gap: 14px; }
+    .imagegen-panel.hidden { display: none; }
+    .imagegen-prompt-wrap { position: relative; }
+    .imagegen-prompt-wrap textarea { width: 100%; min-height: 100px; resize: vertical; border-radius: 12px; border: 1px solid var(--border); background: var(--bg); color: var(--text); padding: 14px; font-size: 14px; line-height: 1.5; }
+    .imagegen-prompt-wrap textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(16,172,235,0.12); }
+    .imagegen-controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .imagegen-controls select { flex: 1; min-width: 160px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 13px; cursor: pointer; }
+    .imagegen-controls button.primary { min-width: 120px; padding: 10px 20px; border-radius: 10px; border: none; background: linear-gradient(135deg, var(--accent), #0ea5e9); color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; transition: transform .15s, box-shadow .15s; }
+    .imagegen-controls button.primary:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(16,172,235,0.35); }
+    .imagegen-controls button.primary:active { transform: translateY(0); }
+    .imagegen-status { font-size: 13px; color: var(--muted); min-height: 18px; display: flex; align-items: center; gap: 8px; }
+    .imagegen-spinner { width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: imagegen-spin 0.8s linear infinite; }
+    @keyframes imagegen-spin { to { transform: rotate(360deg); } }
+    .imagegen-result { display: flex; flex-direction: column; gap: 12px; }
+    .imagegen-result-card { background: var(--bg); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+    .imagegen-result-card img { display: block; width: 100%; height: auto; }
+    .imagegen-result-meta { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; font-size: 12px; color: var(--muted); background: var(--surface); border-top: 1px solid var(--border); }
+    .imagegen-result-meta .badge { background: rgba(16,172,235,0.12); color: var(--accent); padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+    .imagegen-lineage { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 12px; color: var(--muted); padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+    .imagegen-lineage.hidden { display: none; }
+    .imagegen-lineage .crumb { color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 999px; padding: 3px 9px; }
+    .imagegen-lineage .arrow { opacity: 0.55; }
+    .imagegen-dropzone { border: 2px dashed var(--border); border-radius: 14px; padding: 40px 24px; text-align: center; color: var(--muted); cursor: pointer; transition: all .2s; background: var(--bg); }
+    .imagegen-dropzone:hover { border-color: var(--accent); background: rgba(16,172,235,0.06); }
+    .imagegen-dropzone svg { width: 36px; height: 36px; stroke-width: 1.5; margin-bottom: 10px; opacity: 0.6; }
+    .imagegen-dropzone p { margin: 0; font-size: 13px; }
+    .imagegen-dropzone .hint { font-size: 11px; margin-top: 6px; opacity: 0.7; }
+    .imagegen-dropzone input { display: none; }
+    .imagegen-preview { max-width: 100%; max-height: 260px; border-radius: 12px; border: 1px solid var(--border); object-fit: contain; background: var(--bg); }
+    .imagegen-preview.hidden { display: none; }
+    .imagegen-sidebar { display: flex; flex-direction: column; gap: 12px; overflow: hidden; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px; }
+    .imagegen-sidebar-head { display: flex; align-items: center; justify-content: space-between; }
+    .imagegen-sidebar-head h3 { margin: 0; font-size: 14px; font-weight: 600; }
+    .imagegen-sidebar-head .count { font-size: 12px; color: var(--muted); background: var(--bg); padding: 2px 8px; border-radius: 10px; }
+    .imagegen-gallery-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; overflow: auto; }
+    .imagegen-gallery-grid .empty { color: var(--muted); font-size: 12px; text-align: center; padding: 24px 8px; }
+    .imagegen-gallery-grid .empty svg { width: 32px; height: 32px; stroke-width: 1.5; margin-bottom: 8px; opacity: 0.5; }
+    .imagegen-gallery-grid .thumb { position: relative; aspect-ratio: 1; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); cursor: pointer; background: var(--bg); transition: transform .15s, box-shadow .15s; }
+    .imagegen-gallery-grid .thumb:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,0,0,0.25); }
+    .imagegen-gallery-grid .thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .imagegen-gallery-grid .thumb .ring { position: absolute; left: 6px; bottom: 6px; min-width: 24px; padding: 2px 7px; border-radius: 999px; background: rgba(0,0,0,0.62); color: #fff; font-size: 11px; font-weight: 600; backdrop-filter: blur(4px); }
+    .imagegen-gallery-grid .thumb .del { position: absolute; top: 6px; right: 6px; width: 26px; height: 26px; border-radius: 8px; background: rgba(0,0,0,0.55); color: #fff; border: none; display: none; align-items: center; justify-content: center; font-size: 14px; cursor: pointer; backdrop-filter: blur(4px); transition: background .2s; }
+    .imagegen-gallery-grid .thumb .del:hover { background: rgba(180,40,40,0.85); }
+    .imagegen-gallery-grid .thumb:hover .del { display: flex; }
+    .imagegen-mini-gallery { display: flex; gap: 10px; overflow-x: auto; padding: 6px 0; }
+    .imagegen-mini-gallery .thumb { width: 88px; height: 88px; flex-shrink: 0; border-radius: 10px; overflow: hidden; border: 2px solid transparent; cursor: pointer; background: var(--bg); transition: transform .15s; }
+    .imagegen-mini-gallery .thumb:hover { transform: translateY(-2px); }
+    .imagegen-mini-gallery .thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .imagegen-mini-gallery .thumb.active { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(16,172,235,0.18); }
+    .imagegen-error { color: var(--red); font-size: 13px; padding: 10px 14px; background: rgba(180,40,40,0.08); border-radius: 10px; border: 1px solid rgba(180,40,40,0.15); }
     @media (max-width: 1120px) {
-      .forge-shell { grid-template-columns: 1fr 260px; gap: 16px; padding: 20px; }
+      .imagegen-shell { grid-template-columns: 1fr 260px; gap: 16px; padding: 20px; }
     }
     @media (max-width: 760px) {
-      .forge-shell { grid-template-columns: 1fr; grid-template-rows: 1fr auto; padding: 16px; }
-      .forge-sidebar { max-height: 220px; }
-      .forge-gallery-grid { grid-template-columns: repeat(4, 1fr); }
-      .forge-header { flex-direction: column; align-items: flex-start; gap: 10px; }
+      .imagegen-shell { grid-template-columns: 1fr; grid-template-rows: 1fr auto; padding: 16px; }
+      .imagegen-sidebar { max-height: 220px; }
+      .imagegen-gallery-grid { grid-template-columns: repeat(4, 1fr); }
+      .imagegen-header { flex-direction: column; align-items: flex-start; gap: 10px; }
     }
     @media (max-width: 640px) {
-      .forge-shell { padding: 12px; gap: 12px; }
-      .forge-gallery-grid { grid-template-columns: repeat(3, 1fr); gap: 8px; }
-      .forge-card { padding: 14px; }
-      .forge-controls button.primary { width: 100%; }
+      .imagegen-shell { padding: 12px; gap: 12px; }
+      .imagegen-gallery-grid { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+      .imagegen-card { padding: 14px; }
+      .imagegen-controls button.primary { width: 100%; }
     }
     </style>
 </head>
@@ -1823,9 +1828,9 @@ HTML_TEMPLATE = r"""<!doctype html>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path><line x1="3" y1="6" x2="21" y2="6"></line><path d="M16 10a4 4 0 0 1-8 0"></path></svg>
             Marketplace
           </button>
-          <button id="nav-forge" type="button">
+          <button id="nav-imagegen" type="button">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
-            Forge
+            ImageGen
           </button>
           <button id="nav-settings" type="button">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 5 15.4a1.65 1.65 0 0 0-1.51 1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 5 10.6a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 5.4a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82 1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
@@ -2146,28 +2151,28 @@ HTML_TEMPLATE = r"""<!doctype html>
       </div>
     </main>
 
-    <main id="forge-view" class="forge hidden">
-      <div class="forge-shell">
-        <div class="forge-workspace">
-          <div class="forge-header">
+    <main id="imagegen-view" class="imagegen hidden">
+      <div class="imagegen-shell">
+        <div class="imagegen-workspace">
+          <div class="imagegen-header">
             <div>
-              <h2>Forge Studio</h2>
+              <h2>ImageGen Studio</h2>
               <p>Generate, edit, and redefine images with your configured provider.</p>
             </div>
-            <div class="forge-modes">
-              <button id="forge-mode-generate" class="active" type="button">Generate</button>
-              <button id="forge-mode-edit" type="button">Edit</button>
-              <button id="forge-mode-redefine" type="button">Redefine</button>
+            <div class="imagegen-modes">
+              <button id="imagegen-mode-generate" class="active" type="button">Generate</button>
+              <button id="imagegen-mode-edit" type="button">Edit</button>
+              <button id="imagegen-mode-redefine" type="button">Redefine</button>
             </div>
           </div>
 
-          <div id="forge-panel-generate" class="forge-panel">
-            <div class="forge-card">
-              <div class="forge-prompt-wrap">
-                <textarea id="forge-prompt" placeholder="Describe the image you want to create in detail..."></textarea>
+          <div id="imagegen-panel-generate" class="imagegen-panel">
+            <div class="imagegen-card">
+              <div class="imagegen-prompt-wrap">
+                <textarea id="imagegen-prompt" placeholder="Describe the image you want to create in detail..."></textarea>
               </div>
-              <div class="forge-controls">
-                <select id="forge-model">
+              <div class="imagegen-controls">
+                <select id="imagegen-model">
                   <option value="black-forest-labs/flux.2-pro">FLUX.2 Pro (OpenRouter)</option>
                   <option value="google/gemini-2.5-flash-image-preview">Gemini Flash Image (OpenRouter)</option>
                   <option value="sourceful/riverflow-v2-pro">Riverflow V2 Pro (OpenRouter)</option>
@@ -2175,61 +2180,62 @@ HTML_TEMPLATE = r"""<!doctype html>
                   <option value="nano-banana-2">Nano Banana 2 — High Quality (Morpheus)</option>
                   <option value="lustify-v8">Lustify V8 — Uncensored (Morpheus)</option>
                 </select>
-                <select id="forge-aspect">
+                <select id="imagegen-aspect">
                   <option value="1:1">1:1 Square</option>
                   <option value="16:9">16:9 Widescreen</option>
                   <option value="4:3">4:3 Classic</option>
                   <option value="9:16">9:16 Portrait</option>
                 </select>
-                <button id="forge-generate-btn" class="primary" type="button">Forge Image</button>
+                <button id="imagegen-generate-btn" class="primary" type="button">Generate Image</button>
               </div>
-              <div id="forge-status" class="forge-status"></div>
-              <div id="forge-result" class="forge-result"></div>
+              <div id="imagegen-status" class="imagegen-status"></div>
+              <div id="imagegen-result" class="imagegen-result"></div>
+              <div id="imagegen-lineage" class="imagegen-lineage hidden"></div>
             </div>
           </div>
 
-          <div id="forge-panel-edit" class="forge-panel hidden">
-            <div class="forge-card">
-              <div class="forge-dropzone" id="forge-edit-dropzone">
-                <input type="file" id="forge-edit-file" accept="image/*">
+          <div id="imagegen-panel-edit" class="imagegen-panel hidden">
+            <div class="imagegen-card">
+              <div class="imagegen-dropzone" id="imagegen-edit-dropzone">
+                <input type="file" id="imagegen-edit-file" accept="image/*">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
                 <p>Drop an image here, or click to browse</p>
                 <div class="hint">Supports PNG, JPG, WEBP</div>
               </div>
-              <img id="forge-edit-preview" class="forge-preview hidden" alt="Edit preview">
-              <div class="forge-prompt-wrap">
-                <textarea id="forge-edit-prompt" placeholder="Describe what changes to make..."></textarea>
+              <img id="imagegen-edit-preview" class="imagegen-preview hidden" alt="Edit preview">
+              <div class="imagegen-prompt-wrap">
+                <textarea id="imagegen-edit-prompt" placeholder="Describe what changes to make..."></textarea>
               </div>
-              <div class="forge-controls">
-                <select id="forge-edit-model">
+              <div class="imagegen-controls">
+                <select id="imagegen-edit-model">
                   <option value="google/gemini-2.5-flash-image-preview">Gemini Flash Image (Edit)</option>
                 </select>
-                <button id="forge-edit-btn" class="primary" type="button">Apply Edit</button>
+                <button id="imagegen-edit-btn" class="primary" type="button">Apply Edit</button>
               </div>
-              <div id="forge-edit-result" class="forge-result"></div>
+              <div id="imagegen-edit-result" class="imagegen-result"></div>
             </div>
           </div>
 
-          <div id="forge-panel-redefine" class="forge-panel hidden">
-            <div class="forge-card">
-              <div id="forge-redefine-gallery" class="forge-mini-gallery"></div>
-              <div class="forge-prompt-wrap">
-                <textarea id="forge-redefine-prompt" placeholder="Describe how to redefine or refine the selected image..."></textarea>
+          <div id="imagegen-panel-redefine" class="imagegen-panel hidden">
+            <div class="imagegen-card">
+              <div id="imagegen-redefine-gallery" class="imagegen-mini-gallery"></div>
+              <div class="imagegen-prompt-wrap">
+                <textarea id="imagegen-redefine-prompt" placeholder="Describe how to redefine or refine the selected image..."></textarea>
               </div>
-              <div class="forge-controls">
-                <button id="forge-redefine-btn" class="primary" type="button">Redefine</button>
+              <div class="imagegen-controls">
+                <button id="imagegen-redefine-btn" class="primary" type="button">Redefine</button>
               </div>
-              <div id="forge-redefine-result" class="forge-result"></div>
+              <div id="imagegen-redefine-result" class="imagegen-result"></div>
             </div>
           </div>
         </div>
 
-        <aside class="forge-sidebar">
-          <div class="forge-sidebar-head">
+        <aside class="imagegen-sidebar">
+          <div class="imagegen-sidebar-head">
             <h3>Gallery</h3>
-            <span class="count" id="forge-gallery-count">0</span>
+            <span class="count" id="imagegen-gallery-count">0</span>
           </div>
-          <div id="forge-gallery-grid" class="forge-gallery-grid"></div>
+          <div id="imagegen-gallery-grid" class="imagegen-gallery-grid"></div>
         </aside>
       </div>
     </main>
@@ -2506,7 +2512,7 @@ HTML_TEMPLATE = r"""<!doctype html>
       <button id="mob-chat" class="active" type="button">Chat</button>
       <button id="mob-guide" type="button">Guide</button>
       <button id="mob-marketplace" type="button">Market</button>
-      <button id="mob-forge" type="button">Forge</button>
+      <button id="mob-imagegen" type="button">ImageGen</button>
       <button id="mob-settings" type="button">Settings</button>
     </nav>
   </div>
