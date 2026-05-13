@@ -376,7 +376,7 @@ def compute_neuro(chain: Sequence[Ring], domain: str) -> Dict[str, float]:
 
 @dataclass
 class RetrieverConfig:
-    limit: int = 6
+    limit: int = 12
     semantic_weight: float = 1.0
     brightness_weight: float = 0.6
     recency_weight: float = 0.25

@@ -11,7 +11,7 @@ powershell -Command "try { $ip = (Get-NetIPAddress -AddressFamily IPv4 | Where-O
 echo 💻 Computer URL: http://127.0.0.1:8765
 echo.
 
-python server.py --host 0.0.0.0 --port 8765
+python -m server --host 0.0.0.0 --port 8765
 
 echo.
 echo Server stopped.

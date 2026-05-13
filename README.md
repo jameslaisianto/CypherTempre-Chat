@@ -64,7 +64,7 @@ Make sure this folder contains:
 
 ```text
 cyphertempre-chat-poc/
-  server.py
+  server/
   timechain.py
   .env.example
 ```
@@ -72,7 +72,7 @@ cyphertempre-chat-poc/
 If `timechain.py` is not in this folder, copy it in or launch with:
 
 ```powershell
-python .\cyphertempre-chat-poc\server.py --timechain-path "path\to\timechain.py"
+python -m server --timechain-path "path\to\timechain.py"
 ```
 
 ### 3. Create an API key
@@ -115,13 +115,13 @@ BASE_URL=https://api.mor.org/api/v1
 From the repository root:
 
 ```powershell
-python .\cyphertempre-chat-poc\server.py --port 8765
+python -m server --port 8765
 ```
 
 Windows launcher alternative:
 
 ```powershell
-py .\cyphertempre-chat-poc\server.py --port 8765
+py -m server --port 8765
 ```
 
 ### 6. Open the UI
@@ -317,7 +317,7 @@ The UI is fully responsive and works on phones.
 1. Make sure your phone and computer are on the same Wi-Fi.
 2. Start the server so it accepts connections from your local network:
    ```powershell
-   python server.py --host 0.0.0.0 --port 8765
+   python -m server --host 0.0.0.0 --port 8765
    ```
    Or double-click `Start CypherTempre.bat` (it does this automatically and prints your phone URL).
 3. On your phone browser, go to your computer's local IP:
@@ -344,13 +344,13 @@ The UI is fully responsive and works on phones.
 ## Test
 
 ```powershell
-python -m unittest discover .\cyphertempre-chat-poc
+python -m unittest discover .
 ```
 
 Windows launcher alternative:
 
 ```powershell
-py -m unittest discover .\cyphertempre-chat-poc
+py -m unittest discover .
 ```
 
 ## Troubleshooting
