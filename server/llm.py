@@ -758,30 +758,39 @@ def call_llm(
         headers["HTTP-Referer"] = "http://127.0.0.1:8765"
     if config.get("needs_title"):
         headers["X-Title"] = "CypherTempre Chat PoC"
-    request = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode("utf-8"),
-        headers=headers,
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            body = json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")
+    last_message = ""
+    for attempt in range(3):
+        request = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
         try:
-            parsed = json.loads(detail)
-            message = parsed.get("error", {}).get("message") or parsed.get("message") or detail
-        except json.JSONDecodeError:
-            message = detail
-        if exc.code == 429:
-            message = (
-                f"{message} The selected model is rate-limited or temporarily unavailable. "
-                "Wait and retry, or choose a different model in Settings."
-            )
-        raise RuntimeError(f"{config['label']} HTTP {exc.code}: {message}") from exc
-    except urllib.error.URLError as exc:
-        raise RuntimeError(f"{config['label']} request failed: {exc.reason}") from exc
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                body = json.loads(response.read().decode("utf-8"))
+            break
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            try:
+                parsed = json.loads(detail)
+                message = parsed.get("error", {}).get("message") or parsed.get("message") or detail
+            except json.JSONDecodeError:
+                message = detail
+            if exc.code == 429:
+                message = (
+                    f"{message} The selected model is rate-limited or temporarily unavailable. "
+                    "Wait and retry, or choose a different model in Settings."
+                )
+            last_message = message
+            if exc.code in {429, 502, 503, 504} and attempt < 2:
+                time.sleep(2 ** attempt)
+                continue
+            raise RuntimeError(f"{config['label']} HTTP {exc.code}: {message}") from exc
+        except urllib.error.URLError as exc:
+            raise RuntimeError(f"{config['label']} request failed: {exc.reason}") from exc
+    else:
+        raise RuntimeError(f"{config['label']} request failed after retries: {last_message}")
 
     choices = body.get("choices") or []
     if not choices:

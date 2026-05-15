@@ -555,7 +555,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--workspace",
         type=pathlib.Path,
-        default=pathlib.Path(__file__).resolve().parent,
+        default=pathlib.Path(__file__).resolve().parent.parent,
         help="Directory where .timechain will be created.",
     )
     parser.add_argument(

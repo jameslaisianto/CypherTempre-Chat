@@ -19,6 +19,8 @@ import uuid
 from types import SimpleNamespace
 from typing import Any
 
+import marketplace
+
 from server.config import (
     DEFAULT_MODEL, DEFAULT_PROVIDER, PROVIDERS, IMAGE_PROVIDERS, PERSONAS,
     DOMAIN_KEYWORDS, GUIDE_TOPICS, GUIDE_EXPLAINER_PERSONA,
