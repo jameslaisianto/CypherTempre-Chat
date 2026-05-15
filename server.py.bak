@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import datetime as dt
 import importlib.util
 import json
@@ -26,10 +27,16 @@ from urllib.parse import urlparse
 import marketplace
 
 
-DEFAULT_MODEL = "cognitivecomputations/dolphin-mistral-24b-venice-edition:free"
-DEFAULT_PROVIDER = "openrouter"
+DEFAULT_MODEL = "venice-uncensored"
+DEFAULT_PROVIDER = "morpheus"
 
 PROVIDERS: dict[str, dict[str, Any]] = {
+    "morpheus": {
+        "url": "https://api.mor.org/api/v1/chat/completions",
+        "needs_referer": False,
+        "needs_title": False,
+        "label": "Morpheus",
+    },
     "openrouter": {
         "url": "https://openrouter.ai/api/v1/chat/completions",
         "needs_referer": True,
@@ -53,6 +60,30 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         "needs_referer": False,
         "needs_title": False,
         "label": "Other",
+    },
+}
+
+IMAGE_PROVIDERS: dict[str, dict[str, Any]] = {
+    "openrouter": {
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "needs_referer": True,
+        "needs_title": True,
+        "label": "OpenRouter",
+        "default_model": "black-forest-labs/flux.2-pro",
+    },
+    "morpheus": {
+        "url": "https://api.mor.org/api/v1/chat/completions",
+        "needs_referer": False,
+        "needs_title": False,
+        "label": "Morpheus",
+        "default_model": "grok-imagine-image",
+    },
+    "other": {
+        "url": "",
+        "needs_referer": False,
+        "needs_title": False,
+        "label": "Other",
+        "default_model": "",
     },
 }
 
@@ -2414,6 +2445,79 @@ HTML = r"""<!doctype html>
       input, select, textarea { font-size: 16px; }
       .status-card { margin: 8px 10px 10px; padding: 10px; font-size: 12px; }
     }
+
+    /* Forge Studio */
+    .forge { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+    .forge-shell { display: grid; grid-template-columns: 1fr 300px; gap: 20px; height: 100%; overflow: hidden; padding: 24px; }
+    .forge-workspace { display: flex; flex-direction: column; gap: 16px; overflow: hidden; min-width: 0; }
+    .forge-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-shrink: 0; }
+    .forge-header h2 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.3px; }
+    .forge-header p { margin: 0; font-size: 13px; color: var(--muted); }
+    .forge-modes { display: inline-flex; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 4px; gap: 2px; flex-shrink: 0; }
+    .forge-modes button { padding: 8px 16px; border-radius: 8px; border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 13px; font-weight: 500; transition: all .2s; }
+    .forge-modes button:hover { color: var(--text); }
+    .forge-modes button.active { background: var(--accent); color: #fff; }
+    .forge-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px; display: flex; flex-direction: column; gap: 14px; overflow: auto; }
+    .forge-panel { display: flex; flex-direction: column; gap: 14px; }
+    .forge-panel.hidden { display: none; }
+    .forge-prompt-wrap { position: relative; }
+    .forge-prompt-wrap textarea { width: 100%; min-height: 100px; resize: vertical; border-radius: 12px; border: 1px solid var(--border); background: var(--bg); color: var(--text); padding: 14px; font-size: 14px; line-height: 1.5; }
+    .forge-prompt-wrap textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(16,172,235,0.12); }
+    .forge-controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .forge-controls select { flex: 1; min-width: 160px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 13px; cursor: pointer; }
+    .forge-controls button.primary { min-width: 120px; padding: 10px 20px; border-radius: 10px; border: none; background: linear-gradient(135deg, var(--accent), #0ea5e9); color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; transition: transform .15s, box-shadow .15s; }
+    .forge-controls button.primary:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(16,172,235,0.35); }
+    .forge-controls button.primary:active { transform: translateY(0); }
+    .forge-status { font-size: 13px; color: var(--muted); min-height: 18px; display: flex; align-items: center; gap: 8px; }
+    .forge-spinner { width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: forge-spin 0.8s linear infinite; }
+    @keyframes forge-spin { to { transform: rotate(360deg); } }
+    .forge-result { display: flex; flex-direction: column; gap: 12px; }
+    .forge-result-card { background: var(--bg); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+    .forge-result-card img { display: block; width: 100%; height: auto; }
+    .forge-result-meta { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; font-size: 12px; color: var(--muted); background: var(--surface); border-top: 1px solid var(--border); }
+    .forge-result-meta .badge { background: rgba(16,172,235,0.12); color: var(--accent); padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+    .forge-dropzone { border: 2px dashed var(--border); border-radius: 14px; padding: 40px 24px; text-align: center; color: var(--muted); cursor: pointer; transition: all .2s; background: var(--bg); }
+    .forge-dropzone:hover { border-color: var(--accent); background: rgba(16,172,235,0.06); }
+    .forge-dropzone svg { width: 36px; height: 36px; stroke-width: 1.5; margin-bottom: 10px; opacity: 0.6; }
+    .forge-dropzone p { margin: 0; font-size: 13px; }
+    .forge-dropzone .hint { font-size: 11px; margin-top: 6px; opacity: 0.7; }
+    .forge-dropzone input { display: none; }
+    .forge-preview { max-width: 100%; max-height: 260px; border-radius: 12px; border: 1px solid var(--border); object-fit: contain; background: var(--bg); }
+    .forge-preview.hidden { display: none; }
+    .forge-sidebar { display: flex; flex-direction: column; gap: 12px; overflow: hidden; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px; }
+    .forge-sidebar-head { display: flex; align-items: center; justify-content: space-between; }
+    .forge-sidebar-head h3 { margin: 0; font-size: 14px; font-weight: 600; }
+    .forge-sidebar-head .count { font-size: 12px; color: var(--muted); background: var(--bg); padding: 2px 8px; border-radius: 10px; }
+    .forge-gallery-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; overflow: auto; }
+    .forge-gallery-grid .empty { color: var(--muted); font-size: 12px; text-align: center; padding: 24px 8px; }
+    .forge-gallery-grid .empty svg { width: 32px; height: 32px; stroke-width: 1.5; margin-bottom: 8px; opacity: 0.5; }
+    .forge-gallery-grid .thumb { position: relative; aspect-ratio: 1; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); cursor: pointer; background: var(--bg); transition: transform .15s, box-shadow .15s; }
+    .forge-gallery-grid .thumb:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,0,0,0.25); }
+    .forge-gallery-grid .thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .forge-gallery-grid .thumb .del { position: absolute; top: 6px; right: 6px; width: 26px; height: 26px; border-radius: 8px; background: rgba(0,0,0,0.55); color: #fff; border: none; display: none; align-items: center; justify-content: center; font-size: 14px; cursor: pointer; backdrop-filter: blur(4px); transition: background .2s; }
+    .forge-gallery-grid .thumb .del:hover { background: rgba(180,40,40,0.85); }
+    .forge-gallery-grid .thumb:hover .del { display: flex; }
+    .forge-mini-gallery { display: flex; gap: 10px; overflow-x: auto; padding: 6px 0; }
+    .forge-mini-gallery .thumb { width: 88px; height: 88px; flex-shrink: 0; border-radius: 10px; overflow: hidden; border: 2px solid transparent; cursor: pointer; background: var(--bg); transition: transform .15s; }
+    .forge-mini-gallery .thumb:hover { transform: translateY(-2px); }
+    .forge-mini-gallery .thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .forge-mini-gallery .thumb.active { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(16,172,235,0.18); }
+    .forge-error { color: var(--red); font-size: 13px; padding: 10px 14px; background: rgba(180,40,40,0.08); border-radius: 10px; border: 1px solid rgba(180,40,40,0.15); }
+    @media (max-width: 1120px) {
+      .forge-shell { grid-template-columns: 1fr 260px; gap: 16px; padding: 20px; }
+    }
+    @media (max-width: 760px) {
+      .forge-shell { grid-template-columns: 1fr; grid-template-rows: 1fr auto; padding: 16px; }
+      .forge-sidebar { max-height: 220px; }
+      .forge-gallery-grid { grid-template-columns: repeat(4, 1fr); }
+      .forge-header { flex-direction: column; align-items: flex-start; gap: 10px; }
+    }
+    @media (max-width: 640px) {
+      .forge-shell { padding: 12px; gap: 12px; }
+      .forge-gallery-grid { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+      .forge-card { padding: 14px; }
+      .forge-controls button.primary { width: 100%; }
+    }
     </style>
 </head>
 <body>
@@ -2460,6 +2564,10 @@ HTML = r"""<!doctype html>
           <button id="nav-marketplace" type="button">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path><line x1="3" y1="6" x2="21" y2="6"></line><path d="M16 10a4 4 0 0 1-8 0"></path></svg>
             Marketplace
+          </button>
+          <button id="nav-forge" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+            Forge
           </button>
           <button id="nav-settings" type="button">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 5 15.4a1.65 1.65 0 0 0-1.51 1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 5 10.6a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 5.4a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82 1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
@@ -2512,7 +2620,7 @@ HTML = r"""<!doctype html>
           <span id="workspace-line">Workspace loading...</span>
         </div>
         <div class="badges">
-          <span class="badge info" id="model-badge">cognitivecomputations/dolphin-mistral-24b-venice-edition:free</span>
+          <span class="badge info" id="model-badge">venice-uncensored</span>
           <span class="badge" id="rings-badge">rings: -</span>
           <span class="badge" id="verify-badge">verify: -</span>
         </div>
@@ -2780,6 +2888,94 @@ HTML = r"""<!doctype html>
       </div>
     </main>
 
+    <main id="forge-view" class="forge hidden">
+      <div class="forge-shell">
+        <div class="forge-workspace">
+          <div class="forge-header">
+            <div>
+              <h2>Forge Studio</h2>
+              <p>Generate, edit, and redefine images with your configured provider.</p>
+            </div>
+            <div class="forge-modes">
+              <button id="forge-mode-generate" class="active" type="button">Generate</button>
+              <button id="forge-mode-edit" type="button">Edit</button>
+              <button id="forge-mode-redefine" type="button">Redefine</button>
+            </div>
+          </div>
+
+          <div id="forge-panel-generate" class="forge-panel">
+            <div class="forge-card">
+              <div class="forge-prompt-wrap">
+                <textarea id="forge-prompt" placeholder="Describe the image you want to create in detail..."></textarea>
+              </div>
+              <div class="forge-controls">
+                <select id="forge-model">
+                  <option value="black-forest-labs/flux.2-pro">FLUX.2 Pro (OpenRouter)</option>
+                  <option value="google/gemini-2.5-flash-image-preview">Gemini Flash Image (OpenRouter)</option>
+                  <option value="sourceful/riverflow-v2-pro">Riverflow V2 Pro (OpenRouter)</option>
+                  <option value="grok-imagine-image">Grok Imagine — Standard (Morpheus)</option>
+                  <option value="nano-banana-2">Nano Banana 2 — High Quality (Morpheus)</option>
+                  <option value="lustify-v8">Lustify V8 — Uncensored (Morpheus)</option>
+                </select>
+                <select id="forge-aspect">
+                  <option value="1:1">1:1 Square</option>
+                  <option value="16:9">16:9 Widescreen</option>
+                  <option value="4:3">4:3 Classic</option>
+                  <option value="9:16">9:16 Portrait</option>
+                </select>
+                <button id="forge-generate-btn" class="primary" type="button">Forge Image</button>
+              </div>
+              <div id="forge-status" class="forge-status"></div>
+              <div id="forge-result" class="forge-result"></div>
+            </div>
+          </div>
+
+          <div id="forge-panel-edit" class="forge-panel hidden">
+            <div class="forge-card">
+              <div class="forge-dropzone" id="forge-edit-dropzone">
+                <input type="file" id="forge-edit-file" accept="image/*">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                <p>Drop an image here, or click to browse</p>
+                <div class="hint">Supports PNG, JPG, WEBP</div>
+              </div>
+              <img id="forge-edit-preview" class="forge-preview hidden" alt="Edit preview">
+              <div class="forge-prompt-wrap">
+                <textarea id="forge-edit-prompt" placeholder="Describe what changes to make..."></textarea>
+              </div>
+              <div class="forge-controls">
+                <select id="forge-edit-model">
+                  <option value="google/gemini-2.5-flash-image-preview">Gemini Flash Image (Edit)</option>
+                </select>
+                <button id="forge-edit-btn" class="primary" type="button">Apply Edit</button>
+              </div>
+              <div id="forge-edit-result" class="forge-result"></div>
+            </div>
+          </div>
+
+          <div id="forge-panel-redefine" class="forge-panel hidden">
+            <div class="forge-card">
+              <div id="forge-redefine-gallery" class="forge-mini-gallery"></div>
+              <div class="forge-prompt-wrap">
+                <textarea id="forge-redefine-prompt" placeholder="Describe how to redefine or refine the selected image..."></textarea>
+              </div>
+              <div class="forge-controls">
+                <button id="forge-redefine-btn" class="primary" type="button">Redefine</button>
+              </div>
+              <div id="forge-redefine-result" class="forge-result"></div>
+            </div>
+          </div>
+        </div>
+
+        <aside class="forge-sidebar">
+          <div class="forge-sidebar-head">
+            <h3>Gallery</h3>
+            <span class="count" id="forge-gallery-count">0</span>
+          </div>
+          <div id="forge-gallery-grid" class="forge-gallery-grid"></div>
+        </aside>
+      </div>
+    </main>
+
     <main id="settings-view" class="settings">
       <div class="guide-shell">
         <section class="guide-hero">
@@ -2800,6 +2996,7 @@ HTML = r"""<!doctype html>
             <div class="settings-field">
               <label for="provider">Provider</label>
               <select id="provider">
+                <option value="morpheus">Morpheus</option>
                 <option value="openrouter">OpenRouter</option>
                 <option value="kimi-code">Kimi Code</option>
                 <option value="kimi">Kimi Platform</option>
@@ -2809,8 +3006,8 @@ HTML = r"""<!doctype html>
             </div>
             <div class="settings-field">
               <label for="model">Model</label>
-              <input id="model" value="cognitivecomputations/dolphin-mistral-24b-venice-edition:free">
-              <div class="hint" id="model-hint">Recommended free default: Venice Uncensored.</div>
+              <input id="model" value="venice-uncensored">
+              <div class="hint" id="model-hint">Morpheus default: venice-uncensored.</div>
             </div>
           </div>
 
@@ -2862,6 +3059,10 @@ HTML = r"""<!doctype html>
                 <option value="security">security</option>
                 <option value="testing">testing</option>
                 <option value="performance">performance</option>
+              </select>
+              <select id="manage-persona-visibility">
+                <option value="private">Private</option>
+                <option value="public">Public</option>
               </select>
               <button id="manage-save-persona" class="secondary" type="button">Save Persona</button>
               <button id="manage-delete-persona" class="secondary danger" type="button">Delete Persona</button>
@@ -3047,6 +3248,7 @@ HTML = r"""<!doctype html>
       <button id="mob-chat" class="active" type="button">Chat</button>
       <button id="mob-guide" type="button">Guide</button>
       <button id="mob-marketplace" type="button">Market</button>
+      <button id="mob-forge" type="button">Forge</button>
       <button id="mob-settings" type="button">Settings</button>
     </nav>
   </div>
@@ -3206,6 +3408,7 @@ HTML = r"""<!doctype html>
       managePersonaName: document.getElementById('manage-persona-name'),
       managePersonaSystem: document.getElementById('manage-persona-system'),
       managePersonaDomain: document.getElementById('manage-persona-domain'),
+      managePersonaVisibility: document.getElementById('manage-persona-visibility'),
       manageSavePersona: document.getElementById('manage-save-persona'),
       manageDeletePersona: document.getElementById('manage-delete-persona'),
       sessionList: document.getElementById('session-list'),
@@ -3253,6 +3456,34 @@ HTML = r"""<!doctype html>
       detailSubscribe: document.getElementById('detail-subscribe'),
       detailSubHint: document.getElementById('detail-sub-hint'),
       mobMarketplace: document.getElementById('mob-marketplace'),
+      navForge: document.getElementById('nav-forge'),
+      mobForge: document.getElementById('mob-forge'),
+      forgeView: document.getElementById('forge-view'),
+      forgeModeGenerate: document.getElementById('forge-mode-generate'),
+      forgeModeEdit: document.getElementById('forge-mode-edit'),
+      forgeModeRedefine: document.getElementById('forge-mode-redefine'),
+      forgePanelGenerate: document.getElementById('forge-panel-generate'),
+      forgePanelEdit: document.getElementById('forge-panel-edit'),
+      forgePanelRedefine: document.getElementById('forge-panel-redefine'),
+      forgePrompt: document.getElementById('forge-prompt'),
+      forgeModel: document.getElementById('forge-model'),
+      forgeAspect: document.getElementById('forge-aspect'),
+      forgeGenerateBtn: document.getElementById('forge-generate-btn'),
+      forgeStatus: document.getElementById('forge-status'),
+      forgeResult: document.getElementById('forge-result'),
+      forgeEditDropzone: document.getElementById('forge-edit-dropzone'),
+      forgeEditFile: document.getElementById('forge-edit-file'),
+      forgeEditPreview: document.getElementById('forge-edit-preview'),
+      forgeEditPrompt: document.getElementById('forge-edit-prompt'),
+      forgeEditBtn: document.getElementById('forge-edit-btn'),
+      forgeEditResult: document.getElementById('forge-edit-result'),
+      forgeRedefineGallery: document.getElementById('forge-redefine-gallery'),
+      forgeRedefinePrompt: document.getElementById('forge-redefine-prompt'),
+      forgeRedefineBtn: document.getElementById('forge-redefine-btn'),
+      forgeRedefineResult: document.getElementById('forge-redefine-result'),
+      forgeGalleryGrid: document.getElementById('forge-gallery-grid'),
+      forgeGalleryCount: document.getElementById('forge-gallery-count'),
+      forgeEditModel: document.getElementById('forge-edit-model'),
       settingsCreatorTab: document.getElementById('settings-creator-tab'),
       creatorSettingsSection: document.getElementById('creator-settings-section'),
       creatorName: document.getElementById('creator-name'),
@@ -3265,6 +3496,7 @@ HTML = r"""<!doctype html>
 
     let personas = {};
     let customPersonas = {};
+    let publicPersonas = {};
     let marketplacePersonas = {};
     let activeSession = localStorage.getItem('ct_active_session') || 'default';
     let sessionPersonaLocks = {};
@@ -3276,6 +3508,7 @@ HTML = r"""<!doctype html>
     let marketplaceData = [];
     let currentDetailId = null;
     const providerEndpoints = {
+      morpheus: 'https://api.mor.org/api/v1/chat/completions',
       openrouter: 'https://openrouter.ai/api/v1/chat/completions',
       'kimi-code': 'https://api.kimi.com/coding/v1/chat/completions',
       kimi: 'https://api.moonshot.ai/v1/chat/completions',
@@ -3486,7 +3719,7 @@ HTML = r"""<!doctype html>
         body: JSON.stringify({
           name,
           persona: els.persona.value,
-          customPersona: customPersonas[els.persona.value] || null
+          customPersona: customPersonas[els.persona.value] || publicPersonas[els.persona.value] || null
         })
       });
       els.sessionName.value = '';
@@ -3525,12 +3758,16 @@ HTML = r"""<!doctype html>
       const custom = Object.entries(customPersonas)
         .map(([id, persona]) => `<option value="${esc(id)}">${esc(persona.name)} · custom</option>`)
         .join('');
+      const pub = Object.entries(publicPersonas)
+        .map(([id, persona]) => `<option value="${esc(id)}">${esc(persona.name)} · public (${esc(persona.owner || '')})</option>`)
+        .join('');
       const mp = Object.entries(marketplacePersonas)
         .map(([id, persona]) => `<option value="${esc(id)}">${esc(persona.name)} · subscribed</option>`)
         .join('');
       let options = '';
       if (builtIns) options += `<optgroup label="Built-in">${builtIns}</optgroup>`;
       if (custom) options += `<optgroup label="My Personas">${custom}</optgroup>`;
+      if (pub) options += `<optgroup label="Public Personas">${pub}</optgroup>`;
       if (mp) options += `<optgroup label="Subscribed">${mp}</optgroup>`;
       els.persona.innerHTML = options || '<option value="companion">Companion</option>';
       renderManagePersonas();
@@ -3564,12 +3801,13 @@ HTML = r"""<!doctype html>
       els.managePersonaName.value = persona?.name || '';
       els.managePersonaSystem.value = persona?.system || '';
       els.managePersonaDomain.value = persona?.domain || 'auto';
+      els.managePersonaVisibility.value = persona?.visibility || 'private';
     }
 
     function applySessionPersonaLock() {
       const lock = sessionPersonaLocks[activeSession] || {};
       const lockedPersonaId = lock.id || '';
-      if (lockedPersonaId && (personas[lockedPersonaId] || customPersonas[lockedPersonaId])) {
+      if (lockedPersonaId && (personas[lockedPersonaId] || customPersonas[lockedPersonaId] || publicPersonas[lockedPersonaId] || marketplacePersonas[lockedPersonaId])) {
         els.persona.value = lockedPersonaId;
         els.persona.disabled = true;
         els.personaLockHint.textContent = `Persona locked to this session: ${lock.name || getActivePersona()?.name || lockedPersonaId}.`;
@@ -3582,22 +3820,23 @@ HTML = r"""<!doctype html>
     }
 
     function getActivePersona() {
-      return marketplacePersonas[els.persona.value] || customPersonas[els.persona.value] || personas[els.persona.value] || personas.companion;
+      return marketplacePersonas[els.persona.value] || publicPersonas[els.persona.value] || customPersonas[els.persona.value] || personas[els.persona.value] || personas.companion;
     }
 
     function applyLocalConfig(config) {
       personas = config.personas || {};
       customPersonas = loadCustomPersonas();
       customPersonas = { ...(config.custom_personas || {}), ...customPersonas };
+      publicPersonas = config.public_personas || {};
       marketplacePersonas = config.marketplace_personas || {};
       saveCustomPersonas();
       renderPersonaOptions();
-      els.provider.value = config.provider || localStorage.getItem('ct_provider') || 'openrouter';
+      els.provider.value = config.provider || localStorage.getItem('ct_provider') || 'morpheus';
       els.baseUrl.value = config.base_url || localStorage.getItem('ct_base_url') || providerEndpoints[els.provider.value] || '';
-      els.model.value = config.default_model || localStorage.getItem('ct_model') || 'cognitivecomputations/dolphin-mistral-24b-venice-edition:free';
+      els.model.value = config.default_model || localStorage.getItem('ct_model') || 'venice-uncensored';
       els.apiKey.value = '';
       els.persona.value = localStorage.getItem('ct_persona') || 'companion';
-      if (!personas[els.persona.value] && !customPersonas[els.persona.value]) els.persona.value = 'companion';
+      if (!personas[els.persona.value] && !customPersonas[els.persona.value] && !publicPersonas[els.persona.value] && !marketplacePersonas[els.persona.value]) els.persona.value = 'companion';
       els.domain.value = localStorage.getItem('ct_domain') || 'auto';
       updateProviderHint();
       updatePersonaText();
@@ -3637,6 +3876,8 @@ HTML = r"""<!doctype html>
         els.modelHint.textContent = 'Use model: kimi-for-coding';
       } else if (provider === 'kimi') {
         els.modelHint.textContent = 'Example: kimi-k2.6, moonshot-v1-8k, moonshot-v1-32k';
+      } else if (provider === 'morpheus') {
+        els.modelHint.textContent = 'Use model: venice-uncensored';
       } else if (provider === 'other') {
         els.modelHint.textContent = 'Enter the model name your custom provider expects';
       } else {
@@ -3648,8 +3889,8 @@ HTML = r"""<!doctype html>
     function updateSetup(hasEnvKey = false) {
       const hasBrowserKey = Boolean(els.apiKey.value.trim());
       const configured = hasEnvKey || hasBrowserKey;
-      const providerMap = { openrouter: 'OpenRouter', 'kimi-code': 'Kimi Code', kimi: 'Kimi Platform', other: 'Custom' };
-      const providerName = providerMap[els.provider.value] || 'OpenRouter';
+      const providerMap = { morpheus: 'Morpheus', openrouter: 'OpenRouter', 'kimi-code': 'Kimi Code', kimi: 'Kimi Platform', other: 'Custom' };
+      const providerName = providerMap[els.provider.value] || 'Morpheus';
       if (configured) {
         setStatus('Provider ready', 'ok');
         setStatusDetail(`${providerName} · ${els.model.value.trim() || 'default model'} · ${els.baseUrl.value.trim() || 'default endpoint'}`);
@@ -3657,7 +3898,7 @@ HTML = r"""<!doctype html>
         setStatus('Provider not configured', 'warn');
         setStatusDetail('Add an API key or set API_KEY in .env.local to get real LLM responses.');
       }
-      els.modelBadge.textContent = els.model.value.trim() || 'cognitivecomputations/dolphin-mistral-24b-venice-edition:free';
+      els.modelBadge.textContent = els.model.value.trim() || 'venice-uncensored';
     }
 
     function clearProviderOverride() {
@@ -4151,7 +4392,8 @@ HTML = r"""<!doctype html>
       const persona = {
         name: els.managePersonaName.value.trim(),
         domain: els.managePersonaDomain.value,
-        system: els.managePersonaSystem.value.trim()
+        system: els.managePersonaSystem.value.trim(),
+        visibility: els.managePersonaVisibility.value
       };
       const data = await api('/api/personas', {
         method: 'POST',
@@ -4176,7 +4418,7 @@ HTML = r"""<!doctype html>
       customPersonas = data.custom_personas || {};
       localStorage.setItem('ct_custom_personas', JSON.stringify(customPersonas));
       renderPersonaOptions();
-      if (!customPersonas[els.persona.value] && !personas[els.persona.value]) els.persona.value = 'companion';
+      if (!customPersonas[els.persona.value] && !personas[els.persona.value] && !publicPersonas[els.persona.value] && !marketplacePersonas[els.persona.value]) els.persona.value = 'companion';
       applySessionPersonaLock();
       els.manageStatusDetail.textContent = `Deleted persona ${id}.`;
     }
@@ -4201,8 +4443,8 @@ HTML = r"""<!doctype html>
             session: activeSession,
             domain: els.domain.value,
             persona: els.persona.value,
-            customPersona: customPersonas[els.persona.value] || null,
-            model: els.model.value.trim() || 'cognitivecomputations/dolphin-mistral-24b-venice-edition:free',
+            customPersona: customPersonas[els.persona.value] || publicPersonas[els.persona.value] || null,
+            model: els.model.value.trim() || 'venice-uncensored',
             apiKey: els.apiKey.value.trim(),
             provider: els.provider.value,
             baseUrl: els.baseUrl.value.trim()
@@ -4490,20 +4732,25 @@ HTML = r"""<!doctype html>
       const guide = view === 'guide';
       const settings = view === 'settings';
       const marketplace = view === 'marketplace';
-      els.chatView.classList.toggle('hidden', guide || settings || marketplace);
+      const forge = view === 'forge';
+      els.chatView.classList.toggle('hidden', guide || settings || marketplace || forge);
       els.guideView.classList.toggle('active', guide);
       els.settingsView.classList.toggle('active', settings);
       els.marketplaceView.classList.toggle('active', marketplace);
-      els.navChat.classList.toggle('active', !guide && !settings && !marketplace);
+      if (els.forgeView) els.forgeView.classList.toggle('hidden', !forge);
+      els.navChat.classList.toggle('active', !guide && !settings && !marketplace && !forge);
       els.navGuide.classList.toggle('active', guide);
       els.navSettings.classList.toggle('active', settings);
       els.navMarketplace.classList.toggle('active', marketplace);
-      if (els.mobChat) els.mobChat.classList.toggle('active', !guide && !settings && !marketplace);
+      if (els.navForge) els.navForge.classList.toggle('active', forge);
+      if (els.mobChat) els.mobChat.classList.toggle('active', !guide && !settings && !marketplace && !forge);
       if (els.mobGuide) els.mobGuide.classList.toggle('active', guide);
       if (els.mobSettings) els.mobSettings.classList.toggle('active', settings);
       if (els.mobMarketplace) els.mobMarketplace.classList.toggle('active', marketplace);
+      if (els.mobForge) els.mobForge.classList.toggle('active', forge);
       localStorage.setItem('ct_view', view);
       if (marketplace) loadMarketplace();
+      if (forge) loadForge();
     }
     async function loadMarketplace() {
       if (!els.marketplaceGrid) return;
@@ -4730,6 +4977,8 @@ HTML = r"""<!doctype html>
     if (els.accountLogout) els.accountLogout.addEventListener('click', logout);
     if (els.navMarketplace) els.navMarketplace.addEventListener('click', () => setMainView('marketplace'));
     if (els.mobMarketplace) els.mobMarketplace.addEventListener('click', () => setMainView('marketplace'));
+    if (els.navForge) els.navForge.addEventListener('click', () => setMainView('forge'));
+    if (els.mobForge) els.mobForge.addEventListener('click', () => setMainView('forge'));
     if (els.detailClose) els.detailClose.addEventListener('click', closeDetail);
     if (els.detailSubscribe) els.detailSubscribe.addEventListener('click', doSubscribe);
     if (els.mpSearch) els.mpSearch.addEventListener('input', renderMarketplace);
@@ -4782,6 +5031,257 @@ HTML = r"""<!doctype html>
         if (btn) btn.addEventListener('click', closeAll);
       });
     })();
+
+    // Forge Studio
+    let forgeActiveMode = 'generate';
+    let forgeSelectedImageId = '';
+    let forgeBusy = false;
+
+    function setForgeMode(mode) {
+      forgeActiveMode = mode;
+      els.forgeModeGenerate.classList.toggle('active', mode === 'generate');
+      els.forgeModeEdit.classList.toggle('active', mode === 'edit');
+      els.forgeModeRedefine.classList.toggle('active', mode === 'redefine');
+      els.forgePanelGenerate.classList.toggle('hidden', mode !== 'generate');
+      els.forgePanelEdit.classList.toggle('hidden', mode !== 'edit');
+      els.forgePanelRedefine.classList.toggle('hidden', mode !== 'redefine');
+      if (mode === 'redefine') renderForgeRedefineGallery();
+    }
+
+    async function loadForge() {
+      if (!els.forgeGalleryGrid) return;
+      renderForgeGallery([]);
+      try {
+        const data = await api('/api/forge/gallery');
+        renderForgeGallery(data.images || []);
+      } catch (error) {
+        if (els.forgeGalleryGrid) els.forgeGalleryGrid.innerHTML = `<div style="color:var(--red);padding:8px;">${esc(error.message)}</div>`;
+      }
+    }
+
+    function renderForgeGallery(images) {
+      if (!els.forgeGalleryGrid) return;
+      if (els.forgeGalleryCount) els.forgeGalleryCount.textContent = images.length;
+      if (!images.length) {
+        els.forgeGalleryGrid.innerHTML = `
+          <div class="empty">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+            <div>No images yet</div>
+          </div>`;
+        return;
+      }
+      els.forgeGalleryGrid.innerHTML = images.map(img => `
+        <div class="thumb" data-id="${esc(img.id)}" title="${esc(img.prompt)}">
+          <img src="/api/forge/image/${esc(img.id)}" loading="lazy" alt="">
+          <button class="del" data-id="${esc(img.id)}" title="Delete">×</button>
+        </div>
+      `).join('');
+      els.forgeGalleryGrid.querySelectorAll('.thumb').forEach(thumb => {
+        thumb.addEventListener('click', (e) => {
+          if (e.target.classList.contains('del')) {
+            e.stopPropagation();
+            deleteForgeImage(thumb.dataset.id);
+          }
+        });
+      });
+    }
+
+    function renderForgeRedefineGallery() {
+      if (!els.forgeRedefineGallery) return;
+      const thumbs = els.forgeGalleryGrid?.querySelectorAll('.thumb');
+      if (!thumbs || !thumbs.length) {
+        els.forgeRedefineGallery.innerHTML = '<div style="color:var(--muted);font-size:12px;">Generate some images first.</div>';
+        forgeSelectedImageId = '';
+        return;
+      }
+      els.forgeRedefineGallery.innerHTML = Array.from(thumbs).map(thumb => {
+        const id = thumb.dataset.id;
+        const src = thumb.querySelector('img')?.src || '';
+        return `<div class="thumb ${id === forgeSelectedImageId ? 'active' : ''}" data-id="${esc(id)}"><img src="${esc(src)}" loading="lazy" alt=""></div>`;
+      }).join('');
+      els.forgeRedefineGallery.querySelectorAll('.thumb').forEach(t => {
+        t.addEventListener('click', () => {
+          forgeSelectedImageId = t.dataset.id;
+          renderForgeRedefineGallery();
+        });
+      });
+    }
+
+    async function forgeGenerate() {
+      if (forgeBusy) return;
+      const prompt = els.forgePrompt?.value?.trim();
+      if (!prompt) { els.forgeStatus.innerHTML = '<span class="forge-error" style="display:inline-flex;padding:6px 12px;">Enter a prompt first.</span>'; return; }
+      forgeBusy = true;
+      els.forgeStatus.innerHTML = '<div class="forge-spinner"></div><span>Forging your image...</span>';
+      els.forgeResult.innerHTML = '';
+      try {
+        const data = await api('/api/forge/generate', {
+          method: 'POST',
+          body: JSON.stringify({
+            prompt,
+            model: els.forgeModel?.value,
+            aspect_ratio: els.forgeAspect?.value,
+            apiKey: localStorage.getItem('ct_api_key') || '',
+            provider: localStorage.getItem('ct_provider') || 'morpheus',
+          })
+        });
+        els.forgeStatus.textContent = '';
+        els.forgeResult.innerHTML = `
+          <div class="forge-result-card">
+            <img src="${esc(data.data_url)}" alt="Generated image">
+            <div class="forge-result-meta">
+              <span class="badge">${esc(data.image.model)}</span>
+              <span>${esc(data.image.aspect_ratio)} · ${new Date(data.image.created_at).toLocaleString()}</span>
+            </div>
+          </div>`;
+        loadForge();
+      } catch (error) {
+        els.forgeStatus.textContent = '';
+        els.forgeResult.innerHTML = `<div class="forge-error">${esc(error.message)}</div>`;
+      } finally {
+        forgeBusy = false;
+      }
+    }
+
+    async function forgeEdit() {
+      if (forgeBusy) return;
+      const prompt = els.forgeEditPrompt?.value?.trim();
+      const fileInput = els.forgeEditFile;
+      if (!prompt) { els.forgeEditResult.innerHTML = '<div class="forge-error">Enter a prompt first.</div>'; return; }
+      if (!fileInput?.files?.length && !els.forgeEditPreview?.src?.startsWith('data:')) {
+        els.forgeEditResult.innerHTML = '<div class="forge-error">Upload an image first.</div>'; return;
+      }
+      forgeBusy = true;
+      els.forgeEditResult.innerHTML = '<div class="forge-status"><div class="forge-spinner"></div><span>Editing image...</span></div>';
+      let imageData = '';
+      if (els.forgeEditPreview?.src?.startsWith('data:')) {
+        imageData = els.forgeEditPreview.src;
+      } else if (fileInput.files[0]) {
+        imageData = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(fileInput.files[0]);
+        });
+      }
+      try {
+        const data = await api('/api/forge/edit', {
+          method: 'POST',
+          body: JSON.stringify({
+            prompt,
+            image: imageData,
+            model: els.forgeEditModel?.value || els.forgeModel?.value,
+            aspect_ratio: els.forgeAspect?.value,
+            apiKey: localStorage.getItem('ct_api_key') || '',
+            provider: localStorage.getItem('ct_provider') || 'morpheus',
+          })
+        });
+        els.forgeEditResult.innerHTML = `
+          <div class="forge-result-card">
+            <img src="${esc(data.data_url)}" alt="Edited image">
+            <div class="forge-result-meta">
+              <span class="badge">${esc(data.image.model)}</span>
+              <span>Edit · ${esc(data.image.aspect_ratio)}</span>
+            </div>
+          </div>`;
+        loadForge();
+      } catch (error) {
+        els.forgeEditResult.innerHTML = `<div class="forge-error">${esc(error.message)}</div>`;
+      } finally {
+        forgeBusy = false;
+      }
+    }
+
+    async function forgeRedefine() {
+      if (forgeBusy) return;
+      if (!forgeSelectedImageId) {
+        els.forgeRedefineResult.innerHTML = '<div class="forge-error">Select a source image from the gallery above.</div>';
+        return;
+      }
+      const prompt = els.forgeRedefinePrompt?.value?.trim();
+      if (!prompt) {
+        els.forgeRedefineResult.innerHTML = '<div class="forge-error">Enter a prompt first.</div>';
+        return;
+      }
+      forgeBusy = true;
+      els.forgeRedefineResult.innerHTML = '<div class="forge-status"><div class="forge-spinner"></div><span>Redefining image...</span></div>';
+      try {
+        const data = await api('/api/forge/redefine', {
+          method: 'POST',
+          body: JSON.stringify({
+            source_id: forgeSelectedImageId,
+            prompt,
+            model: els.forgeModel?.value,
+            aspect_ratio: els.forgeAspect?.value,
+            apiKey: localStorage.getItem('ct_api_key') || '',
+            provider: localStorage.getItem('ct_provider') || 'morpheus',
+          })
+        });
+        els.forgeRedefineResult.innerHTML = `
+          <div class="forge-result-card">
+            <img src="${esc(data.data_url)}" alt="Redefined image">
+            <div class="forge-result-meta">
+              <span class="badge">${esc(data.image.model)}</span>
+              <span>Redefine · ${esc(data.image.aspect_ratio)}</span>
+            </div>
+          </div>`;
+        loadForge();
+      } catch (error) {
+        els.forgeRedefineResult.innerHTML = `<div class="forge-error">${esc(error.message)}</div>`;
+      } finally {
+        forgeBusy = false;
+      }
+    }
+
+    async function deleteForgeImage(imageId) {
+      if (!imageId) return;
+      try {
+        await api('/api/forge/delete', { method: 'POST', body: JSON.stringify({ image_id: imageId }) });
+        loadForge();
+        if (forgeSelectedImageId === imageId) forgeSelectedImageId = '';
+      } catch (error) {
+        alert('Delete failed: ' + error.message);
+      }
+    }
+
+    if (els.forgeModeGenerate) els.forgeModeGenerate.addEventListener('click', () => setForgeMode('generate'));
+    if (els.forgeModeEdit) els.forgeModeEdit.addEventListener('click', () => setForgeMode('edit'));
+    if (els.forgeModeRedefine) els.forgeModeRedefine.addEventListener('click', () => setForgeMode('redefine'));
+    if (els.forgeGenerateBtn) els.forgeGenerateBtn.addEventListener('click', forgeGenerate);
+    if (els.forgeEditBtn) els.forgeEditBtn.addEventListener('click', forgeEdit);
+    if (els.forgeRedefineBtn) els.forgeRedefineBtn.addEventListener('click', forgeRedefine);
+    if (els.forgeEditFile) {
+      els.forgeEditFile.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          els.forgeEditPreview.src = reader.result;
+          els.forgeEditPreview.classList.remove('hidden');
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+    if (els.forgeEditDropzone) {
+      els.forgeEditDropzone.addEventListener('click', () => els.forgeEditFile?.click());
+      els.forgeEditDropzone.addEventListener('dragover', (e) => { e.preventDefault(); els.forgeEditDropzone.style.borderColor = 'var(--accent)'; });
+      els.forgeEditDropzone.addEventListener('dragleave', () => { els.forgeEditDropzone.style.borderColor = ''; });
+      els.forgeEditDropzone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        els.forgeEditDropzone.style.borderColor = '';
+        const file = e.dataTransfer.files[0];
+        if (!file || !file.type.startsWith('image/')) return;
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        els.forgeEditFile.files = dt.files;
+        const reader = new FileReader();
+        reader.onload = () => {
+          els.forgeEditPreview.src = reader.result;
+          els.forgeEditPreview.classList.remove('hidden');
+        };
+        reader.readAsDataURL(file);
+      });
+    }
 
     initTheme();
     initPanels();
@@ -5023,6 +5523,32 @@ def save_custom_personas(workspace: pathlib.Path, personas: dict[str, dict[str, 
     path = custom_personas_path(workspace)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(personas, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def load_all_public_custom_personas(root_workspace: pathlib.Path) -> dict[str, dict[str, Any]]:
+    public_personas: dict[str, dict[str, Any]] = {}
+    users_dir = root_workspace / "data" / "users"
+    if not users_dir.exists():
+        return public_personas
+    for user_dir in users_dir.iterdir():
+        if not user_dir.is_dir():
+            continue
+        path = user_dir / "custom_personas.json"
+        if not path.exists():
+            continue
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        if not isinstance(raw, dict):
+            continue
+        for key, value in raw.items():
+            persona = normalize_custom_persona(value)
+            if persona and persona.get("visibility") == "public":
+                original_id = sanitize_session_id(str(key))
+                namespaced_id = f"{user_dir.name}:{original_id}"
+                public_personas[namespaced_id] = {**persona, "owner": user_dir.name}
+    return public_personas
 
 
 def load_user_custom_personas(root_workspace: pathlib.Path, username: str) -> dict[str, dict[str, str]]:
@@ -6043,10 +6569,14 @@ def normalize_custom_persona(raw: Any) -> dict[str, str] | None:
     domain = str(raw.get("domain", "architecture")).strip() or "architecture"
     if not name or not system:
         return None
+    visibility = str(raw.get("visibility", "private")).strip().lower()
+    if visibility not in ("public", "private"):
+        visibility = "private"
     return {
         "name": name[:80],
         "domain": domain[:40],
         "system": system[:4000],
+        "visibility": visibility,
     }
 
 
@@ -6174,7 +6704,7 @@ def call_llm(
     api_key = api_key.strip()
     if not api_key:
         raise RuntimeError("API key is missing. Add a browser key or set API_KEY.")
-    if api_key in {"YOUR_API_KEY", "YOUR_OPENROUTER_API_KEY", "sk-or-your-key-here", "sk-or-your-real-key"}:
+    if api_key in {"YOUR_API_KEY", "YOUR_MORPHEUS_API_KEY", "YOUR_OPENROUTER_API_KEY", "sk-or-your-key-here", "sk-or-your-real-key"}:
         raise RuntimeError("API key is still the example placeholder.")
     config = PROVIDERS.get(provider, PROVIDERS[DEFAULT_PROVIDER])
     if provider == "other":
@@ -6242,6 +6772,89 @@ def call_openrouter(
 ) -> dict[str, Any]:
     """Backward-compatible wrapper that defaults to the openrouter provider."""
     return call_llm(provider="openrouter", api_key=api_key, model=model, messages=messages, timeout=timeout)
+
+
+def call_image_generation(
+    *,
+    provider: str,
+    api_key: str,
+    model: str,
+    messages: list[dict[str, Any]],
+    timeout: float,
+    base_url: str = "",
+    modalities: list[str] | None = None,
+) -> list[str]:
+    """Generate images via a provider that supports image output modalities.
+
+    Returns a list of base64-encoded image data strings (without data URL prefix).
+    """
+    if api_key in {"YOUR_API_KEY", "YOUR_MORPHEUS_API_KEY", "YOUR_OPENROUTER_API_KEY", "sk-or-your-key-here", "sk-or-your-real-key"}:
+        raise RuntimeError("API key is still the example placeholder.")
+    config = IMAGE_PROVIDERS.get(provider, IMAGE_PROVIDERS.get("openrouter", {}))
+    if provider == "other":
+        config = {"url": "", "needs_referer": False, "needs_title": False, "label": "Custom"}
+    url = (base_url or config.get("url", "")).rstrip("/")
+    if not url:
+        raise RuntimeError(f"No URL configured for image provider: {provider}")
+    payload: dict[str, Any] = {
+        "model": model or config.get("default_model", ""),
+        "messages": messages,
+    }
+    if modalities:
+        payload["modalities"] = modalities
+    headers: dict[str, str] = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    if config.get("needs_referer"):
+        headers["HTTP-Referer"] = "http://127.0.0.1:8765"
+    if config.get("needs_title"):
+        headers["X-Title"] = "CypherTempre Chat PoC"
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        try:
+            parsed = json.loads(detail)
+            message = parsed.get("error", {}).get("message") or parsed.get("message") or detail
+        except json.JSONDecodeError:
+            message = detail
+        raise RuntimeError(f"{config.get('label', provider)} HTTP {exc.code}: {message}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"{config.get('label', provider)} request failed: {exc.reason}") from exc
+
+    choices = body.get("choices") or []
+    if not choices:
+        raise RuntimeError(f"{config.get('label', provider)} returned no choices.")
+    message = choices[0].get("message") or {}
+    images = message.get("images") or []
+    results: list[str] = []
+    for img in images:
+        if isinstance(img, dict):
+            data = img.get("data") or ""
+            b64 = img.get("b64_json") or ""
+            url_str = img.get("url") or ""
+            if b64:
+                results.append(b64)
+            elif data:
+                results.append(data)
+            elif url_str:
+                results.append(url_str)
+        elif isinstance(img, str):
+            results.append(img)
+    # Some providers may embed image in content as markdown or data URL
+    if not results:
+        content = (message.get("content") or "").strip()
+        if content.startswith("data:image"):
+            results.append(content.split(",", 1)[1] if "," in content else content)
+    return results
 
 
 def parse_env_file(path: pathlib.Path) -> dict[str, str]:
@@ -6450,6 +7063,80 @@ class App:
     def user_custom_personas_path(self, username: str) -> pathlib.Path:
         return self.root_workspace / "data" / "users" / username / "custom_personas.json"
 
+    def user_gallery_root(self, username: str) -> pathlib.Path:
+        path = self.root_workspace / "data" / "users" / username / "gallery"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def user_gallery_index_path(self, username: str) -> pathlib.Path:
+        return self.user_gallery_root(username) / "index.json"
+
+    def load_gallery_index(self, username: str) -> dict[str, Any]:
+        path = self.user_gallery_index_path(username)
+        if not path.exists():
+            return {"images": []}
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict) or "images" not in data:
+                return {"images": []}
+            return data
+        except (json.JSONDecodeError, OSError):
+            return {"images": []}
+
+    def save_gallery_index(self, username: str, index: dict[str, Any]) -> None:
+        path = self.user_gallery_index_path(username)
+        path.write_text(json.dumps(index, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    def gallery_image_path(self, username: str, image_id: str) -> pathlib.Path:
+        return self.user_gallery_root(username) / f"{image_id}.png"
+
+    def add_gallery_image(
+        self,
+        username: str,
+        *,
+        image_id: str,
+        prompt: str,
+        mode: str,
+        model: str,
+        provider: str,
+        aspect_ratio: str,
+        source_id: str = "",
+        b64_data: str,
+    ) -> dict[str, Any]:
+        path = self.gallery_image_path(username, image_id)
+        try:
+            raw = base64.b64decode(b64_data)
+        except Exception as exc:
+            raise RuntimeError(f"Invalid base64 image data: {exc}") from exc
+        path.write_bytes(raw)
+        entry = {
+            "id": image_id,
+            "prompt": prompt,
+            "mode": mode,
+            "model": model,
+            "provider": provider,
+            "aspect_ratio": aspect_ratio,
+            "created_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+            "filename": f"{image_id}.png",
+            "source_id": source_id,
+        }
+        index = self.load_gallery_index(username)
+        index["images"].insert(0, entry)
+        self.save_gallery_index(username, index)
+        return entry
+
+    def delete_gallery_image(self, username: str, image_id: str) -> bool:
+        index = self.load_gallery_index(username)
+        original_len = len(index["images"])
+        index["images"] = [img for img in index["images"] if img.get("id") != image_id]
+        if len(index["images"]) == original_len:
+            return False
+        self.save_gallery_index(username, index)
+        path = self.gallery_image_path(username, image_id)
+        if path.exists():
+            path.unlink()
+        return True
+
     def workspace_for_session(self, session_id: str, username: str | None = None) -> pathlib.Path:
         session_id = sanitize_session_id(session_id)
         if username:
@@ -6491,7 +7178,7 @@ class App:
                 "name": "Default",
                 "rings": rings,
                 "persona_id": persona_id,
-                "persona_name": self.persona_name_for_id(persona_id),
+                "persona_name": self.persona_name_for_id(persona_id, username=username),
             })
         if sessions_dir.exists():
             for path in sorted(p for p in sessions_dir.iterdir() if p.is_dir() and p.name != "default"):
@@ -6509,7 +7196,7 @@ class App:
                     "name": session_name_from_id(session_id),
                     "rings": rings,
                     "persona_id": persona_id,
-                    "persona_name": self.persona_name_for_id(persona_id),
+                    "persona_name": self.persona_name_for_id(persona_id, username=username),
                 })
         return sessions
 
@@ -6525,7 +7212,7 @@ class App:
             index += 1
         self.use_session(session_id, username=username)
         if persona_id:
-            self.bind_session_persona(persona_id)
+            self.bind_session_persona(persona_id, username=username)
         metadata = load_session_metadata(self.workspace)
         locked_persona = str(metadata.get("persona_id", "")).strip()
         return {
@@ -6533,7 +7220,7 @@ class App:
             "name": session_name_from_id(session_id),
             "rings": len(self.agent.chain),
             "persona_id": locked_persona,
-            "persona_name": self.persona_name_for_id(locked_persona),
+            "persona_name": self.persona_name_for_id(locked_persona, username=username),
         }
 
     def delete_session(self, session_id: str, username: str | None = None) -> dict[str, Any]:
@@ -6557,25 +7244,33 @@ class App:
     def reload_agent(self) -> None:
         self.agent = self.timechain.TimechainAgent(workspace=self.workspace)
 
-    def persona_name_for_id(self, persona_id: str) -> str:
+    def persona_name_for_id(self, persona_id: str, username: str | None = None) -> str:
         persona_id = sanitize_session_id(persona_id or "")
-        persona = self.get_custom_persona(persona_id) or PERSONAS.get(persona_id)
+        persona = self.get_custom_persona(persona_id, username=username) or PERSONAS.get(persona_id)
+        if not persona and username:
+            mp_entry = marketplace.get_marketplace_persona(persona_id)
+            if mp_entry and marketplace.is_subscribed(username, persona_id):
+                persona = mp_entry
         return persona.get("name", "") if persona else ""
 
     def session_persona_id(self) -> str:
         metadata = load_session_metadata(self.workspace)
         return str(metadata.get("persona_id", "")).strip()
 
-    def bind_session_persona(self, persona_id: str) -> str:
+    def bind_session_persona(self, persona_id: str, username: str | None = None) -> str:
         metadata = load_session_metadata(self.workspace)
         locked = str(metadata.get("persona_id", "")).strip()
         if locked:
             return locked
         persona_id = sanitize_session_id(persona_id or "companion")
-        if not self.get_custom_persona(persona_id) and persona_id not in PERSONAS:
+        known = self.get_custom_persona(persona_id, username=username) or persona_id in PERSONAS
+        if not known and username:
+            mp_entry = marketplace.get_marketplace_persona(persona_id)
+            known = bool(mp_entry and marketplace.is_subscribed(username, persona_id))
+        if not known:
             persona_id = "companion"
         metadata["persona_id"] = persona_id
-        metadata["persona_name"] = self.persona_name_for_id(persona_id)
+        metadata["persona_name"] = self.persona_name_for_id(persona_id, username=username)
         metadata["created_at"] = metadata.get("created_at") or dt.datetime.now(dt.timezone.utc).isoformat()
         save_session_metadata(self.workspace, metadata)
         return persona_id
@@ -7277,6 +7972,7 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                     user = marketplace.get_auth_user(marketplace.get_cookie_token(dict(self.headers)))
                     mp_personas = {}
                     custom_personas = {}
+                    public_personas = {}
                     if user:
                         subs = marketplace.get_subscriptions(user["username"])
                         for sub in subs:
@@ -7288,6 +7984,11 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                                     "system": entry.get("system", ""),
                                 }
                         custom_personas = app.custom_personas(username=user["username"])
+                        public_personas = load_all_public_custom_personas(app.root_workspace)
+                        # Exclude the user's own public personas from the public list
+                        for key in list(public_personas.keys()):
+                            if public_personas[key].get("owner") == user["username"]:
+                                public_personas.pop(key, None)
                     self.send_json({
                         "ok": True,
                         "provider": app.provider,
@@ -7299,6 +8000,7 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                             for key, value in PERSONAS.items()
                         },
                         "custom_personas": custom_personas,
+                        "public_personas": public_personas,
                         "marketplace_personas": mp_personas,
                     })
                     return
@@ -7475,6 +8177,36 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                     self.end_headers()
                     self.wfile.write(encoded)
                     return
+                if path == "/api/forge/gallery":
+                    try:
+                        user = self._auth_user()
+                    except PermissionError as exc:
+                        self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                        return
+                    index = app.load_gallery_index(user["username"])
+                    self.send_json({"ok": True, "images": index.get("images", [])})
+                    return
+                if path.startswith("/api/forge/image/"):
+                    try:
+                        user = self._auth_user()
+                    except PermissionError as exc:
+                        self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                        return
+                    image_id = path[len("/api/forge/image/"):]
+                    if not image_id or "/" in image_id or ".." in image_id:
+                        self.send_error(HTTPStatus.NOT_FOUND, "Not found")
+                        return
+                    img_path = app.gallery_image_path(user["username"], image_id)
+                    if not img_path.exists():
+                        self.send_error(HTTPStatus.NOT_FOUND, "Not found")
+                        return
+                    data = img_path.read_bytes()
+                    self.send_response(HTTPStatus.OK)
+                    self.send_header("Content-Type", "image/png")
+                    self.send_header("Content-Length", str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data)
+                    return
                 self.send_error(HTTPStatus.NOT_FOUND, "Not found")
             except Exception as exc:
                 self.send_exception(exc)
@@ -7565,9 +8297,213 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                     persona_id = path[len("/api/creator/personas/"):].rsplit("/", 1)[0]
                     self.handle_creator_delete(persona_id)
                     return
+                if path == "/api/forge/generate":
+                    self.handle_forge_generate()
+                    return
+                if path == "/api/forge/edit":
+                    self.handle_forge_edit()
+                    return
+                if path == "/api/forge/redefine":
+                    self.handle_forge_redefine()
+                    return
+                if path == "/api/forge/delete":
+                    self.handle_forge_delete()
+                    return
                 self.send_error(HTTPStatus.NOT_FOUND, "Not found")
             except Exception as exc:
                 self.send_exception(exc)
+
+        def handle_forge_generate(self) -> None:
+            try:
+                user = self._auth_user()
+            except PermissionError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                return
+            payload = self.read_json()
+            prompt = str(payload.get("prompt", "")).strip()
+            model = str(payload.get("model", IMAGE_PROVIDERS.get("openrouter", {}).get("default_model", ""))).strip()
+            aspect_ratio = str(payload.get("aspect_ratio", "1:1")).strip() or "1:1"
+            api_key = str(payload.get("apiKey", app.api_key)).strip() or app.api_key
+            provider = str(payload.get("provider", "openrouter")).strip() or "openrouter"
+            if not prompt:
+                self.send_json({"ok": False, "error": "prompt is required"}, HTTPStatus.BAD_REQUEST)
+                return
+            if not api_key:
+                self.send_json({"ok": False, "error": "API key is required"}, HTTPStatus.BAD_REQUEST)
+                return
+            messages = [{"role": "user", "content": prompt}]
+            try:
+                images = call_image_generation(
+                    provider=provider,
+                    api_key=api_key,
+                    model=model,
+                    messages=messages,
+                    timeout=min(app.timeout, 120.0),
+                    modalities=["image"],
+                )
+            except Exception as exc:
+                self.send_json({"ok": False, "error": str(exc)})
+                return
+            if not images:
+                self.send_json({"ok": False, "error": "No image was generated."})
+                return
+            image_id = uuid.uuid4().hex
+            entry = app.add_gallery_image(
+                user["username"],
+                image_id=image_id,
+                prompt=prompt,
+                mode="generate",
+                model=model,
+                provider=provider,
+                aspect_ratio=aspect_ratio,
+                b64_data=images[0],
+            )
+            self.send_json({
+                "ok": True,
+                "image": entry,
+                "data_url": f"data:image/png;base64,{images[0]}",
+            })
+
+        def handle_forge_edit(self) -> None:
+            try:
+                user = self._auth_user()
+            except PermissionError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                return
+            payload = self.read_json()
+            prompt = str(payload.get("prompt", "")).strip()
+            image_data = str(payload.get("image", "")).strip()
+            model = str(payload.get("model", "google/gemini-2.5-flash-image-preview")).strip()
+            aspect_ratio = str(payload.get("aspect_ratio", "1:1")).strip() or "1:1"
+            api_key = str(payload.get("apiKey", app.api_key)).strip() or app.api_key
+            provider = str(payload.get("provider", "openrouter")).strip() or "openrouter"
+            if not prompt:
+                self.send_json({"ok": False, "error": "prompt is required"}, HTTPStatus.BAD_REQUEST)
+                return
+            if not image_data:
+                self.send_json({"ok": False, "error": "image is required"}, HTTPStatus.BAD_REQUEST)
+                return
+            if not api_key:
+                self.send_json({"ok": False, "error": "API key is required"}, HTTPStatus.BAD_REQUEST)
+                return
+            # Normalize base64 data URL to raw base64 if needed
+            if image_data.startswith("data:image"):
+                image_data = image_data.split(",", 1)[1]
+            content: list[dict[str, Any]] = [
+                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_data}"}},
+                {"type": "text", "text": prompt},
+            ]
+            messages = [{"role": "user", "content": content}]
+            try:
+                images = call_image_generation(
+                    provider=provider,
+                    api_key=api_key,
+                    model=model,
+                    messages=messages,
+                    timeout=min(app.timeout, 120.0),
+                    modalities=["image", "text"],
+                )
+            except Exception as exc:
+                self.send_json({"ok": False, "error": str(exc)})
+                return
+            if not images:
+                self.send_json({"ok": False, "error": "No image was generated."})
+                return
+            image_id = uuid.uuid4().hex
+            entry = app.add_gallery_image(
+                user["username"],
+                image_id=image_id,
+                prompt=prompt,
+                mode="edit",
+                model=model,
+                provider=provider,
+                aspect_ratio=aspect_ratio,
+                b64_data=images[0],
+            )
+            self.send_json({
+                "ok": True,
+                "image": entry,
+                "data_url": f"data:image/png;base64,{images[0]}",
+            })
+
+        def handle_forge_redefine(self) -> None:
+            try:
+                user = self._auth_user()
+            except PermissionError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                return
+            payload = self.read_json()
+            source_id = str(payload.get("source_id", "")).strip()
+            prompt = str(payload.get("prompt", "")).strip()
+            model = str(payload.get("model", IMAGE_PROVIDERS.get("openrouter", {}).get("default_model", ""))).strip()
+            aspect_ratio = str(payload.get("aspect_ratio", "1:1")).strip() or "1:1"
+            api_key = str(payload.get("apiKey", app.api_key)).strip() or app.api_key
+            provider = str(payload.get("provider", "openrouter")).strip() or "openrouter"
+            if not source_id:
+                self.send_json({"ok": False, "error": "source_id is required"}, HTTPStatus.BAD_REQUEST)
+                return
+            if not prompt:
+                self.send_json({"ok": False, "error": "prompt is required"}, HTTPStatus.BAD_REQUEST)
+                return
+            if not api_key:
+                self.send_json({"ok": False, "error": "API key is required"}, HTTPStatus.BAD_REQUEST)
+                return
+            img_path = app.gallery_image_path(user["username"], source_id)
+            if not img_path.exists():
+                self.send_json({"ok": False, "error": "Source image not found"}, HTTPStatus.NOT_FOUND)
+                return
+            b64_data = base64.b64encode(img_path.read_bytes()).decode("ascii")
+            content: list[dict[str, Any]] = [
+                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64_data}"}},
+                {"type": "text", "text": prompt},
+            ]
+            messages = [{"role": "user", "content": content}]
+            try:
+                images = call_image_generation(
+                    provider=provider,
+                    api_key=api_key,
+                    model=model,
+                    messages=messages,
+                    timeout=min(app.timeout, 120.0),
+                    modalities=["image", "text"],
+                )
+            except Exception as exc:
+                self.send_json({"ok": False, "error": str(exc)})
+                return
+            if not images:
+                self.send_json({"ok": False, "error": "No image was generated."})
+                return
+            image_id = uuid.uuid4().hex
+            entry = app.add_gallery_image(
+                user["username"],
+                image_id=image_id,
+                prompt=prompt,
+                mode="redefine",
+                model=model,
+                provider=provider,
+                aspect_ratio=aspect_ratio,
+                source_id=source_id,
+                b64_data=images[0],
+            )
+            self.send_json({
+                "ok": True,
+                "image": entry,
+                "data_url": f"data:image/png;base64,{images[0]}",
+            })
+
+        def handle_forge_delete(self) -> None:
+            try:
+                user = self._auth_user()
+            except PermissionError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                return
+            payload = self.read_json()
+            image_id = str(payload.get("image_id", "")).strip()
+            if not image_id:
+                self.send_json({"ok": False, "error": "image_id is required"}, HTTPStatus.BAD_REQUEST)
+                return
+            ok = app.delete_gallery_image(user["username"], image_id)
+            self.send_json({"ok": ok})
 
         def handle_chat(self) -> None:
             try:
@@ -7583,8 +8519,7 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
             custom_persona = normalize_custom_persona(payload.get("customPersona"))
             if custom_persona:
                 app.save_custom_persona(persona_id, custom_persona, username=username)
-            persona_id = app.bind_session_persona(persona_id)
-            custom_persona = None
+            persona_id = app.bind_session_persona(persona_id, username=username)
             # Check marketplace personas
             mp_persona = None
             if user:
@@ -7609,7 +8544,7 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 query=message,
                 domain=domain,
                 persona_id=persona_id,
-                custom_persona=custom_persona,
+                custom_persona=persona,
                 model=model,
                 api_key=api_key,
                 provider=str(payload.get("provider", "")).strip(),
@@ -8055,12 +8990,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--model",
         default=None,
-        help="Default model. Defaults to the Venice Uncensored free model.",
+        help="Default model. Defaults to Morpheus venice-uncensored.",
     )
     parser.add_argument(
         "--provider",
         default=None,
-        help="LLM provider (openrouter or kimi). Defaults to openrouter.",
+        help="LLM provider (morpheus, openrouter, kimi-code, kimi, or other). Defaults to morpheus.",
     )
     parser.add_argument(
         "--api-key",
@@ -8121,7 +9056,11 @@ def main() -> int:
     args = build_parser().parse_args()
     load_local_env(args.env_file)
     provider = (args.provider or os.environ.get("PROVIDER", DEFAULT_PROVIDER)).strip().lower()
-    if provider == "kimi-code":
+    if provider == "morpheus":
+        default_model = args.model or env_value("MODEL", "MORPHEUS_MODEL") or DEFAULT_MODEL
+        api_key = args.api_key or env_value("API_KEY", "MORPHEUS_API_KEY")
+        base_url = args.base_url or env_value("BASE_URL", "MORPHEUS_BASE_URL")
+    elif provider == "kimi-code":
         provider_default_model = "kimi-for-coding"
         default_model = args.model or env_value("MODEL", "KIMI_MODEL_NAME") or provider_default_model
         api_key = args.api_key or env_value("API_KEY", "KIMI_API_KEY")

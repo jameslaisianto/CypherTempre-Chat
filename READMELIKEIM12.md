@@ -9,7 +9,7 @@ This demo points back to the Cypher Tempre Project. See [LICENSE](LICENSE) for t
 Go to the repo folder:
 
 ```powershell
-cd path\to\Aetherchain\cyphertempre-chat-poc
+cd path\to\CypherTempre-Chat
 ```
 
 ## 2. Check Python
@@ -64,7 +64,7 @@ Do not share `.env.local`. It contains your private key.
 Start the local server:
 
 ```powershell
-python server.py
+python -m server
 ```
 
 You should see something like:
@@ -100,7 +100,7 @@ The app works on your phone too.
 1. Make sure your phone is on the same Wi-Fi as your computer.
 2. Use `Start CypherTempre.bat` or start the server with:
    ```powershell
-   python server.py --host 0.0.0.0
+   python -m server --host 0.0.0.0
    ```
 3. On your phone browser, go to the address the batch file shows you.
 4. If it does not load, run this in PowerShell once:
@@ -186,4 +186,31 @@ Your API key:
 
 ```text
 .env.local
+```
+
+## What Changed In The Refactor
+
+The app no longer starts from one big `server.py` file.
+
+It now starts from the `server` package:
+
+```text
+server\
+  __main__.py      starts the app when you run python -m server
+  server.py        HTTP server and route dispatch
+  chat.py          chat, sessions, personas, memory actions
+  auth.py          login, register, logout
+  marketplace.py   marketplace and creator routes
+  imagegen.py      image generation routes
+  timechain.py     app Timechain/session logic
+  llm.py           provider calls and prompt building
+  config.py        settings, personas, guide topics
+  html.py          page template
+  ui.py            browser app JavaScript
+```
+
+So use this command now:
+
+```powershell
+python -m server
 ```
