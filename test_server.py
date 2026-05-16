@@ -3,6 +3,7 @@ import unittest
 from unittest import mock
 from types import SimpleNamespace
 
+import marketplace
 import server
 
 
@@ -112,6 +113,117 @@ class PromptAssemblyTests(unittest.TestCase):
             {"role": "assistant", "content": "I'll remember that, Kai."},
             {"role": "user", "content": "What is my name?"},
         ])
+
+    def test_build_messages_warns_after_long_pause(self):
+        persona = {"name": "Mira", "system": "Stay in character."}
+
+        messages = server.build_messages(
+            persona=persona,
+            query="Where were we?",
+            retrieved=[],
+            durable_memories=[],
+            recent_turns=[
+                {"role": "user", "content": "Let's redesign recall.", "ts": "2026-05-01T12:00:00+00:00"},
+                {"role": "assistant", "content": "We can make it time-aware.", "ts": "2026-05-01T12:01:00+00:00"},
+            ],
+            neuro={},
+            covenant="Be useful.",
+            now=server.dt.datetime(2026, 5, 8, 12, 0, tzinfo=server.dt.timezone.utc),
+        )
+
+        self.assertIn("User may be returning after a pause", messages[0]["content"])
+        self.assertIn("last interaction was 6 days ago", messages[0]["content"])
+
+    def test_retriever_uses_elapsed_time_over_ring_position_for_recency(self):
+        tc = server.load_timechain_module(server.DEFAULT_TIMECHAIN_PATH)
+        genesis = tc.Ring(
+            n=0,
+            prev="0" * 64,
+            ts="2026-05-01T00:00:00+00:00",
+            kind="genesis",
+            domain="self",
+            query="",
+            content="genesis",
+            brightness=1.0,
+        )
+        recent = tc.Ring(
+            n=1,
+            prev="a" * 64,
+            ts="2026-05-08T11:00:00+00:00",
+            kind="interaction",
+            domain="architecture",
+            query="architecture boundary",
+            content="Architecture boundary decision uses modular services.",
+            brightness=0.7,
+            tags=["architecture", "decision"],
+        )
+        old_high_ring = tc.Ring(
+            n=90,
+            prev="b" * 64,
+            ts="2026-04-01T11:00:00+00:00",
+            kind="interaction",
+            domain="architecture",
+            query="architecture boundary",
+            content="Architecture boundary decision uses modular services.",
+            brightness=0.7,
+            tags=["architecture", "decision"],
+        )
+
+        recalled = tc.retrieve(
+            [genesis, recent, old_high_ring],
+            "architecture boundary decision",
+            domain="architecture",
+            config=tc.RetrieverConfig(limit=2, now=server.dt.datetime(2026, 5, 8, 12, 0, tzinfo=server.dt.timezone.utc)),
+        )
+
+        self.assertEqual(recalled[0][1].n, 1)
+
+    def test_app_recall_can_revive_old_relevant_rings(self):
+        app = server.App(
+            self.make_workspace(),
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
+        tc = app.timechain
+        app.agent.chain.append(tc.Ring(
+            n=1,
+            prev=app.agent.chain[-1].hash,
+            ts="2026-01-01T12:00:00+00:00",
+            kind="interaction",
+            domain="security",
+            query="auth boundary decision",
+            content="Security decision: auth boundary remains server-side and token validation is centralized.",
+            brightness=0.92,
+            tags=["security", "architecture", "decision", "boundary"],
+            epistemic="known",
+            hash="a" * 64,
+        ))
+        app.agent.chain.append(tc.Ring(
+            n=2,
+            prev="a" * 64,
+            ts="2026-05-08T11:00:00+00:00",
+            kind="interaction",
+            domain="image",
+            query="make a logo",
+            content="Generated an abstract logo concept.",
+            brightness=0.8,
+            tags=["image"],
+            epistemic="known",
+            hash="b" * 64,
+        ))
+
+        recalled = app.recall(
+            "Where did we decide the auth boundary should live?",
+            domain="security",
+            now=server.dt.datetime(2026, 5, 8, 12, 0, tzinfo=server.dt.timezone.utc),
+        )
+
+        self.assertIn(1, [ring["n"] for ring in recalled["rings"]])
+        self.assertGreaterEqual(recalled["filtered_stale_ring_count"], 1)
 
     def test_serialize_history_reconstructs_user_and_assistant_turns(self):
         chain = [
@@ -1135,6 +1247,51 @@ class PromptAssemblyTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             app.delete_custom_persona("companion")
 
+    def test_session_rename_persists_display_name(self):
+        app = server.App(
+            self.make_workspace(),
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
+        session = app.create_session("old-session-name", username="alice")
+
+        renamed = app.rename_session(session["id"], "Research Sprint", username="alice")
+
+        self.assertEqual(renamed["name"], "Research Sprint")
+        sessions = {row["id"]: row for row in app.list_sessions(username="alice")}
+        self.assertEqual(sessions[session["id"]]["name"], "Research Sprint")
+
+    def test_pending_memories_are_scoped_to_active_session(self):
+        app = server.App(
+            self.make_workspace(),
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
+        first = app.create_session("First", username="alice")
+        first_model = server.empty_memory_model()
+        server.stage_memory_candidates(
+            first_model,
+            [{"key": "user.name", "value": "Alice", "kind": "identity"}],
+            source_ring=1,
+            evidence="first",
+            session_id=first["id"],
+        )
+        server.save_memory_model(app.root_workspace, first_model)
+        second = app.create_session("Second", username="alice")
+        app.use_session(second["id"], username="alice")
+
+        memories = app.list_memories()
+
+        self.assertEqual(memories["pending"], [])
+
     def test_archive_rewind_creates_archive_and_truncates_chain(self):
         workspace = self.make_workspace()
         app = server.App(
@@ -1396,6 +1553,7 @@ class PromptAssemblyTests(unittest.TestCase):
         for endpoint in ["/api/dream", "/api/overlays", "/api/memory-sync", "/api/fleet-import", "/api/challenge"]:
             self.assertIn(endpoint, server.HTML)
         self.assertIn("confirmTimechainMutation", server.HTML)
+        self.assertIn("Persistent memories are durable facts shared per user", server.HTML)
 
     def test_imagegen_ui_and_routes_use_imagegen_namespace(self):
         handler_source = inspect.getsource(server.make_handler)
@@ -1486,6 +1644,512 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertIn(".thought-segment {", server.HTML)
         self.assertIn("display: inline", server.HTML)
         self.assertIn('<span class="${part.type === \'thought\' ? \'thought-segment\' : \'text-segment\'}"', server.HTML)
+
+    def test_shared_recall_finds_ring_from_other_session_and_excludes_active(self):
+        workspace = self.make_workspace()
+        app = server.App(
+            workspace,
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
+        # Create two sessions for the same user
+        session_a = app.create_session("Session A", username="testuser")
+        app.use_session(session_a["id"], username="testuser")
+        app.agent.interact("architecture decision", domain="architecture", override_content="Use modular services.")
+
+        session_b = app.create_session("Session B", username="testuser")
+        app.use_session(session_b["id"], username="testuser")
+        app.agent.interact("security decision", domain="security", override_content="Auth boundary stays server-side.")
+
+        # From session_b, search for architecture — should find session_a's ring
+        result = app.shared_recall("testuser", "modular services", exclude_session=session_b["id"], limit=8)
+        self.assertTrue(result["ok"])
+        self.assertGreaterEqual(len(result["hits"]), 1)
+        hit = result["hits"][0]
+        self.assertEqual(hit["source_session"], session_a["id"])
+        self.assertEqual(hit["domain"], "architecture")
+        self.assertIn("modular services", hit["content"].lower())
+
+        # Should not find session_b's own ring
+        for h in result["hits"]:
+            self.assertNotEqual(h["source_session"], session_b["id"])
+
+    def test_shared_recall_is_same_user_only(self):
+        workspace = self.make_workspace()
+        app = server.App(
+            workspace,
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
+        # alice's session
+        alice_session = app.create_session("Alice", username="alice")
+        app.use_session(alice_session["id"], username="alice")
+        app.agent.interact("alice decision", domain="architecture", override_content="Alice uses modular services.")
+
+        # bob's session
+        bob_session = app.create_session("Bob", username="bob")
+        app.use_session(bob_session["id"], username="bob")
+        app.agent.interact("bob decision", domain="security", override_content="Bob uses centralized auth.")
+
+        # alice searching should not find bob's session
+        app.use_session(alice_session["id"], username="alice")
+        result = app.shared_recall("alice", "centralized auth", exclude_session=alice_session["id"], limit=8)
+        self.assertTrue(result["ok"])
+        self.assertEqual(len(result["hits"]), 0)
+
+    def test_build_messages_includes_shared_memory_when_provided(self):
+        persona = {"name": "Companion", "system": "Stay useful."}
+        shared_hits = [
+            {
+                "id": "other-session:3:abc123",
+                "source_session": "other-session",
+                "source_ring": 3,
+                "domain": "architecture",
+                "content": "Use modular boundary services.",
+                "brightness": 0.82,
+                "score": 0.91,
+                "tags": ["architecture"],
+            }
+        ]
+
+        messages = server.build_messages(
+            persona=persona,
+            query="What should we build next?",
+            retrieved=[],
+            shared_hits=shared_hits,
+            recent_turns=[],
+            neuro={},
+            covenant="Be useful.",
+        )
+
+        system = messages[0]["content"]
+        self.assertIn("Shared memory from other sessions", system)
+        self.assertIn("modular boundary services", system)
+        self.assertIn("other-session", system)
+
+    def test_build_messages_omits_shared_memory_when_empty(self):
+        persona = {"name": "Companion", "system": "Stay useful."}
+
+        messages = server.build_messages(
+            persona=persona,
+            query="What should we build next?",
+            retrieved=[],
+            shared_hits=[],
+            recent_turns=[],
+            neuro={},
+            covenant="Be useful.",
+        )
+
+        system = messages[0]["content"]
+        self.assertNotIn("Shared memory from other sessions", system)
+
+    def test_import_shared_memory_creates_fleet_import_ring(self):
+        workspace = self.make_workspace()
+        app = server.App(
+            workspace,
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
+        source_session = app.create_session("Source", username="testuser")
+        app.use_session(source_session["id"], username="testuser")
+        app.agent.interact("source decision", domain="architecture", override_content="Use modular services.")
+        source_ring = app.agent.chain[-1]
+
+        target_session = app.create_session("Target", username="testuser")
+        app.use_session(target_session["id"], username="testuser")
+        before = len(app.agent.chain)
+
+        hit_id = f"{source_session['id']}:{source_ring.n}:{source_ring.hash[:16]}"
+        result = app.import_shared_memory(hit_id, target_session=target_session["id"], username="testuser")
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["kind"], "fleet_import")
+        self.assertEqual(result["source_session"], source_session["id"])
+        self.assertEqual(result["source_ring"], source_ring.n)
+        self.assertEqual(len(app.agent.chain), before + 1)
+
+    def test_synthesize_comprehension_creates_ring_or_rejects(self):
+        workspace = self.make_workspace()
+        app = server.App(
+            workspace,
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
+        source_session = app.create_session("Source", username="testuser")
+        app.use_session(source_session["id"], username="testuser")
+        app.agent.interact("architecture", domain="architecture", override_content="Use modular testable documented services.")
+        ring_a = app.agent.chain[-1]
+        app.agent.interact("security", domain="security", override_content="Use secure reviewed boundary checks.")
+        ring_b = app.agent.chain[-1]
+
+        target_session = app.create_session("Target", username="testuser")
+        app.use_session(target_session["id"], username="testuser")
+        before = len(app.agent.chain)
+
+        hit_ids = [
+            f"{source_session['id']}:{ring_a.n}:{ring_a.hash[:16]}",
+            f"{source_session['id']}:{ring_b.n}:{ring_b.hash[:16]}",
+        ]
+        result = app.synthesize_comprehension("synthesize shared memory", hit_ids, target_session=target_session["id"], username="testuser")
+
+        # Should either create a ring or reject with a reason
+        if result.get("rejected"):
+            self.assertIn("reason", result)
+            self.assertEqual(len(app.agent.chain), before)
+        else:
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["kind"], "interaction")
+            self.assertEqual(len(app.agent.chain), before + 1)
+            self.assertIn("comprehension", result.get("tags", []))
+
+    def test_shared_memory_ui_exposed_in_workbench_and_chat(self):
+        self.assertIn('id="shared-memory-toggle"', server.HTML)
+        self.assertIn('id="shared-memory-query"', server.HTML)
+        self.assertIn('id="search-shared-memory"', server.HTML)
+        self.assertIn('id="shared-memory-results"', server.HTML)
+        self.assertIn('id="import-shared-memory"', server.HTML)
+        self.assertIn('id="synthesize-shared-memory"', server.HTML)
+        self.assertIn("/api/shared-memory", server.HTML)
+        self.assertIn("/api/shared-memory/import", server.HTML)
+        self.assertIn("/api/shared-memory/synthesize", server.HTML)
+        self.assertIn("searchSharedMemory", server.HTML)
+        self.assertIn("importSharedMemory", server.HTML)
+        self.assertIn("synthesizeSharedMemory", server.HTML)
+        self.assertIn("Shared Memory manually pulls accepted rings", server.HTML)
+
+    def test_handler_routes_expose_shared_memory_endpoints(self):
+        handler_source = inspect.getsource(server.make_handler)
+        self.assertIn('path == "/api/shared-memory"', handler_source)
+        self.assertIn('path == "/api/shared-memory/import"', handler_source)
+        self.assertIn('path == "/api/shared-memory/synthesize"', handler_source)
+        self.assertIn("handle_shared_memory_import", handler_source)
+        self.assertIn("handle_shared_memory_synthesize", handler_source)
+
+    def test_marketplace_catalog_shows_published_personas(self):
+        root = self.make_workspace()
+        mp = marketplace
+        mp.DATA_DIR = root / "data"
+        mp.USERS_PATH = mp.DATA_DIR / "users.json"
+        mp.AUTH_SESSIONS_PATH = mp.DATA_DIR / "auth_sessions.json"
+        mp.MARKETPLACE_DIR = mp.DATA_DIR / "marketplace"
+        mp.CATALOG_PATH = mp.MARKETPLACE_DIR / "catalog.json"
+        mp.USERS_DIR = mp.DATA_DIR / "users"
+
+        # Publish a persona directly
+        mp.MARKETPLACE_DIR.mkdir(parents=True, exist_ok=True)
+        catalog = {"personas": {}}
+        catalog["personas"]["test-architect"] = {
+            "persona_id": "test-architect",
+            "owner": "alice",
+            "name": "Test Architect",
+            "tagline": "A test persona.",
+            "domain": "architecture",
+            "status": "published",
+            "price": {"model": "free", "amount": 0, "currency": "USD"},
+            "stats": {"subscribers": 0, "rating": 0, "temporal_mass": 0},
+            "created_at": "2026-01-01T00:00:00+00:00",
+            "published_at": "2026-01-01T00:00:00+00:00",
+        }
+        mp._save_json(mp.CATALOG_PATH, catalog)
+
+        personas = mp.get_catalog()
+        self.assertEqual(len(personas), 1)
+        self.assertEqual(personas[0]["name"], "Test Architect")
+        self.assertEqual(personas[0]["status"], "published")
+
+    def test_marketplace_publish_sets_published_status(self):
+        root = self.make_workspace()
+        mp = marketplace
+        mp.DATA_DIR = root / "data"
+        mp.USERS_PATH = mp.DATA_DIR / "users.json"
+        mp.AUTH_SESSIONS_PATH = mp.DATA_DIR / "auth_sessions.json"
+        mp.MARKETPLACE_DIR = mp.DATA_DIR / "marketplace"
+        mp.CATALOG_PATH = mp.MARKETPLACE_DIR / "catalog.json"
+        mp.USERS_DIR = mp.DATA_DIR / "users"
+
+        mp.save_created_persona("alice", "mp_test", {
+            "name": "Test Persona",
+            "domain": "testing",
+            "tagline": "A test",
+            "system": "You are a test persona.",
+        })
+        result = mp.publish_persona("alice", "mp_test")
+        self.assertEqual(result["status"], "published")
+        catalog = mp._load_json(mp.CATALOG_PATH, {"personas": {}})
+        self.assertEqual(catalog["personas"]["mp_test"]["status"], "published")
+
+    def test_creator_owned_persona_can_lock_training_session(self):
+        root = self.make_workspace()
+        mp = marketplace
+        mp.DATA_DIR = root / "data"
+        mp.USERS_PATH = mp.DATA_DIR / "users.json"
+        mp.AUTH_SESSIONS_PATH = mp.DATA_DIR / "auth_sessions.json"
+        mp.MARKETPLACE_DIR = mp.DATA_DIR / "marketplace"
+        mp.CATALOG_PATH = mp.MARKETPLACE_DIR / "catalog.json"
+        mp.USERS_DIR = mp.DATA_DIR / "users"
+        app = server.App(
+            root,
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
+        mp.save_created_persona("alice", "truth-market", {
+            "name": "Finding Truth",
+            "domain": "investigation",
+            "tagline": "Evidence-first inquiry.",
+            "system": "A careful truth-finding marketplace draft.",
+        })
+
+        session = app.create_session("train-truth-market", username="alice", persona_id="truth-market")
+
+        self.assertEqual(session["persona_id"], "truth-market")
+        self.assertEqual(session["persona_name"], "Finding Truth")
+        self.assertEqual(app.bind_session_persona("companion", username="alice"), "truth-market")
+
+    def test_marketplace_publish_preserves_premium_price(self):
+        root = self.make_workspace()
+        mp = marketplace
+        mp.DATA_DIR = root / "data"
+        mp.USERS_PATH = mp.DATA_DIR / "users.json"
+        mp.AUTH_SESSIONS_PATH = mp.DATA_DIR / "auth_sessions.json"
+        mp.MARKETPLACE_DIR = mp.DATA_DIR / "marketplace"
+        mp.CATALOG_PATH = mp.MARKETPLACE_DIR / "catalog.json"
+        mp.USERS_DIR = mp.DATA_DIR / "users"
+        mp.save_created_persona("alice", "mp_premium", {
+            "name": "Premium Persona",
+            "domain": "testing",
+            "tagline": "Paid",
+            "system": "You are a premium test persona.",
+        })
+
+        result = mp.publish_persona("alice", "mp_premium", {"model": "premium", "amount": 9.5, "currency": "USD"})
+
+        self.assertEqual(result["price"], {"model": "premium", "amount": 9.5, "currency": "USD"})
+        catalog = mp._load_json(mp.CATALOG_PATH, {"personas": {}})
+        self.assertEqual(catalog["personas"]["mp_premium"]["price"]["model"], "premium")
+
+    def test_marketplace_distills_from_owned_timechain_session(self):
+        root = self.make_workspace()
+        mp = marketplace
+        mp.DATA_DIR = root / "data"
+        mp.USERS_PATH = mp.DATA_DIR / "users.json"
+        mp.AUTH_SESSIONS_PATH = mp.DATA_DIR / "auth_sessions.json"
+        mp.MARKETPLACE_DIR = mp.DATA_DIR / "marketplace"
+        mp.CATALOG_PATH = mp.MARKETPLACE_DIR / "catalog.json"
+        mp.USERS_DIR = mp.DATA_DIR / "users"
+        app = server.App(
+            root,
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
+        app.save_custom_persona("finding-truth", {
+            "name": "Finding Truth",
+            "domain": "investigation",
+            "system": "A careful truth-finding persona shaped by the session.",
+        }, username="alice")
+        source = app.create_session("FindingTruthSesh", username="alice", persona_id="finding-truth")
+        app.use_session(source["id"], username="alice")
+        app.agent.interact(
+            "How should we find truth?",
+            domain="investigation",
+            override_content="Find truth with testable documented reviewed evidence, precise questions, preserved uncertainty, and careful checks.",
+        )
+
+        mp.save_created_persona("alice", "truth-market", {
+            "name": "Finding Truth",
+            "domain": "investigation",
+            "tagline": "Evidence-first inquiry.",
+            "system": "A careful truth-finding persona shaped by the session.",
+            "source_session": source["id"],
+        })
+        capsule = mp.distill_persona("alice", "truth-market", app.timechain)
+        published = mp.publish_persona("alice", "truth-market")
+        detail = mp.get_marketplace_persona("truth-market")
+
+        self.assertEqual(capsule["source_session"], source["id"])
+        self.assertEqual(capsule["distilled_from"], 2)
+        self.assertEqual(capsule["ring_count"], 1)
+        self.assertEqual(capsule["capsule_type"], "frozen_accepted_rings")
+        self.assertEqual(capsule["rings"][0]["domain"], "investigation")
+        self.assertIn("careful checks", capsule["rings"][0]["content"])
+        self.assertGreater(len(capsule["rings"][0]["content"]), 80)
+        self.assertEqual(published["source_session"], source["id"])
+        self.assertEqual(detail["capsule"]["source_session"], source["id"])
+
+    def test_marketplace_capsule_rings_become_hidden_recall_hits(self):
+        capsule = {
+            "source_session": "train-truth",
+            "rings": [
+                {"n": 1, "domain": "investigation", "brightness": 0.7, "content": "Lower signal."},
+                {"n": 2, "domain": "testing", "brightness": 0.95, "content": "Higher signal full ring content."},
+            ],
+        }
+
+        hits = server.chat._capsule_shared_hits(capsule)
+
+        self.assertEqual(hits[0]["source_session"], "train-truth")
+        self.assertEqual(hits[0]["source_ring"], 2)
+        self.assertEqual(hits[0]["content"], "Higher signal full ring content.")
+
+    def test_marketplace_distill_keeps_low_brightness_accepted_interactions(self):
+        root = self.make_workspace()
+        mp = marketplace
+        mp.DATA_DIR = root / "data"
+        mp.USERS_PATH = mp.DATA_DIR / "users.json"
+        mp.AUTH_SESSIONS_PATH = mp.DATA_DIR / "auth_sessions.json"
+        mp.MARKETPLACE_DIR = mp.DATA_DIR / "marketplace"
+        mp.CATALOG_PATH = mp.MARKETPLACE_DIR / "catalog.json"
+        mp.USERS_DIR = mp.DATA_DIR / "users"
+        chain_dir = mp.USERS_DIR / "alice" / "sessions" / "low-mass" / ".timechain"
+        chain_dir.mkdir(parents=True, exist_ok=True)
+        (chain_dir / "chain.jsonl").write_text(
+            json.dumps({"n": 0, "kind": "genesis", "domain": "system", "brightness": 0.1, "content": "Genesis."}) + "\n"
+            + json.dumps({"n": 1, "kind": "interaction", "domain": "testing", "brightness": 0.2, "content": "Low brightness but accepted training ring."}) + "\n",
+            encoding="utf-8",
+        )
+        mp.save_created_persona("alice", "low-mass-persona", {
+            "name": "Low Mass",
+            "system": "Use the training ring.",
+            "source_session": "low-mass",
+        })
+
+        capsule = mp.distill_persona("alice", "low-mass-persona", None)
+
+        self.assertEqual(capsule["ring_count"], 1)
+        self.assertEqual(capsule["rings"][0]["content"], "Low brightness but accepted training ring.")
+
+    def test_marketplace_refuses_explicit_session_not_owned_by_creator(self):
+        root = self.make_workspace()
+        mp = marketplace
+        mp.DATA_DIR = root / "data"
+        mp.USERS_PATH = mp.DATA_DIR / "users.json"
+        mp.AUTH_SESSIONS_PATH = mp.DATA_DIR / "auth_sessions.json"
+        mp.MARKETPLACE_DIR = mp.DATA_DIR / "marketplace"
+        mp.CATALOG_PATH = mp.MARKETPLACE_DIR / "catalog.json"
+        mp.USERS_DIR = mp.DATA_DIR / "users"
+        app = server.App(
+            root,
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
+        bob_session = app.create_session("FindingTruthSesh", username="bob")
+        app.use_session(bob_session["id"], username="bob")
+        app.agent.interact(
+            "private bob persona",
+            domain="investigation",
+            override_content="Bob-only session knowledge must not be published by Alice.",
+        )
+        mp.save_created_persona("alice", "stolen", {
+            "name": "Stolen",
+            "system": "Should not publish.",
+        })
+
+        with self.assertRaises(KeyError):
+            mp.distill_persona("alice", "stolen", app.timechain, source_session=bob_session["id"])
+
+    def test_marketplace_subscribe_and_unsubscribe(self):
+        root = self.make_workspace()
+        mp = marketplace
+        mp.DATA_DIR = root / "data"
+        mp.USERS_PATH = mp.DATA_DIR / "users.json"
+        mp.AUTH_SESSIONS_PATH = mp.DATA_DIR / "auth_sessions.json"
+        mp.MARKETPLACE_DIR = mp.DATA_DIR / "marketplace"
+        mp.CATALOG_PATH = mp.MARKETPLACE_DIR / "catalog.json"
+        mp.USERS_DIR = mp.DATA_DIR / "users"
+
+        mp.create_user("bob", "Bob", "password123", "subscriber")
+        mp.save_created_persona("alice", "mp_sub", {
+            "name": "Sub Test",
+            "domain": "testing",
+            "tagline": "Sub",
+            "system": "Test.",
+        })
+        mp.publish_persona("alice", "mp_sub")
+
+        sub = mp.subscribe("bob", "mp_sub")
+        self.assertEqual(sub["persona_id"], "mp_sub")
+        self.assertTrue(mp.is_subscribed("bob", "mp_sub"))
+
+        mp.unsubscribe("bob", "mp_sub")
+        self.assertFalse(mp.is_subscribed("bob", "mp_sub"))
+
+    def test_marketplace_auth_token_falls_back_to_x_auth_token_header(self):
+        root = self.make_workspace()
+        mp = marketplace
+        mp.DATA_DIR = root / "data"
+        mp.USERS_PATH = mp.DATA_DIR / "users.json"
+        mp.AUTH_SESSIONS_PATH = mp.DATA_DIR / "auth_sessions.json"
+        mp.MARKETPLACE_DIR = mp.DATA_DIR / "marketplace"
+        mp.CATALOG_PATH = mp.MARKETPLACE_DIR / "catalog.json"
+        mp.USERS_DIR = mp.DATA_DIR / "users"
+
+        mp.create_user("carol", "Carol", "password123", "subscriber")
+        token = mp.create_auth_session("carol")
+
+        # Cookie token works
+        user_cookie = mp.require_auth({"Cookie": f"ct_auth={token}"})
+        self.assertEqual(user_cookie["username"], "carol")
+
+        # X-Auth-Token header works
+        user_header = mp.require_auth({"X-Auth-Token": token})
+        self.assertEqual(user_header["username"], "carol")
+
+        # Neither fails
+        with self.assertRaises(PermissionError):
+            mp.require_auth({})
+
+    def test_marketplace_ui_has_subscribe_and_unsubscribe_buttons(self):
+        self.assertIn('id="detail-subscribe"', server.HTML)
+        self.assertIn('id="detail-unsubscribe"', server.HTML)
+        self.assertIn('id="creator-source-session"', server.HTML)
+        self.assertIn('id="manage-session-name"', server.HTML)
+        self.assertIn('id="manage-rename-session"', server.HTML)
+        self.assertIn('id="creator-price-model"', server.HTML)
+        self.assertIn('id="creator-price-amount"', server.HTML)
+        self.assertIn("creatorPersonas", server.HTML)
+        self.assertIn("const sessionName = persona?.name", server.HTML)
+        self.assertIn("existingSessionId", server.HTML)
+        self.assertIn("Prior conversation is hidden", server.HTML)
+        self.assertIn("No frozen capsule yet.", server.HTML)
+        self.assertNotIn("r.content?.slice", server.HTML)
+        self.assertIn("Marketplace Persona Instructions", server.HTML)
+        self.assertIn("Prefilled from the source session persona. Edit before publishing.", server.HTML)
+        self.assertIn("sourceSession", server.HTML)
+        self.assertIn("renameCreatorPersona", server.HTML)
+        self.assertIn("deleteCreatorPersona", server.HTML)
+        self.assertIn("/api/sessions/rename", server.HTML)
+        self.assertIn("doSubscribe", server.HTML)
+        self.assertIn("doUnsubscribe", server.HTML)
+        self.assertIn("/api/marketplace/", server.HTML)
+        self.assertIn("/subscribe", server.HTML)
+        self.assertIn("/unsubscribe", server.HTML)
 
 
 if __name__ == "__main__":

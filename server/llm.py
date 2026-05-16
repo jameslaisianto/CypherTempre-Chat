@@ -20,7 +20,7 @@ from server.config import (
     RECALLED_RING_SNIPPET_CHARS, TRIMMED_RECALLED_RING_SNIPPET_CHARS,
     PROMPT_BUDGET_CHARS, MIN_COMPACTED_PERSONA_CHARS,
     DEFAULT_RESPONSE_TOKENS, LONG_RESPONSE_TOKENS,
-    ACTIVE_CONTEXT_DAYS,
+    ACTIVE_CONTEXT_DAYS, SESSION_PAUSE_NOTICE_DAYS,
     default_provider_url, resolve_chat_completions_url,
 )
 
@@ -345,11 +345,29 @@ def build_memory_context(
         if len(content) > snippet_limit:
             content = content[: max(0, snippet_limit - 3)].rstrip() + "..."
         label = relative_time_label(getattr(ring, "ts", ""), now=now)
+        days = _age_days(getattr(ring, "ts", ""), now=now)
+        if days is not None and days > ACTIVE_CONTEXT_DAYS:
+            label = f"{label}, revived older memory"
         lines.append(
             f"- Ring #{ring.n} [{ring.domain}, brightness={ring.brightness:.3f}, "
             f"epistemic={ring.epistemic}, {label}]: {content}"
         )
     return "\n".join(lines)
+
+
+def build_shared_memory_context(hits: list[dict[str, Any]] | None) -> str:
+    if not hits:
+        return ""
+    lines = []
+    for hit in (hits or [])[:8]:
+        content = str(hit.get("content", "")).strip().replace("\n", " ")
+        if len(content) > RECALLED_RING_SNIPPET_CHARS:
+            content = content[: RECALLED_RING_SNIPPET_CHARS - 3].rstrip() + "..."
+        lines.append(
+            f"- [{hit.get('domain', '?')}, brightness={hit.get('brightness', 0):.3f}, "
+            f"session={hit.get('source_session', '?')}, ring={hit.get('source_ring', '?')}]: {content}"
+        )
+    return "Shared memory from other sessions:\n" + "\n".join(lines)
 
 def trim_for_prompt(text: str, limit: int = 1400) -> str:
     normalized = (text or "").strip()
@@ -383,8 +401,14 @@ def build_recent_turns(chain: list[Any], limit: int = 8) -> list[dict[str, str]]
     selected = interactions[-max(0, min(limit, 20)):]
     turns: list[dict[str, str]] = []
     for ring in selected:
-        turns.append({"role": "user", "content": trim_for_prompt(ring.query)})
-        turns.append({"role": "assistant", "content": trim_for_prompt(ring.content)})
+        timestamp = str(getattr(ring, "ts", "") or "")
+        user_turn = {"role": "user", "content": trim_for_prompt(ring.query)}
+        assistant_turn = {"role": "assistant", "content": trim_for_prompt(ring.content)}
+        if timestamp:
+            user_turn["ts"] = timestamp
+            assistant_turn["ts"] = timestamp
+        turns.append(user_turn)
+        turns.append(assistant_turn)
     return turns
 
 def prompt_size(messages: list[dict[str, str]]) -> int:
@@ -407,7 +431,24 @@ def build_prompt_messages(
     covenant: str,
     now: dt.datetime,
     model: str = "",
+    temporal_context: str = "",
+    shared_memory_context: str = "",
 ) -> list[dict[str, str]]:
+    pause_note = ""
+    for turn in reversed(recent_turns):
+        parsed = parse_ring_time(turn.get("ts", ""))
+        if parsed is None:
+            continue
+        days = _age_days(parsed.isoformat(), now=now)
+        if days is not None and days >= SESSION_PAUSE_NOTICE_DAYS:
+            pause_note = (
+                f"\n\nUser may be returning after a pause: last interaction was "
+                f"{relative_time_label(parsed.isoformat(), now=now)}. "
+                "Prefer a brief continuity check before assuming current intent."
+            )
+        break
+    temporal_line = f"{temporal_context}\n\n" if temporal_context else ""
+    shared_block = f"{shared_memory_context}\n\n" if shared_memory_context else ""
     system_text = (
         f"{persona['system']}\n\n"
         "You are connected to a local CypherTempre Timechain. "
@@ -417,9 +458,11 @@ def build_prompt_messages(
         "Be conversational and useful. Do not expose hidden reasoning. "
         "If memory is weak or absent, say so briefly.\n\n"
         f"Engineering covenant: {covenant}\n\n"
-        f"{current_time_context(now)}\n\n"
+        f"{current_time_context(now)}{pause_note}\n\n"
+        f"{temporal_line}"
         f"Durable memories:\n{durable_context}\n\n"
         f"Relevant recalled rings:\n{memory_context}\n\n"
+        f"{shared_block}"
         f"Current neuro-state: {neuro_line}"
     )
     model_id = (model or "").lower()
@@ -432,7 +475,10 @@ def build_prompt_messages(
         messages.append({"role": "assistant", "content": "Understood. I will follow these instructions."})
     else:
         messages.append({"role": "system", "content": system_text})
-    messages.extend(recent_turns)
+    messages.extend(
+        {"role": turn.get("role", "user"), "content": turn.get("content", "")}
+        for turn in recent_turns
+    )
     messages.append({"role": "user", "content": query})
     return messages
 
@@ -624,9 +670,11 @@ def build_messages(
     neuro: dict[str, float],
     covenant: str,
     durable_memories: list[dict[str, Any]] | None = None,
+    shared_hits: list[dict[str, Any]] | None = None,
     prompt_budget_chars: int = PROMPT_BUDGET_CHARS,
     now: dt.datetime | None = None,
     model: str = "",
+    temporal_context: str = "",
 ) -> list[dict[str, str]]:
     current_time = now or dt.datetime.now(dt.timezone.utc)
     if current_time.tzinfo is None:
@@ -634,6 +682,7 @@ def build_messages(
     current_time = current_time.astimezone(dt.timezone.utc)
     memory_context = build_memory_context(retrieved, now=current_time)
     durable_context = build_memory_fact_context(durable_memories)
+    shared_memory_context = build_shared_memory_context(shared_hits)
     neuro_line = ", ".join(f"{key}={value:.2f}" for key, value in sorted(neuro.items()))
     active_recent_turns = list(recent_turns)
     messages = build_prompt_messages(
@@ -646,6 +695,8 @@ def build_messages(
         covenant=covenant,
         now=current_time,
         model=model,
+        temporal_context=temporal_context,
+        shared_memory_context=shared_memory_context,
     )
     if prompt_budget_chars > 0 and prompt_size(messages) > prompt_budget_chars and retrieved:
         memory_context = build_memory_context(
@@ -663,6 +714,7 @@ def build_messages(
             covenant=covenant,
             now=current_time,
             model=model,
+            shared_memory_context=shared_memory_context,
         )
     if prompt_budget_chars > 0 and prompt_size(messages) > prompt_budget_chars and retrieved:
         memory_context = f"{len(retrieved[:12])} retrieved rings omitted to preserve prompt budget."
@@ -676,6 +728,7 @@ def build_messages(
             covenant=covenant,
             now=current_time,
             model=model,
+            shared_memory_context=shared_memory_context,
         )
     while prompt_budget_chars > 0 and prompt_size(messages) > prompt_budget_chars and active_recent_turns:
         drop_count = 2 if len(active_recent_turns) >= 2 else 1
@@ -690,6 +743,7 @@ def build_messages(
             covenant=covenant,
             now=current_time,
             model=model,
+            shared_memory_context=shared_memory_context,
         )
     if prompt_budget_chars > 0 and prompt_size(messages) > prompt_budget_chars:
         overhead = prompt_size(messages) - len(persona.get("system", ""))
@@ -708,6 +762,7 @@ def build_messages(
             covenant=covenant,
             now=current_time,
             model=model,
+            shared_memory_context=shared_memory_context,
         )
         while prompt_budget_chars > 0 and prompt_size(messages) > prompt_budget_chars and persona_budget > 400:
             persona_budget = max(400, persona_budget - max(200, prompt_size(messages) - prompt_budget_chars + 80))
@@ -722,6 +777,7 @@ def build_messages(
                 covenant=covenant,
                 now=current_time,
                 model=model,
+                shared_memory_context=shared_memory_context,
             )
     return messages
 

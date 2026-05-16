@@ -311,7 +311,8 @@ def list_created_personas(username: str) -> list[dict[str, Any]]:
         if not path.is_dir():
             continue
         manifest = _load_json(path / "manifest.json", {})
-        chain_path = path / ".timechain" / "chain.jsonl"
+        source_session = str(manifest.get("source_session", "")).strip()
+        chain_path = _session_chain_path(username, source_session) if source_session else path / ".timechain" / "chain.jsonl"
         rings = 0
         if chain_path.exists():
             with chain_path.open("r", encoding="utf-8") as f:
@@ -322,6 +323,7 @@ def list_created_personas(username: str) -> list[dict[str, Any]]:
             "domain": manifest.get("domain", "auto"),
             "tagline": manifest.get("tagline", ""),
             "status": manifest.get("status", "draft"),
+            "source_session": source_session,
             "rings": rings,
             "created_at": manifest.get("created_at", ""),
             "published_at": manifest.get("published_at", ""),
@@ -344,6 +346,7 @@ def get_created_persona(username: str, persona_id: str) -> dict[str, Any] | None
         "domain": manifest.get("domain", "auto"),
         "tagline": manifest.get("tagline", ""),
         "system": system,
+        "source_session": manifest.get("source_session", ""),
         "status": manifest.get("status", "draft"),
         "created_at": manifest.get("created_at", ""),
         "published_at": manifest.get("published_at", ""),
@@ -355,12 +358,14 @@ def save_created_persona(username: str, persona_id: str | None, data: dict[str, 
     path = _creator_dir(username) / pid
     path.mkdir(parents=True, exist_ok=True)
     manifest = _load_json(path / "manifest.json", {})
+    source_session = str(data.get("source_session") or data.get("sourceSession") or manifest.get("source_session", "")).strip()
     manifest.update({
         "persona_id": pid,
         "owner": _sanitize_username(username),
         "name": str(data.get("name", manifest.get("name", "Untitled"))).strip()[:80],
         "domain": str(data.get("domain", manifest.get("domain", "auto"))).strip()[:40],
         "tagline": str(data.get("tagline", manifest.get("tagline", ""))).strip()[:200],
+        "source_session": _sanitize_session_id(source_session) if source_session else "",
         "status": manifest.get("status", "draft"),
         "created_at": manifest.get("created_at", dt.datetime.now(dt.timezone.utc).isoformat()),
     })
@@ -371,6 +376,7 @@ def save_created_persona(username: str, persona_id: str | None, data: dict[str, 
 
 
 def delete_created_persona(username: str, persona_id: str) -> None:
+    unpublish_persona(username, persona_id)
     path = _creator_dir(username) / persona_id
     if path.exists():
         shutil.rmtree(path)
@@ -386,22 +392,49 @@ def get_creator_workspace(username: str, persona_id: str) -> pathlib.Path:
 # Distill & Publish
 # ---------------------------------------------------------------------------
 
-def distill_persona(username: str, persona_id: str, timechain_module: Any, min_brightness: float = 0.6) -> dict[str, Any]:
+def _sanitize_session_id(value: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(value or "").strip())[:80].strip(".-")
+    return cleaned or "default"
+
+
+def _session_chain_path(username: str, session_id: str) -> pathlib.Path:
+    session_id = _sanitize_session_id(session_id)
+    user_sessions = (USERS_DIR / _sanitize_username(username) / "sessions").resolve()
+    chain_path = (user_sessions / session_id / ".timechain" / "chain.jsonl").resolve()
+    if user_sessions not in chain_path.parents:
+        raise KeyError(f"Session not found: {session_id}")
+    return chain_path
+
+
+def _load_session_rings(username: str, session_id: str, *, required: bool) -> list[dict[str, Any]]:
+    chain_path = _session_chain_path(username, session_id)
+    if not chain_path.exists():
+        if required:
+            raise KeyError(f"Session not found: {_sanitize_session_id(session_id)}")
+        return []
+    with chain_path.open("r", encoding="utf-8") as f:
+        return [json.loads(line) for line in f if line.strip()]
+
+
+def distill_persona(
+    username: str,
+    persona_id: str,
+    timechain_module: Any,
+    min_brightness: float = 0.0,
+    source_session: str | None = None,
+) -> dict[str, Any]:
     creator_dir = _creator_dir(username) / persona_id
     if not creator_dir.exists():
         raise KeyError(f"Persona not found: {persona_id}")
 
-    # Load chain
-    chain_path = creator_dir / ".timechain" / "chain.jsonl"
-    rings: list[dict[str, Any]] = []
-    if chain_path.exists():
-        with chain_path.open("r", encoding="utf-8") as f:
-            rings = [json.loads(line) for line in f if line.strip()]
+    manifest = _load_json(creator_dir / "manifest.json", {})
+    explicit_source = source_session is not None
+    session_id = _sanitize_session_id(source_session or manifest.get("source_session") or f"train-{persona_id}")
+    rings = _load_session_rings(username, session_id, required=explicit_source or bool(manifest.get("source_session")))
 
-    # Filter bright rings
-    bright = [r for r in rings if r.get("brightness", 0) >= min_brightness and r.get("kind") == "interaction"]
-    bright.sort(key=lambda r: r.get("brightness", 0), reverse=True)
-    top = bright[:20]
+    # Preserve full accepted interaction rings in temporal order. Marketplace UI
+    # exposes only metadata; the full rings are retained for runtime recall.
+    accepted = [r for r in rings if r.get("kind") == "interaction" and r.get("brightness", 0) >= min_brightness]
 
     total_mass = sum(r.get("brightness", 0) for r in rings)
     domains: dict[str, float] = {}
@@ -412,22 +445,20 @@ def distill_persona(username: str, persona_id: str, timechain_module: Any, min_b
 
     capsule = {
         "persona_id": persona_id,
+        "capsule_type": "frozen_accepted_rings",
+        "source": "timechain_session",
+        "source_session": session_id,
         "distilled_from": len(rings),
-        "rings": [
-            {
-                "n": r.get("n"),
-                "domain": r.get("domain"),
-                "content": str(r.get("content", ""))[:600],
-                "brightness": r.get("brightness"),
-                "tags": r.get("tags", []),
-                "epistemic": r.get("epistemic", "known"),
-            }
-            for r in top
-        ],
-        "summary": f"Distilled from {len(rings)} rings. Top domains: {', '.join(d for d, _ in top_domains)}.",
+        "ring_count": len(accepted),
+        "rings": accepted,
+        "summary": f"Frozen capsule with {len(accepted)} accepted rings from {len(rings)} total rings. Top domains: {', '.join(d for d, _ in top_domains)}.",
         "temporal_mass": round(total_mass, 3),
         "top_domains": [d for d, _ in top_domains],
     }
+    manifest["source_session"] = session_id
+    manifest.setdefault("stats", {"subscribers": 0, "rating": 0, "temporal_mass": 0})
+    manifest["stats"]["temporal_mass"] = capsule["temporal_mass"]
+    _save_json(creator_dir / "manifest.json", manifest)
     _save_json(creator_dir / "capsule.json", capsule)
     return capsule
 
@@ -438,17 +469,22 @@ def publish_persona(username: str, persona_id: str, price_data: dict[str, Any] |
         raise KeyError(f"Persona not found: {persona_id}")
 
     manifest = _load_json(creator_dir / "manifest.json", {})
-    manifest["status"] = "pending"
+    manifest["status"] = "published"
     manifest["published_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
     if price_data:
+        price_model = "premium" if str(price_data.get("model", "free")).lower() == "premium" else "free"
         manifest["price"] = {
-            "model": str(price_data.get("model", "free")),
-            "amount": float(price_data.get("amount", 0)),
+            "model": price_model,
+            "amount": max(0.0, float(price_data.get("amount", 0))) if price_model == "premium" else 0,
             "currency": str(price_data.get("currency", "USD")),
         }
     else:
         manifest.setdefault("price", {"model": "free", "amount": 0, "currency": "USD"})
     manifest.setdefault("stats", {"subscribers": 0, "rating": 0, "temporal_mass": 0})
+    capsule = _load_json(creator_dir / "capsule.json", {})
+    if capsule:
+        manifest["source_session"] = capsule.get("source_session", manifest.get("source_session", ""))
+        manifest["stats"]["temporal_mass"] = capsule.get("temporal_mass", manifest["stats"].get("temporal_mass", 0))
     _save_json(creator_dir / "manifest.json", manifest)
 
     # Copy to marketplace
@@ -468,7 +504,8 @@ def publish_persona(username: str, persona_id: str, price_data: dict[str, Any] |
         "name": manifest.get("name", "Untitled"),
         "tagline": manifest.get("tagline", ""),
         "domain": manifest.get("domain", "auto"),
-        "status": manifest["status"],
+        "source_session": manifest.get("source_session", ""),
+        "status": manifest.get("status", "published"),
         "price": manifest.get("price", {"model": "free", "amount": 0, "currency": "USD"}),
         "stats": manifest.get("stats", {"subscribers": 0, "rating": 0, "temporal_mass": 0}),
         "created_at": manifest.get("created_at", ""),
@@ -541,8 +578,12 @@ def get_cookie_token(headers: dict[str, str]) -> str:
     return ""
 
 
+def get_auth_token(headers: dict[str, str]) -> str:
+    return get_cookie_token(headers) or headers.get("X-Auth-Token", "")
+
+
 def require_auth(headers: dict[str, str]) -> dict[str, Any]:
-    token = get_cookie_token(headers)
+    token = get_auth_token(headers)
     user = get_auth_user(token)
     if not user:
         raise PermissionError("Authentication required.")

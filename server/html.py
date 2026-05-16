@@ -1906,6 +1906,12 @@ HTML_TEMPLATE = r"""<!doctype html>
             Paid or higher-context models can run it with this warning. Free models are blocked for this persona.
           </span>
         </div>
+        <div class="composer-options" style="max-width:1020px;margin:0 auto 8px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);cursor:pointer;">
+            <input type="checkbox" id="shared-memory-toggle" style="width:16px;height:16px;">
+            Use shared memory
+          </label>
+        </div>
         <form id="composer-form" class="composer-form">
           <textarea id="message" placeholder="Ask anything..." required enterkeyhint="send"></textarea>
           <button id="send" class="send" type="submit" aria-label="Send">→</button>
@@ -2136,7 +2142,7 @@ HTML_TEMPLATE = r"""<!doctype html>
       <div class="guide-shell">
         <section class="marketplace-hero">
           <h2>Persona Marketplace</h2>
-          <p>Discover, subscribe to, and train personas created by the community. Each persona carries distilled temporal mass — real experience, not just a prompt.</p>
+          <p>Discover and subscribe to personas created by the community. Each persona carries a hidden frozen capsule of accepted experience, not just a prompt.</p>
         </section>
         <div class="marketplace-filters">
           <input id="mp-search" placeholder="Search personas...">
@@ -2361,6 +2367,8 @@ HTML_TEMPLATE = r"""<!doctype html>
             <div class="settings-field">
               <label for="manage-session-select">Sessions</label>
               <select id="manage-session-select"></select>
+              <input id="manage-session-name" placeholder="Session name">
+              <button id="manage-rename-session" class="secondary" type="button">Rename Session</button>
               <button id="manage-delete-session" class="secondary danger" type="button">Delete Session</button>
               <div class="hint">The Default session cannot be deleted.</div>
             </div>
@@ -2391,11 +2399,22 @@ HTML_TEMPLATE = r"""<!doctype html>
           </div>
           <div class="settings-row">
             <div class="settings-field">
+              <label for="shared-memory-query">Shared Memory</label>
+              <input id="shared-memory-query" placeholder="Search across other sessions...">
+              <button id="search-shared-memory" class="secondary" type="button">Search</button>
+              <div id="shared-memory-results" class="hint">No shared memory search yet.</div>
+              <div class="hint">Persistent memories are durable facts shared per user; Shared Memory manually pulls accepted rings from other sessions.</div>
+              <button id="import-shared-memory" class="secondary" type="button" style="margin-top:6px;">Import Selected</button>
+              <button id="synthesize-shared-memory" class="secondary" type="button" style="margin-top:6px;">Synthesize Selected</button>
+            </div>
+            <div class="settings-field">
               <label for="fleet-source">Fleet import</label>
               <input id="fleet-source" placeholder="source agent">
               <textarea id="fleet-ring-json" placeholder='{"domain":"architecture","query":"...","content":"..."}'></textarea>
               <button id="run-fleet-import" class="secondary" type="button">Import Ring</button>
             </div>
+          </div>
+          <div class="settings-row">
             <div class="settings-field">
               <label for="challenge-indices">Temporal challenge</label>
               <input id="challenge-indices" placeholder="0,1">
@@ -2411,7 +2430,7 @@ HTML_TEMPLATE = r"""<!doctype html>
 
         <section id="creator-settings-section" class="feature-card settings-form settings-section hidden">
           <h2>Creator Studio</h2>
-          <p style="color:var(--muted);margin:0 0 12px;">Create personas, train them through conversation, and publish them to the marketplace.</p>
+          <p style="color:var(--muted);margin:0 0 12px;">Create personas from a source Timechain session, keep training in that same session, and publish a hidden frozen accepted-ring capsule to the marketplace.</p>
           <div class="settings-row">
             <div class="settings-field">
               <label>Create New Persona</label>
@@ -2429,7 +2448,16 @@ HTML_TEMPLATE = r"""<!doctype html>
                 <option value="finance">finance</option>
                 <option value="creative">creative</option>
               </select>
-              <textarea id="creator-system" placeholder="Base system prompt for this persona"></textarea>
+              <label>Source Timechain Session</label>
+              <select id="creator-source-session"></select>
+              <label>Marketplace Persona Instructions</label>
+              <textarea id="creator-system" placeholder="Prefilled from the source session persona. Edit before publishing."></textarea>
+              <label>Marketplace Pricing</label>
+              <select id="creator-price-model">
+                <option value="free">Free</option>
+                <option value="premium">Premium</option>
+              </select>
+              <input id="creator-price-amount" class="hidden" type="number" min="0" step="0.01" placeholder="Premium price in USD">
               <button id="creator-save" class="secondary" type="button">Create Persona</button>
             </div>
             <div class="settings-field">
@@ -2580,6 +2608,7 @@ HTML_TEMPLATE = r"""<!doctype html>
     </div>
     <div class="detail-drawer-foot">
       <button class="auth-submit" id="detail-subscribe" type="button">Subscribe</button>
+      <button class="secondary" id="detail-unsubscribe" type="button" style="display:none;">Unsubscribe</button>
       <div class="auth-hint" id="detail-sub-hint"></div>
     </div>
   </aside>

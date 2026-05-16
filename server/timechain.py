@@ -43,6 +43,7 @@ from server.llm import (
     utc_offset_label,
     current_time_context,
     build_memory_context,
+    build_shared_memory_context,
     trim_for_prompt,
     compact_persona_system,
     build_recent_turns,
@@ -1199,7 +1200,7 @@ class App:
             persona_id = str(metadata.get("persona_id", "")).strip()
             sessions.append({
                 "id": session_id,
-                "name": "Default",
+                "name": str(metadata.get("name") or "Default"),
                 "rings": rings,
                 "persona_id": persona_id,
                 "persona_name": self.persona_name_for_id(persona_id, username=username),
@@ -1217,7 +1218,7 @@ class App:
                 persona_id = str(metadata.get("persona_id", "")).strip()
                 sessions.append({
                     "id": session_id,
-                    "name": session_name_from_id(session_id),
+                    "name": str(metadata.get("name") or session_name_from_id(session_id)),
                     "rings": rings,
                     "persona_id": persona_id,
                     "persona_name": self.persona_name_for_id(persona_id, username=username),
@@ -1235,16 +1236,41 @@ class App:
             session_id = f"{base}-{index}"
             index += 1
         self.use_session(session_id, username=username)
+        metadata = load_session_metadata(self.workspace)
+        metadata["name"] = str(name or session_name_from_id(session_id)).strip()[:120] or session_name_from_id(session_id)
+        save_session_metadata(self.workspace, metadata)
         if persona_id:
             self.bind_session_persona(persona_id, username=username)
         metadata = load_session_metadata(self.workspace)
         locked_persona = str(metadata.get("persona_id", "")).strip()
         return {
             "id": session_id,
-            "name": session_name_from_id(session_id),
+            "name": str(metadata.get("name") or session_name_from_id(session_id)),
             "rings": len(self.agent.chain),
             "persona_id": locked_persona,
             "persona_name": self.persona_name_for_id(locked_persona, username=username),
+        }
+
+    def rename_session(self, session_id: str, name: str, username: str | None = None) -> dict[str, Any]:
+        session_id = sanitize_session_id(session_id)
+        clean_name = str(name or "").strip()[:120]
+        if not clean_name:
+            raise ValueError("Session name is required.")
+        if session_id == "default":
+            workspace = self.workspace_for_session("default", username=username)
+        else:
+            sessions_dir = self.user_sessions_root(username) if username else self.sessions_root
+            workspace = (sessions_dir / session_id).resolve()
+            sessions_root_resolved = sessions_dir.resolve()
+            if sessions_root_resolved not in workspace.parents or not workspace.exists() or not workspace.is_dir():
+                raise KeyError(f"Unknown session: {session_id}")
+        metadata = load_session_metadata(workspace)
+        metadata["name"] = clean_name
+        save_session_metadata(workspace, metadata)
+        return {
+            "session": session_id,
+            "name": clean_name,
+            "sessions": self.list_sessions(username=username),
         }
 
     def delete_session(self, session_id: str, username: str | None = None) -> dict[str, Any]:
@@ -1272,6 +1298,8 @@ class App:
         persona_id = sanitize_session_id(persona_id or "")
         persona = self.get_custom_persona(persona_id, username=username) or PERSONAS.get(persona_id)
         if not persona and username:
+            persona = marketplace.get_created_persona(username, persona_id)
+        if not persona and username:
             mp_entry = marketplace.get_marketplace_persona(persona_id)
             if mp_entry and marketplace.is_subscribed(username, persona_id):
                 persona = mp_entry
@@ -1288,6 +1316,8 @@ class App:
             return locked
         persona_id = sanitize_session_id(persona_id or "companion")
         known = self.get_custom_persona(persona_id, username=username) or persona_id in PERSONAS
+        if not known and username:
+            known = bool(marketplace.get_created_persona(username, persona_id))
         if not known and username:
             mp_entry = marketplace.get_marketplace_persona(persona_id)
             known = bool(mp_entry and marketplace.is_subscribed(username, persona_id))
@@ -1370,7 +1400,11 @@ class App:
     def list_memories(self, *, now: dt.datetime | None = None) -> dict[str, Any]:
         model = self.memory_model()
         facts = [annotate_memory(fact, now=now) for fact in model.get("facts", [])]
-        pending = [fact for fact in facts if fact.get("status") == "pending"]
+        pending = [
+            fact for fact in facts
+            if fact.get("status") == "pending"
+            and str(fact.get("session_id", "default")) == self.active_session
+        ]
         accepted = [fact for fact in facts if fact.get("status") in MEMORY_ACCEPTED_STATUSES]
         inactive = [fact for fact in facts if fact.get("status") in MEMORY_INACTIVE_STATUSES]
         return {
@@ -1414,22 +1448,26 @@ class App:
             fact for fact in accepted
             if not memory_activity(fact, now=now)["active"]
         ]
-        active_chain = active_recall_chain(self.agent.chain, now=now)
         _, stale_rings = split_active_rings(self.agent.chain, now=now)
         retrieved = self.timechain.retrieve(
-            active_chain,
+            self.agent.chain,
             query,
             domain=domain,
             cphy_weights=self.agent.cphy_weights,
-            config=self.timechain.RetrieverConfig(limit=max(1, min(limit, 20))),
+            config=self.timechain.RetrieverConfig(limit=max(1, min(limit, 20)), now=now, block_recency_weight=0.35),
         )
         results = []
         for score, ring in retrieved:
             content = ring.content[:500] if len(ring.content) > 500 else ring.content
+            ring_age_days = age_days(getattr(ring, "ts", ""), now=now)
             results.append({
                 "score": round(float(score), 4),
                 "n": ring.n,
                 "ts": ring.ts,
+                "age_days": ring_age_days,
+                "relative_time": relative_time_label(ring.ts, now=now),
+                "revived": ring_age_days is not None and ring_age_days > ACTIVE_CONTEXT_DAYS,
+                "recency_basis": "elapsed-time",
                 "brightness": ring.brightness,
                 "kind": ring.kind,
                 "domain": ring.domain,
@@ -1445,7 +1483,7 @@ class App:
             f"domain filter: {domain or 'none'}",
             f"active context days: {ACTIVE_CONTEXT_DAYS}",
             f"stale durable facts filtered: {len(stale_facts)}",
-            f"stale rings filtered: {len(stale_rings)}",
+            f"stale rings available for high-relevance revival: {len(stale_rings)}",
         ]
         return {
             "query": query,
@@ -1456,6 +1494,7 @@ class App:
             "active_context_days": ACTIVE_CONTEXT_DAYS,
             "filtered_stale_memory_count": len(stale_facts),
             "filtered_stale_ring_count": len(stale_rings),
+            "stale_ring_count": len(stale_rings),
         }
 
     def custom_personas(self, username: str | None = None) -> dict[str, dict[str, str]]:
@@ -1465,6 +1504,31 @@ class App:
 
     def get_custom_persona(self, persona_id: str, username: str | None = None) -> dict[str, str] | None:
         return self.custom_personas(username=username).get(sanitize_session_id(persona_id))
+
+    def created_personas(self, username: str | None = None) -> dict[str, dict[str, Any]]:
+        if not username:
+            return {}
+        result: dict[str, dict[str, Any]] = {}
+        for entry in marketplace.list_created_personas(username):
+            persona_id = sanitize_session_id(str(entry.get("persona_id", "")))
+            if not persona_id:
+                continue
+            persona = marketplace.get_created_persona(username, persona_id)
+            if persona:
+                result[persona_id] = {
+                    "name": persona.get("name", "Untitled"),
+                    "domain": persona.get("domain", "auto"),
+                    "system": persona.get("system", ""),
+                    "tagline": persona.get("tagline", ""),
+                    "status": persona.get("status", "draft"),
+                    "source_session": persona.get("source_session", ""),
+                }
+        return result
+
+    def get_created_persona(self, persona_id: str, username: str | None = None) -> dict[str, Any] | None:
+        if not username:
+            return None
+        return self.created_personas(username=username).get(sanitize_session_id(persona_id))
 
     def save_custom_persona(self, persona_id: str, persona: dict[str, str], username: str | None = None) -> dict[str, str]:
         persona_id = sanitize_session_id(persona_id)
@@ -1550,10 +1614,14 @@ class App:
     def set_frozen(self, frozen: bool) -> dict[str, Any]:
         self.reload_agent()
         self.agent.freeze(bool(frozen))
+        metadata = load_session_metadata(self.workspace)
+        locked_persona = str(metadata.get("persona_id", "")).strip()
         return {
             "session": self.active_session,
             "frozen": self.agent.frozen,
             "rings": len(self.agent.chain),
+            "persona_id": locked_persona,
+            "persona_name": self.persona_name_for_id(locked_persona),
         }
 
     def run_dream(self, domains: str, *, cycles: int = 3) -> dict[str, Any]:
@@ -1653,6 +1721,173 @@ class App:
             "kind": imported.kind,
             "hash": imported.hash[:16],
             "brightness": round(float(imported.brightness), 4),
+        }
+
+    def _other_session_chains(self, username: str, exclude_session: str) -> list[tuple[str, pathlib.Path, list[Any]]]:
+        sessions = self.list_sessions(username=username)
+        results: list[tuple[str, pathlib.Path, list[Any]]] = []
+        for session in sessions:
+            session_id = session["id"]
+            if session_id == exclude_session:
+                continue
+            workspace = self.workspace_for_session(session_id, username=username)
+            chain = self.timechain.TimechainStore(workspace).load_chain()
+            if chain:
+                results.append((session_id, workspace, chain))
+        return results
+
+    def shared_recall(
+        self,
+        username: str,
+        query: str,
+        exclude_session: str | None = None,
+        limit: int = 12,
+    ) -> dict[str, Any]:
+        exclude_session = sanitize_session_id(exclude_session or self.active_session)
+        hits: list[dict[str, Any]] = []
+        for session_id, _workspace, chain in self._other_session_chains(username, exclude_session):
+            retrieved = self.timechain.retrieve(
+                chain,
+                query,
+                cphy_weights=self.agent.cphy_weights,
+                config=self.timechain.RetrieverConfig(limit=max(1, min(limit, 20)), block_recency_weight=0.35),
+            )
+            for score, ring in retrieved:
+                hits.append({
+                    "id": f"{session_id}:{ring.n}:{ring.hash[:16]}",
+                    "source_session": session_id,
+                    "source_ring": ring.n,
+                    "source_hash_prefix": ring.hash[:16],
+                    "domain": ring.domain,
+                    "query": ring.query,
+                    "content": ring.content[:500] if len(ring.content) > 500 else ring.content,
+                    "brightness": round(float(ring.brightness), 4),
+                    "epistemic": ring.epistemic,
+                    "score": round(float(score), 4),
+                    "tags": list(ring.tags or []),
+                })
+        hits.sort(key=lambda h: h["score"], reverse=True)
+        return {
+            "ok": True,
+            "query": query,
+            "hits": hits[:limit],
+            "count": len(hits),
+        }
+
+    def import_shared_memory(self, hit_id: str, target_session: str | None = None, username: str | None = None) -> dict[str, Any]:
+        target_session = sanitize_session_id(target_session or self.active_session)
+        self.use_session(target_session, username=username)
+        self.reload_agent()
+        if self.agent.frozen:
+            raise PermissionError("timechain is frozen")
+        parts = str(hit_id or "").strip().split(":")
+        if len(parts) < 2:
+            raise ValueError("hit_id must be session_id:ring_n[:hash_prefix]")
+        source_session = parts[0]
+        try:
+            source_ring_n = int(parts[1])
+        except (TypeError, ValueError) as exc:
+            raise ValueError("hit_id ring number must be an integer") from exc
+        source_hash_prefix = parts[2] if len(parts) > 2 else ""
+        source_workspace = self.workspace_for_session(source_session, username=username)
+        chain = self.timechain.TimechainStore(source_workspace).load_chain()
+        ring = next((r for r in chain if r.n == source_ring_n and (not source_hash_prefix or r.hash.startswith(source_hash_prefix))), None)
+        if ring is None:
+            raise ValueError(f"Ring not found in session {source_session}: {source_ring_n}")
+        ring_dict = ring.to_dict()
+        imported = self.agent.fleet_import(ring_dict, source=source_session)
+        if imported is None:
+            raise ValueError("shared memory import rejected by covenant gate")
+        return {
+            "ok": True,
+            "session": self.active_session,
+            "ring": imported.n,
+            "kind": imported.kind,
+            "hash": imported.hash[:16],
+            "brightness": round(float(imported.brightness), 4),
+            "source_session": source_session,
+            "source_ring": source_ring_n,
+        }
+
+    def synthesize_comprehension(
+        self,
+        query: str,
+        hit_ids: list[str],
+        target_session: str | None = None,
+        username: str | None = None,
+    ) -> dict[str, Any]:
+        target_session = sanitize_session_id(target_session or self.active_session)
+        self.use_session(target_session, username=username)
+        self.reload_agent()
+        if self.agent.frozen:
+            raise PermissionError("timechain is frozen")
+        if not hit_ids:
+            raise ValueError("at least one hit_id is required")
+        picks: list[tuple[Any, str]] = []
+        for hit_id in hit_ids:
+            parts = str(hit_id or "").strip().split(":")
+            if len(parts) < 2:
+                continue
+            source_session = parts[0]
+            try:
+                source_ring_n = int(parts[1])
+            except (TypeError, ValueError):
+                continue
+            source_hash_prefix = parts[2] if len(parts) > 2 else ""
+            source_workspace = self.workspace_for_session(source_session, username=username)
+            chain = self.timechain.TimechainStore(source_workspace).load_chain()
+            ring = next((r for r in chain if r.n == source_ring_n and (not source_hash_prefix or r.hash.startswith(source_hash_prefix))), None)
+            if ring is not None:
+                picks.append((ring, source_session))
+        if len(picks) < 1:
+            raise ValueError("no valid source rings found for synthesis")
+        content = "Shared memory comprehension synthesis:\n" + "\n".join(
+            f"  [{ring.domain} session={source_session} ring {ring.n}] {ring.content[:120]}" for ring, source_session in picks
+        )
+        scores, brightness = self.agent.poq.evaluate(
+            query=query or "shared memory comprehension synthesis",
+            content=content,
+            covenant=self.agent.values,
+            retrieved=[ring for ring, _ in picks],
+            chain=self.agent.chain,
+        )
+        accepted, reason = self.agent.poq.gate(scores, brightness)
+        if not accepted:
+            return {
+                "ok": False,
+                "session": self.active_session,
+                "rejected": True,
+                "reason": reason,
+                "brightness": round(float(brightness), 4),
+                "scores": {k: round(float(v), 4) for k, v in scores.items()},
+            }
+        candidate = self.timechain.Ring(
+            n=len(self.agent.chain),
+            prev=self.agent.chain[-1].hash if self.agent.chain else "0" * 64,
+            ts=dt.datetime.now(dt.timezone.utc).isoformat(),
+            kind="interaction",
+            domain="comprehension",
+            query=query or "shared memory comprehension synthesis",
+            content=content,
+            brightness=min(brightness, 0.65),
+            scores=scores,
+            neuro=self.timechain.compute_neuro(self.agent.chain, "comprehension"),
+            retrieved=[ring.n for ring, _ in picks],
+            epistemic="speculated",
+            tags=["comprehension", "shared_memory"] + [ring.domain for ring, _ in picks],
+            source=f"synthesis:{','.join(f'{session}:{ring.n}' for ring, session in picks)}",
+        )
+        sealed = self.agent._append(candidate)
+        return {
+            "ok": True,
+            "session": self.active_session,
+            "ring": sealed.n,
+            "kind": sealed.kind,
+            "hash": sealed.hash[:16],
+            "brightness": round(float(sealed.brightness), 4),
+            "epistemic": sealed.epistemic,
+            "tags": sealed.tags,
+            "reason": reason,
         }
 
     def challenge(self, indices: str, *, nonce: str = "") -> dict[str, Any]:
@@ -1796,18 +2031,18 @@ class App:
         api_key: str,
         provider: str = "",
         base_url: str = "",
+        shared_hits: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         persona_id = self.bind_session_persona(persona_id)
         persona = custom_persona or self.get_custom_persona(persona_id) or PERSONAS.get(persona_id) or PERSONAS["companion"]
         memory_model = self.memory_model()
         durable_hits = recall_memory_facts(memory_model, query, limit=16, session_id=self.active_session)
-        active_chain = active_recall_chain(self.agent.chain)
         retrieved_scored = self.timechain.retrieve(
-            active_chain,
+            self.agent.chain,
             query,
             domain=domain,
             cphy_weights=self.agent.cphy_weights,
-            config=self.timechain.RetrieverConfig(limit=12),
+            config=self.timechain.RetrieverConfig(limit=12, block_recency_weight=0.35),
         )
         retrieved = [ring for _, ring in retrieved_scored]
         recent_turns = build_recent_turns(self.agent.chain, limit=8)
@@ -1817,10 +2052,12 @@ class App:
             query=query,
             retrieved=retrieved,
             durable_memories=durable_hits,
+            shared_hits=shared_hits,
             recent_turns=recent_turns,
             neuro=neuro,
             covenant=self.agent.values,
             model=model or self.default_model,
+            temporal_context=self.agent.get_temporal_context(),
         )
         key = api_key or self.api_key
         provider = (provider or self.provider).strip().lower()

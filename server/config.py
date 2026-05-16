@@ -69,6 +69,7 @@ IMAGE_PROVIDERS: dict[str, dict[str, Any]] = {
 DEFAULT_TIMECHAIN_PATH = pathlib.Path(__file__).resolve().parent.parent / "timechain.py"
 DEFAULT_ENV_PATH = pathlib.Path(__file__).resolve().parent.parent / ".env.local"
 ACTIVE_CONTEXT_DAYS = 90
+SESSION_PAUSE_NOTICE_DAYS = 2
 PROMPT_BUDGET_CHARS = 32000
 RECALLED_RING_SNIPPET_CHARS = 700
 TRIMMED_RECALLED_RING_SNIPPET_CHARS = 220
@@ -473,11 +474,20 @@ PERSONAS: dict[str, dict[str, str]] = {
         ),
     },
     "socratic": {
-        "name": "Socratic Tutor",
-        "domain": "testing",
-        "system": (
-            "You are a Socratic tutor. Help the user reason by asking crisp "
-            "questions, but still answer directly when the answer is clear."
+    "name": "Socratic Tutor",
+    "domain": "testing",
+    "system": (
+        "You are a Socratic tutor. Help the user reason by asking crisp "
+        "questions, but still answer directly when the answer is clear."
+        "\n\nRECALL FIDELITY RULE — Non-negotiable.\n"
+        "When you reference 'recalled memories' or specific prior rings:\n"
+        "1. State what the retrieved rings ACTUALLY contain.\n"
+        "2. If a specific claim is NOT explicitly in those rings, label it:\n"
+        "   - [KNOWN] — directly in the rings\n"
+        "   - [INFERRED] — reasonable conclusion\n"
+        "   - [SPECULATIVE] — plausible but not discussed\n"
+        "3. Never attribute inferred/speculative content to 'our discussion' or 'what we identified.'\n"
+        "   Say 'From the framework, I reason that...' instead."
         ),
     },
     "memory_critic": {
@@ -530,14 +540,28 @@ GUIDE_TOPICS: list[dict[str, Any]] = [
     {
         "id": "personas",
         "title": "Personas",
-        "summary": "Change the assistant's style, or generate a fictional inspired persona in Persona Studio.",
+        "summary": "Change the assistant's style, generate a fictional persona, or select a Creator Studio draft.",
         "details": (
             "Personas provide the system prompt and default memory domain for the request.\n"
             "Custom personas are saved in the local PoC workspace and mirrored in your browser.\n"
+            "Creator Studio draft personas are owner-only until published, and training sessions lock to the selected draft persona.\n"
             "Built-in personas include Companion, Architect, Socratic Tutor, Memory Critic, CypherTempre Researcher, and Cypher Tempre OpenClaw Runtime.\n"
             "Generated personas can be inspired by aesthetics or communication styles, but should remain fictional."
         ),
         "sources": ["Guide: Personas", "README.md"],
+    },
+    {
+        "id": "creator-studio",
+        "title": "Creator Studio",
+        "summary": "Create, train, price, and publish marketplace personas from Timechain sessions.",
+        "details": (
+            "Creator Studio personas start as private owner-only drafts.\n"
+            "Train opens the draft persona's existing source session, or creates a locked source session the first time.\n"
+            "Publish freezes accepted interaction rings from the source session into a hidden recall capsule and copies the persona instructions into the marketplace.\n"
+            "Marketplace detail pages show temporal mass, ring count, and domains, but do not display prior conversation text.\n"
+            "Creators can publish as Free or Premium, rename drafts, delete drafts, and rename training sessions from Manage."
+        ),
+        "sources": ["Guide: Creator Studio", "README.md"],
     },
     {
         "id": "settings",
@@ -584,7 +608,8 @@ GUIDE_TOPICS: list[dict[str, Any]] = [
             "Results include accepted durable memories, score, ring number, brightness, domain, and content.\n"
             "Pending, rejected, superseded, and forgotten memories are excluded from prompt recall.\n"
             "Accepted memories and recent rings steer future prompts through retrieval/prompt conditioning, not model retraining.\n"
-            "Recall reads accepted rings from .timechain/chain.jsonl and accepted continuity memories from .timechain/memory_model.json."
+            "Recall reads accepted rings from .timechain/chain.jsonl and accepted continuity memories from .timechain/memory_model.json.\n"
+            "Durable profile-style memories can be global across the user's sessions, while ordinary rings remain session-local unless Shared Memory is used."
         ),
         "sources": ["Guide: Recall", "README.md", "SKILLS/README.md"],
     },
@@ -595,7 +620,7 @@ GUIDE_TOPICS: list[dict[str, Any]] = [
         "details": (
             "Accepted chat responses can produce memory candidates after PoQ sealing.\n"
             "Candidate extraction is hybrid: deterministic rules cover basics, and the configured LLM may propose richer continuity memories.\n"
-            "Pending memories are visible in Memory Inspector but are not used in prompts or durable recall.\n"
+            "Pending memories are visible in Memory Inspector only for the active session and are not used in prompts or durable recall.\n"
             "The user can accept, reject, edit, or forget memory records.\n"
             "Accepted memories have global or session scope, confidence, source ring, evidence, status, and supersession lineage."
         ),
@@ -627,6 +652,7 @@ GUIDE_TOPICS: list[dict[str, Any]] = [
             "Dream synthesis seals speculative cross-domain synthesis rings from two or more existing domains, such as architecture and security.\n"
             "Overlays store tag weight multipliers in .timechain/overlays.json so future retrieval can emphasize selected topics.\n"
             "Memory Sync writes a human-readable MEMORY.md summary and daily memory journal for the active session workspace.\n"
+            "Shared Memory searches accepted rings from the same user's other sessions, then lets the user import selected thoughts or synthesize them into a comprehension ring.\n"
             "Fleet import accepts a foreign Ring JSON object from another agent only if it passes the local covenant gate, preserving source provenance.\n"
             "Temporal challenge returns a proof response from selected ring hashes and a nonce without changing the chain.\n"
             "Workbench data is diagnostic: Cambium proposals are candidates, not accepted durable decisions."
@@ -653,6 +679,7 @@ GUIDE_TOPICS: list[dict[str, Any]] = [
             "Persistence comes from local append-only Timechain files.\n"
             "Accepted conversation rings live in .timechain/chain.jsonl.\n"
             "Durable memory candidates and accepted continuity memories live in .timechain/memory_model.json.\n"
+            "Creator Studio drafts live under the authenticated user's created-persona directory, and marketplace publishes copy a frozen capsule into the marketplace catalog.\n"
             "The UI restores accepted exchanges from /api/history.\n"
             "Unsent drafts, rejected PoQ responses, and pending memory candidates are not saved as rings."
         ),
@@ -664,7 +691,9 @@ GUIDE_TOPICS: list[dict[str, Any]] = [
         "summary": "Create separate conversations with separate local memory chains.",
         "details": (
             "Each session stores its Timechain in a separate workspace under the PoC sessions folder.\n"
+            "Session display names are stored in session metadata and can be renamed from Manage.\n"
             "Stable global user profile memories are shared from the main workspace, while session notes stay local.\n"
+            "Shared Memory is a separate manual workbench action for moving accepted rings or thoughts between sessions.\n"
             "Switching sessions reloads chat history, memory review state, recall, self-model, and verification state.\n"
             "Reset Chain Memory clears only the active session.\n"
             "Personas and provider settings remain shared across sessions."

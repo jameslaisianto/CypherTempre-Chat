@@ -34,6 +34,12 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       challengeIndices: document.getElementById('challenge-indices'),
       challengeNonce: document.getElementById('challenge-nonce'),
       runChallenge: document.getElementById('run-challenge'),
+      sharedMemoryToggle: document.getElementById('shared-memory-toggle'),
+      sharedMemoryQuery: document.getElementById('shared-memory-query'),
+      searchSharedMemory: document.getElementById('search-shared-memory'),
+      sharedMemoryResults: document.getElementById('shared-memory-results'),
+      importSharedMemory: document.getElementById('import-shared-memory'),
+      synthesizeSharedMemory: document.getElementById('synthesize-shared-memory'),
       advancedTimechainResults: document.getElementById('advanced-timechain-results'),
       pendingMemories: document.getElementById('pending-memories'),
       acceptedMemories: document.getElementById('accepted-memories'),
@@ -81,6 +87,8 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       manageRingSelect: document.getElementById('manage-ring-select'),
       manageRewind: document.getElementById('manage-rewind'),
       manageSessionSelect: document.getElementById('manage-session-select'),
+      manageSessionName: document.getElementById('manage-session-name'),
+      manageRenameSession: document.getElementById('manage-rename-session'),
       manageDeleteSession: document.getElementById('manage-delete-session'),
       managePersonaSelect: document.getElementById('manage-persona-select'),
       managePersonaName: document.getElementById('manage-persona-name'),
@@ -132,6 +140,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       detailMassBar: document.getElementById('detail-mass-bar'),
       detailCapsule: document.getElementById('detail-capsule'),
       detailSubscribe: document.getElementById('detail-subscribe'),
+      detailUnsubscribe: document.getElementById('detail-unsubscribe'),
       detailSubHint: document.getElementById('detail-sub-hint'),
       mobMarketplace: document.getElementById('mob-marketplace'),
       navImagegen: document.getElementById('nav-imagegen'),
@@ -168,13 +177,17 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       creatorName: document.getElementById('creator-name'),
       creatorTagline: document.getElementById('creator-tagline'),
       creatorDomain: document.getElementById('creator-domain'),
+      creatorSourceSession: document.getElementById('creator-source-session'),
       creatorSystem: document.getElementById('creator-system'),
+      creatorPriceModel: document.getElementById('creator-price-model'),
+      creatorPriceAmount: document.getElementById('creator-price-amount'),
       creatorSave: document.getElementById('creator-save'),
       creatorList: document.getElementById('creator-list')
     };
 
     let personas = {};
     let customPersonas = {};
+    let creatorPersonas = {};
     let publicPersonas = {};
     let marketplacePersonas = {};
     let activeSession = localStorage.getItem('ct_active_session') || 'default';
@@ -380,6 +393,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
         .join('');
       els.sessionList.value = activeSession;
       renderManageSessions();
+      renderCreatorSourceSessions();
       applySessionPersonaLock();
     }
 
@@ -437,6 +451,9 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       const custom = Object.entries(customPersonas)
         .map(([id, persona]) => `<option value="${esc(id)}">${esc(persona.name)} · custom</option>`)
         .join('');
+      const created = Object.entries(creatorPersonas)
+        .map(([id, persona]) => `<option value="${esc(id)}">${esc(persona.name)} - created</option>`)
+        .join('');
       const pub = Object.entries(publicPersonas)
         .map(([id, persona]) => `<option value="${esc(id)}">${esc(persona.name)} · public (${esc(persona.owner || '')})</option>`)
         .join('');
@@ -446,6 +463,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       let options = '';
       if (builtIns) options += `<optgroup label="Built-in">${builtIns}</optgroup>`;
       if (custom) options += `<optgroup label="My Personas">${custom}</optgroup>`;
+      if (created) options += `<optgroup label="My Created Personas">${created}</optgroup>`;
       if (pub) options += `<optgroup label="Public Personas">${pub}</optgroup>`;
       if (mp) options += `<optgroup label="Subscribed">${mp}</optgroup>`;
       els.persona.innerHTML = options || '<option value="companion">Companion</option>';
@@ -457,6 +475,8 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
         .map(session => `<option value="${esc(session.id)}">${esc(session.name)} (${session.rings})</option>`)
         .join('');
       els.manageSessionSelect.value = activeSession;
+      const selected = sessionRows.find(session => session.id === els.manageSessionSelect.value);
+      if (els.manageSessionName) els.manageSessionName.value = selected?.name || session_name_from_id_js(els.manageSessionSelect.value);
       els.manageDeleteSession.disabled = activeSession === 'default';
     }
 
@@ -486,7 +506,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     function applySessionPersonaLock() {
       const lock = sessionPersonaLocks[activeSession] || {};
       const lockedPersonaId = lock.id || '';
-      if (lockedPersonaId && (personas[lockedPersonaId] || customPersonas[lockedPersonaId] || publicPersonas[lockedPersonaId] || marketplacePersonas[lockedPersonaId])) {
+      if (lockedPersonaId && (personas[lockedPersonaId] || customPersonas[lockedPersonaId] || creatorPersonas[lockedPersonaId] || publicPersonas[lockedPersonaId] || marketplacePersonas[lockedPersonaId])) {
         els.persona.value = lockedPersonaId;
         els.persona.disabled = true;
         els.personaLockHint.textContent = `Persona locked to this session: ${lock.name || getActivePersona()?.name || lockedPersonaId}.`;
@@ -499,13 +519,18 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     }
 
     function getActivePersona() {
-      return marketplacePersonas[els.persona.value] || publicPersonas[els.persona.value] || customPersonas[els.persona.value] || personas[els.persona.value] || personas.companion;
+      return marketplacePersonas[els.persona.value] || publicPersonas[els.persona.value] || creatorPersonas[els.persona.value] || customPersonas[els.persona.value] || personas[els.persona.value] || personas.companion;
+    }
+
+    function resolvePersonaById(pid) {
+      return marketplacePersonas[pid] || publicPersonas[pid] || creatorPersonas[pid] || customPersonas[pid] || personas[pid] || null;
     }
 
     function applyLocalConfig(config) {
       personas = config.personas || {};
       customPersonas = loadCustomPersonas();
       customPersonas = { ...(config.custom_personas || {}), ...customPersonas };
+      creatorPersonas = config.creator_personas || {};
       publicPersonas = config.public_personas || {};
       marketplacePersonas = config.marketplace_personas || {};
       saveCustomPersonas();
@@ -515,7 +540,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       els.model.value = config.default_model || localStorage.getItem('ct_model') || 'venice-uncensored';
       els.apiKey.value = '';
       els.persona.value = localStorage.getItem('ct_persona') || 'companion';
-      if (!personas[els.persona.value] && !customPersonas[els.persona.value] && !publicPersonas[els.persona.value] && !marketplacePersonas[els.persona.value]) els.persona.value = 'companion';
+      if (!personas[els.persona.value] && !customPersonas[els.persona.value] && !creatorPersonas[els.persona.value] && !publicPersonas[els.persona.value] && !marketplacePersonas[els.persona.value]) els.persona.value = 'companion';
       els.domain.value = localStorage.getItem('ct_domain') || 'auto';
       updateProviderHint();
       updatePersonaText();
@@ -935,6 +960,77 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       showAdvancedTimechainResult('Temporal challenge', data);
     }
 
+    let sharedMemoryHits = [];
+    let selectedSharedHitIds = new Set();
+
+    async function searchSharedMemory() {
+      const query = els.sharedMemoryQuery.value.trim();
+      if (!query) return;
+      els.sharedMemoryResults.textContent = 'Searching...';
+      try {
+        const data = await api(`/api/shared-memory?session=${encodeURIComponent(activeSession)}&query=${encodeURIComponent(query)}&limit=12`);
+        sharedMemoryHits = data.hits || [];
+        selectedSharedHitIds.clear();
+        if (!sharedMemoryHits.length) {
+          els.sharedMemoryResults.textContent = 'No shared memory hits found.';
+          return;
+        }
+        els.sharedMemoryResults.innerHTML = sharedMemoryHits.map((hit, idx) => {
+          const content = esc(hit.content || '');
+          return `<div style="margin:6px 0;padding:8px;border:1px solid var(--line);border-radius:8px;cursor:pointer;" data-idx="${idx}">
+            <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;">
+              <input type="checkbox" data-hit-id="${esc(hit.id)}" style="margin-top:2px;">
+              <div style="font-size:13px;line-height:1.4;">
+                <div style="color:var(--muted);font-size:12px;">session=${esc(hit.source_session)} ring=${esc(hit.source_ring)} score=${esc(hit.score)} brightness=${esc(hit.brightness)}</div>
+                <div>[${esc(hit.domain)}] ${content}</div>
+              </div>
+            </label>
+          </div>`;
+        }).join('');
+        els.sharedMemoryResults.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+          cb.addEventListener('change', () => {
+            if (cb.checked) selectedSharedHitIds.add(cb.dataset.hitId);
+            else selectedSharedHitIds.delete(cb.dataset.hitId);
+          });
+        });
+      } catch (error) {
+        els.sharedMemoryResults.textContent = error.message;
+      }
+    }
+
+    async function importSharedMemory() {
+      if (!selectedSharedHitIds.size) {
+        showAdvancedTimechainResult('Shared memory import', { ok: false, error: 'No hits selected.' });
+        return;
+      }
+      for (const hitId of selectedSharedHitIds) {
+        const data = await api('/api/shared-memory/import', {
+          method: 'POST',
+          body: JSON.stringify({ session: activeSession, hitId })
+        });
+        showAdvancedTimechainResult('Shared memory import', data);
+      }
+      await refreshOperationalState();
+    }
+
+    async function synthesizeSharedMemory() {
+      if (!selectedSharedHitIds.size) {
+        showAdvancedTimechainResult('Shared memory synthesis', { ok: false, error: 'No hits selected.' });
+        return;
+      }
+      const query = els.sharedMemoryQuery.value.trim() || 'shared memory comprehension synthesis';
+      const data = await api('/api/shared-memory/synthesize', {
+        method: 'POST',
+        body: JSON.stringify({
+          session: activeSession,
+          query,
+          hitIds: Array.from(selectedSharedHitIds)
+        })
+      });
+      showAdvancedTimechainResult('Shared memory synthesis', data);
+      await refreshOperationalState();
+    }
+
     function memoryMeta(memory) {
       const scope = memory.scope || 'legacy';
       const confidence = Number(memory.confidence || 0).toFixed(2);
@@ -1034,7 +1130,13 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       });
       currentFrozen = Boolean(data.frozen);
       await refreshOperationalState();
-      els.manageStatusDetail.textContent = currentFrozen ? 'Session is frozen. New rings will not seal.' : 'Session is writable again.';
+      if (currentFrozen) {
+        els.manageStatusDetail.innerHTML = 'Session is frozen. New rings will not seal. <a href="#" id="freeze-post-link" style="color:var(--accent);text-decoration:underline;">Post to Creator Studio</a>';
+        const link = document.getElementById('freeze-post-link');
+        if (link) link.addEventListener('click', (e) => { e.preventDefault(); setSettingsSection('creator'); });
+      } else {
+        els.manageStatusDetail.textContent = 'Session is writable again.';
+      }
     }
 
     async function rewindActiveSession() {
@@ -1063,6 +1165,23 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       localStorage.setItem('ct_active_session', activeSession);
       await refreshOperationalState();
       els.manageStatusDetail.textContent = `Deleted session ${session_name_from_id_js(sessionId)}.`;
+    }
+
+    async function renameSelectedSession() {
+      const sessionId = els.manageSessionSelect.value;
+      const name = els.manageSessionName.value.trim();
+      if (!sessionId) throw new Error('Choose a session to rename.');
+      if (!name) throw new Error('Session name is required.');
+      const data = await api('/api/sessions/rename', {
+        method: 'POST',
+        body: JSON.stringify({ session: sessionId, name })
+      });
+      sessionRows = data.sessions || sessionRows;
+      renderManageSessions();
+      if (sessionId === activeSession) {
+        await loadSessions();
+      }
+      els.manageStatusDetail.textContent = `Renamed session to ${data.name}.`;
     }
 
     async function saveManagedPersona() {
@@ -1126,7 +1245,8 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
             model: els.model.value.trim() || 'venice-uncensored',
             apiKey: els.apiKey.value.trim(),
             provider: els.provider.value,
-            baseUrl: els.baseUrl.value.trim()
+            baseUrl: els.baseUrl.value.trim(),
+            sharedMemory: els.sharedMemoryToggle?.checked || false
           })
         });
         removeThinkingMessage();
@@ -1184,7 +1304,11 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
           ? data.facts.map(f => `fact ${f.key}=${f.value} confidence=${f.confidence} source=#${f.source_ring} score=${f.score}`).join('\n')
           : 'No durable fact hits.';
         const ringText = data.rings?.length
-          ? data.rings.map(r => `#${r.n} score=${r.score} brightness=${r.brightness} ${r.domain}\n${r.content}`).join('\n\n')
+          ? data.rings.map(r => {
+              const revived = r.revived ? ' revived' : '';
+              const age = r.relative_time ? ` ${r.relative_time}` : '';
+              return `#${r.n} score=${r.score} brightness=${r.brightness} ${r.domain}${age}${revived}\n${r.content}`;
+            }).join('\n\n')
           : 'No matching rings.';
         const diagnostics = data.diagnostics?.length ? data.diagnostics.join(' | ') : 'No diagnostics.';
         els.recallResults.textContent = `Durable facts\n${factText}\n\nRings\n${ringText}\n\nDiagnostics\n${diagnostics}`;
@@ -1220,6 +1344,15 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     });
     els.runChallenge.addEventListener('click', () => {
       runChallenge().catch(error => { els.advancedTimechainResults.textContent = error.message; });
+    });
+    if (els.searchSharedMemory) els.searchSharedMemory.addEventListener('click', () => {
+      searchSharedMemory().catch(error => { els.sharedMemoryResults.textContent = error.message; });
+    });
+    if (els.importSharedMemory) els.importSharedMemory.addEventListener('click', () => {
+      importSharedMemory().catch(error => { els.advancedTimechainResults.textContent = error.message; });
+    });
+    if (els.synthesizeSharedMemory) els.synthesizeSharedMemory.addEventListener('click', () => {
+      synthesizeSharedMemory().catch(error => { els.advancedTimechainResults.textContent = error.message; });
     });
     document.querySelector('.inspector')?.addEventListener('click', (event) => {
       const button = event.target.closest('[data-action][data-id]');
@@ -1277,6 +1410,9 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       activeSession = els.manageSessionSelect.value || 'default';
       localStorage.setItem('ct_active_session', activeSession);
       switchSession(activeSession).catch(error => { els.manageStatusDetail.textContent = error.message; });
+    });
+    if (els.manageRenameSession) els.manageRenameSession.addEventListener('click', () => {
+      renameSelectedSession().catch(error => { els.manageStatusDetail.textContent = error.message; });
     });
     els.managePersonaSelect.addEventListener('change', loadSelectedManagePersona);
     els.manageFreeze.addEventListener('click', () => {
@@ -1498,21 +1634,29 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
         const mass = p.capsule?.temporal_mass || 0;
         if (els.detailMassValue) els.detailMassValue.textContent = Math.round(mass * 10) / 10;
         if (els.detailMassBar) els.detailMassBar.style.width = Math.min(100, mass * 5) + '%';
-        const rings = (p.capsule?.rings || []).slice(0, 6);
+        const domains = p.capsule?.top_domains || [];
+        const ringCount = p.capsule?.ring_count ?? (p.capsule?.rings || []).length;
         if (els.detailCapsule) {
-          els.detailCapsule.innerHTML = rings.length
-            ? rings.map(r => `
+          els.detailCapsule.innerHTML = ringCount
+            ? `
               <div style="border:1px solid var(--line-soft);border-radius:8px;padding:10px;background:var(--memory-card-bg);">
-                <div style="font-size:12px;color:var(--faint);margin-bottom:4px;">Ring #${esc(r.n)} · ${esc(r.domain)} · brightness ${esc(r.brightness)}</div>
-                <div style="font-size:13px;color:var(--muted);line-height:1.45;">${esc(r.content?.slice(0, 200) || '')}</div>
+                <div style="font-size:12px;color:var(--faint);margin-bottom:4px;">Frozen capsule</div>
+                <div style="font-size:13px;color:var(--muted);line-height:1.45;">
+                  ${esc(ringCount)} accepted rings available for persona recall. Prior conversation is hidden.
+                </div>
               </div>
-            `).join('')
-            : '<div style="color:var(--muted);font-size:13px;">No distilled experience yet.</div>';
+              ${domains.length ? `<div style="font-size:12px;color:var(--faint);">Domains: ${esc(domains.join(', '))}</div>` : ''}
+            `
+            : '<div style="color:var(--muted);font-size:13px;">No frozen capsule yet.</div>';
         }
         const isSubbed = p.is_subscribed;
         if (els.detailSubscribe) {
-          els.detailSubscribe.textContent = isSubbed ? 'Subscribed' : (p.price?.model === 'free' ? 'Subscribe Free' : `Subscribe — $${p.price?.amount}`);
-          els.detailSubscribe.disabled = isSubbed;
+          els.detailSubscribe.style.display = isSubbed ? 'none' : 'block';
+          els.detailSubscribe.textContent = p.price?.model === 'free' ? 'Subscribe Free' : `Subscribe — $${p.price?.amount}`;
+          els.detailSubscribe.disabled = false;
+        }
+        if (els.detailUnsubscribe) {
+          els.detailUnsubscribe.style.display = isSubbed ? 'block' : 'none';
         }
         if (els.detailSubHint) els.detailSubHint.textContent = isSubbed ? 'You already have access to this persona.' : '';
       } catch (error) {
@@ -1523,11 +1667,21 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       if (!currentDetailId || !currentUser) return;
       try {
         const data = await api(`/api/marketplace/${encodeURIComponent(currentDetailId)}/subscribe`, { method: 'POST', body: '{}' });
-        if (els.detailSubscribe) {
-          els.detailSubscribe.textContent = 'Subscribed';
-          els.detailSubscribe.disabled = true;
-        }
+        if (els.detailSubscribe) els.detailSubscribe.style.display = 'none';
+        if (els.detailUnsubscribe) els.detailUnsubscribe.style.display = 'block';
         if (els.detailSubHint) els.detailSubHint.textContent = 'Subscribed successfully.';
+        loadMarketplace();
+      } catch (error) {
+        if (els.detailSubHint) els.detailSubHint.textContent = error.message;
+      }
+    }
+    async function doUnsubscribe() {
+      if (!currentDetailId || !currentUser) return;
+      try {
+        const data = await api(`/api/marketplace/${encodeURIComponent(currentDetailId)}/unsubscribe`, { method: 'POST', body: '{}' });
+        if (els.detailSubscribe) els.detailSubscribe.style.display = 'block';
+        if (els.detailUnsubscribe) els.detailUnsubscribe.style.display = 'none';
+        if (els.detailSubHint) els.detailSubHint.textContent = 'Unsubscribed.';
         loadMarketplace();
       } catch (error) {
         if (els.detailSubHint) els.detailSubHint.textContent = error.message;
@@ -1557,6 +1711,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     async function loadCreatorPersonas() {
       if (!els.creatorList || !currentUser) return;
       els.creatorList.innerHTML = '<div style="color:var(--muted);font-size:13px;">Loading...</div>';
+      renderCreatorSourceSessions();
       try {
         const data = await api('/api/creator/personas');
         const personas = data.personas || [];
@@ -1573,8 +1728,10 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
                 <div style="font-size:12px;color:var(--faint);">${esc(p.domain)} · ${p.rings} rings</div>
               </div>
               <span class="status ${statusClass}">${esc(p.status || 'draft')}</span>
+              <button class="secondary" type="button" data-action="rename" data-id="${esc(p.persona_id)}" data-name="${esc(p.name)}">Rename</button>
               <button class="secondary" type="button" data-action="train" data-id="${esc(p.persona_id)}">Train</button>
-              <button class="secondary" type="button" data-action="publish" data-id="${esc(p.persona_id)}">Publish</button>
+              <button class="secondary" type="button" data-action="publish" data-id="${esc(p.persona_id)}" data-source="${esc(p.source_session || '')}">Publish</button>
+              <button class="secondary danger" type="button" data-action="delete" data-id="${esc(p.persona_id)}" data-name="${esc(p.name)}">Delete</button>
             </div>
           `;
         }).join('');
@@ -1584,8 +1741,12 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
             const action = btn.dataset.action;
             if (action === 'train') {
               await trainCreatorPersona(id);
+            } else if (action === 'rename') {
+              await renameCreatorPersona(id, btn.dataset.name || id);
             } else if (action === 'publish') {
-              await publishCreatorPersona(id);
+              await publishCreatorPersona(id, btn.dataset.source || '');
+            } else if (action === 'delete') {
+              await deleteCreatorPersona(id, btn.dataset.name || id);
             }
           });
         });
@@ -1593,6 +1754,40 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
         els.creatorList.innerHTML = `<div style="color:var(--red);font-size:13px;">${esc(error.message)}</div>`;
       }
     }
+    function autoFillCreatorFromSession(sessionId) {
+      if (!els.creatorSourceSession) return;
+      const session = sessionRows.find(s => s.id === sessionId);
+      const pid = session?.persona_id || '';
+      const persona = pid ? resolvePersonaById(pid) : null;
+      if (!persona) return;
+      if (!els.creatorName.value.trim()) els.creatorName.value = persona.name || '';
+      if (!els.creatorDomain.value.trim() || els.creatorDomain.value === 'auto') els.creatorDomain.value = persona.domain || 'auto';
+      if (!els.creatorSystem.value.trim()) els.creatorSystem.value = persona.system || '';
+    }
+
+    function renderCreatorSourceSessions() {
+      if (!els.creatorSourceSession) return;
+      const rows = sessionRows.length ? sessionRows : [{ id: activeSession, name: session_name_from_id_js(activeSession), rings: 0 }];
+      els.creatorSourceSession.innerHTML = rows
+        .map(session => `<option value="${esc(session.id)}">${esc(session.name || session.id)} (${session.rings || 0})</option>`)
+        .join('');
+      els.creatorSourceSession.value = rows.some(session => session.id === activeSession) ? activeSession : rows[0]?.id || 'default';
+      autoFillCreatorFromSession(els.creatorSourceSession.value);
+    }
+
+    function updateCreatorPriceControls() {
+      if (!els.creatorPriceModel || !els.creatorPriceAmount) return;
+      const premium = els.creatorPriceModel.value === 'premium';
+      els.creatorPriceAmount.classList.toggle('hidden', !premium);
+      if (!premium) els.creatorPriceAmount.value = '';
+    }
+
+    function creatorPublishPrice() {
+      const model = els.creatorPriceModel?.value === 'premium' ? 'premium' : 'free';
+      const amount = model === 'premium' ? Math.max(0, Number(els.creatorPriceAmount?.value || 0)) : 0;
+      return { model, amount, currency: 'USD' };
+    }
+
     async function saveCreatorPersona() {
       if (!currentUser) return;
       const name = els.creatorName.value.trim();
@@ -1605,14 +1800,16 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
               name: name,
               tagline: els.creatorTagline.value.trim(),
               domain: els.creatorDomain.value,
-              system: els.creatorSystem.value.trim()
+              system: els.creatorSystem.value.trim(),
+              sourceSession: els.creatorSourceSession?.value || activeSession
             }
           })
         });
         els.creatorName.value = '';
         els.creatorTagline.value = '';
         els.creatorSystem.value = '';
-        loadCreatorPersonas();
+        await loadCreatorPersonas();
+        applyLocalConfig(await api('/api/config'));
         els.manageStatusDetail.textContent = 'Persona created.';
       } catch (error) {
         els.manageStatusDetail.textContent = error.message;
@@ -1620,24 +1817,71 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     }
     async function trainCreatorPersona(personaId) {
       if (!personaId) return;
-      const sessionName = `train-${personaId}`;
-      const data = await api('/api/sessions', {
-        method: 'POST',
-        body: JSON.stringify({ name: sessionName })
-      });
-      if (data.session?.id) {
-        await switchSession(data.session.id);
+      const persona = resolvePersonaById(personaId);
+      const existingSessionId = persona?.source_session && sessionRows.some(session => session.id === persona.source_session)
+        ? persona.source_session
+        : '';
+      let sessionId = existingSessionId;
+      if (!sessionId) {
+        const sessionName = persona?.name || `train-${personaId}`;
+        const data = await api('/api/sessions', {
+          method: 'POST',
+          body: JSON.stringify({ name: sessionName, persona: personaId })
+        });
+        sessionId = data.session?.id || '';
+      }
+      if (sessionId) {
+        await api('/api/creator/personas', {
+          method: 'POST',
+          body: JSON.stringify({ id: personaId, persona: { sourceSession: sessionId } })
+        });
+        await loadCreatorPersonas();
+        applyLocalConfig(await api('/api/config'));
+        await switchSession(sessionId);
         setMainView('chat');
         els.setup.textContent = `Training mode for ${personaId}. Chat to build temporal mass.`;
       }
     }
-    async function publishCreatorPersona(personaId) {
+
+    async function renameCreatorPersona(personaId, currentName) {
       if (!personaId) return;
+      const name = window.prompt('Rename created persona', currentName || personaId);
+      if (!name || !name.trim()) return;
+      await api('/api/creator/personas', {
+        method: 'POST',
+        body: JSON.stringify({ id: personaId, persona: { name: name.trim() } })
+      });
+      await loadCreatorPersonas();
+      applyLocalConfig(await api('/api/config'));
+      els.manageStatusDetail.textContent = `Renamed created persona to ${name.trim()}.`;
+    }
+
+    async function deleteCreatorPersona(personaId, personaName) {
+      if (!personaId) return;
+      const ok = window.confirm(`Delete created persona "${personaName || personaId}"? If it was published, its marketplace entry will be archived.`);
+      if (!ok) return;
+      await api(`/api/creator/personas/${encodeURIComponent(personaId)}/delete`, {
+        method: 'POST',
+        body: '{}'
+      });
+      await loadCreatorPersonas();
+      applyLocalConfig(await api('/api/config'));
+      if (els.persona.value === personaId) els.persona.value = 'companion';
+      els.manageStatusDetail.textContent = `Deleted created persona ${personaName || personaId}.`;
+    }
+
+    async function publishCreatorPersona(personaId, savedSourceSession = '') {
+      if (!personaId) return;
+      const sourceSession = creatorPersonas[personaId]?.source_session || savedSourceSession || els.creatorSourceSession?.value || activeSession;
       try {
-        await api(`/api/creator/personas/${encodeURIComponent(personaId)}/distill`, { method: 'POST', body: '{}' });
-        await api(`/api/creator/personas/${encodeURIComponent(personaId)}/publish`, { method: 'POST', body: JSON.stringify({ price: { model: 'free', amount: 0, currency: 'USD' } }) });
-        loadCreatorPersonas();
-        els.manageStatusDetail.textContent = 'Published to marketplace (pending approval).';
+        await api(`/api/creator/personas/${encodeURIComponent(personaId)}/distill`, {
+          method: 'POST',
+          body: JSON.stringify({ sourceSession })
+        });
+        await api(`/api/creator/personas/${encodeURIComponent(personaId)}/publish`, { method: 'POST', body: JSON.stringify({ price: creatorPublishPrice() }) });
+        await loadCreatorPersonas();
+        applyLocalConfig(await api('/api/config'));
+        els.manageStatusDetail.textContent = 'Published to marketplace.';
       } catch (error) {
         els.manageStatusDetail.textContent = error.message;
       }
@@ -1661,6 +1905,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     if (els.mobImagegen) els.mobImagegen.addEventListener('click', () => setMainView('imagegen'));
     if (els.detailClose) els.detailClose.addEventListener('click', closeDetail);
     if (els.detailSubscribe) els.detailSubscribe.addEventListener('click', doSubscribe);
+    if (els.detailUnsubscribe) els.detailUnsubscribe.addEventListener('click', doUnsubscribe);
     if (els.mpSearch) els.mpSearch.addEventListener('input', renderMarketplace);
     document.querySelectorAll('.filter-pill').forEach(pill => {
       pill.addEventListener('click', () => {
@@ -1671,6 +1916,9 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     });
     if (els.settingsCreatorTab) els.settingsCreatorTab.addEventListener('click', () => setSettingsSection('creator'));
     if (els.creatorSave) els.creatorSave.addEventListener('click', saveCreatorPersona);
+    if (els.creatorSourceSession) els.creatorSourceSession.addEventListener('change', () => autoFillCreatorFromSession(els.creatorSourceSession.value));
+    if (els.creatorPriceModel) els.creatorPriceModel.addEventListener('change', updateCreatorPriceControls);
+    updateCreatorPriceControls();
     document.addEventListener('click', (e) => {
       if (!els.accountWrap?.contains(e.target)) {
         els.accountMenu?.classList.remove('open');

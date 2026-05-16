@@ -10,7 +10,7 @@ import marketplace
 
 def handle_catalog(handler: Any) -> None:
     catalog = marketplace.get_catalog()
-    user = marketplace.get_auth_user(marketplace.get_cookie_token(dict(handler.headers)))
+    user = marketplace.get_auth_user(marketplace.get_auth_token(dict(handler.headers)))
     subs = marketplace.get_subscriptions(user["username"]) if user else []
     sub_ids = {s["persona_id"] for s in subs}
     for entry in catalog:
@@ -23,7 +23,7 @@ def handle_persona_detail(handler: Any, persona_id: str) -> None:
     if not entry:
         handler.send_error(HTTPStatus.NOT_FOUND, "Not found")
         return
-    user = marketplace.get_auth_user(marketplace.get_cookie_token(dict(handler.headers)))
+    user = marketplace.get_auth_user(marketplace.get_auth_token(dict(handler.headers)))
     entry["is_subscribed"] = marketplace.is_subscribed(user["username"], persona_id) if user else False
     handler.send_json({"ok": True, "persona": entry})
 
@@ -86,7 +86,9 @@ def handle_creator_create(handler: Any) -> None:
 def handle_creator_distill(handler: Any, app: Any, persona_id: str) -> None:
     try:
         user = marketplace.require_role(dict(handler.headers), "creator")
-        capsule = marketplace.distill_persona(user["username"], persona_id, app.timechain)
+        payload = handler.read_json()
+        source_session = str(payload.get("sourceSession") or payload.get("source_session") or "").strip() or None
+        capsule = marketplace.distill_persona(user["username"], persona_id, app.timechain, source_session=source_session)
         handler.send_json({"ok": True, "capsule": capsule})
     except PermissionError as exc:
         handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
@@ -111,5 +113,7 @@ def handle_creator_delete(handler: Any, persona_id: str) -> None:
         user = marketplace.require_role(dict(handler.headers), "creator")
         marketplace.delete_created_persona(user["username"], persona_id)
         handler.send_json({"ok": True, "deleted": persona_id})
+    except PermissionError as exc:
+        handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
     except PermissionError as exc:
         handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
