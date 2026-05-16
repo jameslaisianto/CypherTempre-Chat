@@ -3,6 +3,7 @@ import unittest
 from unittest import mock
 from types import SimpleNamespace
 
+import marketplace
 import server
 
 
@@ -1246,6 +1247,51 @@ class PromptAssemblyTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             app.delete_custom_persona("companion")
 
+    def test_session_rename_persists_display_name(self):
+        app = server.App(
+            self.make_workspace(),
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
+        session = app.create_session("old-session-name", username="alice")
+
+        renamed = app.rename_session(session["id"], "Research Sprint", username="alice")
+
+        self.assertEqual(renamed["name"], "Research Sprint")
+        sessions = {row["id"]: row for row in app.list_sessions(username="alice")}
+        self.assertEqual(sessions[session["id"]]["name"], "Research Sprint")
+
+    def test_pending_memories_are_scoped_to_active_session(self):
+        app = server.App(
+            self.make_workspace(),
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
+        first = app.create_session("First", username="alice")
+        first_model = server.empty_memory_model()
+        server.stage_memory_candidates(
+            first_model,
+            [{"key": "user.name", "value": "Alice", "kind": "identity"}],
+            source_ring=1,
+            evidence="first",
+            session_id=first["id"],
+        )
+        server.save_memory_model(app.root_workspace, first_model)
+        second = app.create_session("Second", username="alice")
+        app.use_session(second["id"], username="alice")
+
+        memories = app.list_memories()
+
+        self.assertEqual(memories["pending"], [])
+
     def test_archive_rewind_creates_archive_and_truncates_chain(self):
         workspace = self.make_workspace()
         app = server.App(
@@ -1797,7 +1843,7 @@ class PromptAssemblyTests(unittest.TestCase):
 
     def test_marketplace_catalog_shows_published_personas(self):
         root = self.make_workspace()
-        mp = server.marketplace
+        mp = marketplace
         mp.DATA_DIR = root / "data"
         mp.USERS_PATH = mp.DATA_DIR / "users.json"
         mp.AUTH_SESSIONS_PATH = mp.DATA_DIR / "auth_sessions.json"
@@ -1829,7 +1875,7 @@ class PromptAssemblyTests(unittest.TestCase):
 
     def test_marketplace_publish_sets_published_status(self):
         root = self.make_workspace()
-        mp = server.marketplace
+        mp = marketplace
         mp.DATA_DIR = root / "data"
         mp.USERS_PATH = mp.DATA_DIR / "users.json"
         mp.AUTH_SESSIONS_PATH = mp.DATA_DIR / "auth_sessions.json"
@@ -1848,9 +1894,189 @@ class PromptAssemblyTests(unittest.TestCase):
         catalog = mp._load_json(mp.CATALOG_PATH, {"personas": {}})
         self.assertEqual(catalog["personas"]["mp_test"]["status"], "published")
 
+    def test_creator_owned_persona_can_lock_training_session(self):
+        root = self.make_workspace()
+        mp = marketplace
+        mp.DATA_DIR = root / "data"
+        mp.USERS_PATH = mp.DATA_DIR / "users.json"
+        mp.AUTH_SESSIONS_PATH = mp.DATA_DIR / "auth_sessions.json"
+        mp.MARKETPLACE_DIR = mp.DATA_DIR / "marketplace"
+        mp.CATALOG_PATH = mp.MARKETPLACE_DIR / "catalog.json"
+        mp.USERS_DIR = mp.DATA_DIR / "users"
+        app = server.App(
+            root,
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
+        mp.save_created_persona("alice", "truth-market", {
+            "name": "Finding Truth",
+            "domain": "investigation",
+            "tagline": "Evidence-first inquiry.",
+            "system": "A careful truth-finding marketplace draft.",
+        })
+
+        session = app.create_session("train-truth-market", username="alice", persona_id="truth-market")
+
+        self.assertEqual(session["persona_id"], "truth-market")
+        self.assertEqual(session["persona_name"], "Finding Truth")
+        self.assertEqual(app.bind_session_persona("companion", username="alice"), "truth-market")
+
+    def test_marketplace_publish_preserves_premium_price(self):
+        root = self.make_workspace()
+        mp = marketplace
+        mp.DATA_DIR = root / "data"
+        mp.USERS_PATH = mp.DATA_DIR / "users.json"
+        mp.AUTH_SESSIONS_PATH = mp.DATA_DIR / "auth_sessions.json"
+        mp.MARKETPLACE_DIR = mp.DATA_DIR / "marketplace"
+        mp.CATALOG_PATH = mp.MARKETPLACE_DIR / "catalog.json"
+        mp.USERS_DIR = mp.DATA_DIR / "users"
+        mp.save_created_persona("alice", "mp_premium", {
+            "name": "Premium Persona",
+            "domain": "testing",
+            "tagline": "Paid",
+            "system": "You are a premium test persona.",
+        })
+
+        result = mp.publish_persona("alice", "mp_premium", {"model": "premium", "amount": 9.5, "currency": "USD"})
+
+        self.assertEqual(result["price"], {"model": "premium", "amount": 9.5, "currency": "USD"})
+        catalog = mp._load_json(mp.CATALOG_PATH, {"personas": {}})
+        self.assertEqual(catalog["personas"]["mp_premium"]["price"]["model"], "premium")
+
+    def test_marketplace_distills_from_owned_timechain_session(self):
+        root = self.make_workspace()
+        mp = marketplace
+        mp.DATA_DIR = root / "data"
+        mp.USERS_PATH = mp.DATA_DIR / "users.json"
+        mp.AUTH_SESSIONS_PATH = mp.DATA_DIR / "auth_sessions.json"
+        mp.MARKETPLACE_DIR = mp.DATA_DIR / "marketplace"
+        mp.CATALOG_PATH = mp.MARKETPLACE_DIR / "catalog.json"
+        mp.USERS_DIR = mp.DATA_DIR / "users"
+        app = server.App(
+            root,
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
+        app.save_custom_persona("finding-truth", {
+            "name": "Finding Truth",
+            "domain": "investigation",
+            "system": "A careful truth-finding persona shaped by the session.",
+        }, username="alice")
+        source = app.create_session("FindingTruthSesh", username="alice", persona_id="finding-truth")
+        app.use_session(source["id"], username="alice")
+        app.agent.interact(
+            "How should we find truth?",
+            domain="investigation",
+            override_content="Find truth with testable documented reviewed evidence, precise questions, preserved uncertainty, and careful checks.",
+        )
+
+        mp.save_created_persona("alice", "truth-market", {
+            "name": "Finding Truth",
+            "domain": "investigation",
+            "tagline": "Evidence-first inquiry.",
+            "system": "A careful truth-finding persona shaped by the session.",
+            "source_session": source["id"],
+        })
+        capsule = mp.distill_persona("alice", "truth-market", app.timechain)
+        published = mp.publish_persona("alice", "truth-market")
+        detail = mp.get_marketplace_persona("truth-market")
+
+        self.assertEqual(capsule["source_session"], source["id"])
+        self.assertEqual(capsule["distilled_from"], 2)
+        self.assertEqual(capsule["ring_count"], 1)
+        self.assertEqual(capsule["capsule_type"], "frozen_accepted_rings")
+        self.assertEqual(capsule["rings"][0]["domain"], "investigation")
+        self.assertIn("careful checks", capsule["rings"][0]["content"])
+        self.assertGreater(len(capsule["rings"][0]["content"]), 80)
+        self.assertEqual(published["source_session"], source["id"])
+        self.assertEqual(detail["capsule"]["source_session"], source["id"])
+
+    def test_marketplace_capsule_rings_become_hidden_recall_hits(self):
+        capsule = {
+            "source_session": "train-truth",
+            "rings": [
+                {"n": 1, "domain": "investigation", "brightness": 0.7, "content": "Lower signal."},
+                {"n": 2, "domain": "testing", "brightness": 0.95, "content": "Higher signal full ring content."},
+            ],
+        }
+
+        hits = server.chat._capsule_shared_hits(capsule)
+
+        self.assertEqual(hits[0]["source_session"], "train-truth")
+        self.assertEqual(hits[0]["source_ring"], 2)
+        self.assertEqual(hits[0]["content"], "Higher signal full ring content.")
+
+    def test_marketplace_distill_keeps_low_brightness_accepted_interactions(self):
+        root = self.make_workspace()
+        mp = marketplace
+        mp.DATA_DIR = root / "data"
+        mp.USERS_PATH = mp.DATA_DIR / "users.json"
+        mp.AUTH_SESSIONS_PATH = mp.DATA_DIR / "auth_sessions.json"
+        mp.MARKETPLACE_DIR = mp.DATA_DIR / "marketplace"
+        mp.CATALOG_PATH = mp.MARKETPLACE_DIR / "catalog.json"
+        mp.USERS_DIR = mp.DATA_DIR / "users"
+        chain_dir = mp.USERS_DIR / "alice" / "sessions" / "low-mass" / ".timechain"
+        chain_dir.mkdir(parents=True, exist_ok=True)
+        (chain_dir / "chain.jsonl").write_text(
+            json.dumps({"n": 0, "kind": "genesis", "domain": "system", "brightness": 0.1, "content": "Genesis."}) + "\n"
+            + json.dumps({"n": 1, "kind": "interaction", "domain": "testing", "brightness": 0.2, "content": "Low brightness but accepted training ring."}) + "\n",
+            encoding="utf-8",
+        )
+        mp.save_created_persona("alice", "low-mass-persona", {
+            "name": "Low Mass",
+            "system": "Use the training ring.",
+            "source_session": "low-mass",
+        })
+
+        capsule = mp.distill_persona("alice", "low-mass-persona", None)
+
+        self.assertEqual(capsule["ring_count"], 1)
+        self.assertEqual(capsule["rings"][0]["content"], "Low brightness but accepted training ring.")
+
+    def test_marketplace_refuses_explicit_session_not_owned_by_creator(self):
+        root = self.make_workspace()
+        mp = marketplace
+        mp.DATA_DIR = root / "data"
+        mp.USERS_PATH = mp.DATA_DIR / "users.json"
+        mp.AUTH_SESSIONS_PATH = mp.DATA_DIR / "auth_sessions.json"
+        mp.MARKETPLACE_DIR = mp.DATA_DIR / "marketplace"
+        mp.CATALOG_PATH = mp.MARKETPLACE_DIR / "catalog.json"
+        mp.USERS_DIR = mp.DATA_DIR / "users"
+        app = server.App(
+            root,
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
+        bob_session = app.create_session("FindingTruthSesh", username="bob")
+        app.use_session(bob_session["id"], username="bob")
+        app.agent.interact(
+            "private bob persona",
+            domain="investigation",
+            override_content="Bob-only session knowledge must not be published by Alice.",
+        )
+        mp.save_created_persona("alice", "stolen", {
+            "name": "Stolen",
+            "system": "Should not publish.",
+        })
+
+        with self.assertRaises(KeyError):
+            mp.distill_persona("alice", "stolen", app.timechain, source_session=bob_session["id"])
+
     def test_marketplace_subscribe_and_unsubscribe(self):
         root = self.make_workspace()
-        mp = server.marketplace
+        mp = marketplace
         mp.DATA_DIR = root / "data"
         mp.USERS_PATH = mp.DATA_DIR / "users.json"
         mp.AUTH_SESSIONS_PATH = mp.DATA_DIR / "auth_sessions.json"
@@ -1876,7 +2102,7 @@ class PromptAssemblyTests(unittest.TestCase):
 
     def test_marketplace_auth_token_falls_back_to_x_auth_token_header(self):
         root = self.make_workspace()
-        mp = server.marketplace
+        mp = marketplace
         mp.DATA_DIR = root / "data"
         mp.USERS_PATH = mp.DATA_DIR / "users.json"
         mp.AUTH_SESSIONS_PATH = mp.DATA_DIR / "auth_sessions.json"
@@ -1902,6 +2128,23 @@ class PromptAssemblyTests(unittest.TestCase):
     def test_marketplace_ui_has_subscribe_and_unsubscribe_buttons(self):
         self.assertIn('id="detail-subscribe"', server.HTML)
         self.assertIn('id="detail-unsubscribe"', server.HTML)
+        self.assertIn('id="creator-source-session"', server.HTML)
+        self.assertIn('id="manage-session-name"', server.HTML)
+        self.assertIn('id="manage-rename-session"', server.HTML)
+        self.assertIn('id="creator-price-model"', server.HTML)
+        self.assertIn('id="creator-price-amount"', server.HTML)
+        self.assertIn("creatorPersonas", server.HTML)
+        self.assertIn("const sessionName = persona?.name", server.HTML)
+        self.assertIn("existingSessionId", server.HTML)
+        self.assertIn("Prior conversation is hidden", server.HTML)
+        self.assertIn("No frozen capsule yet.", server.HTML)
+        self.assertNotIn("r.content?.slice", server.HTML)
+        self.assertIn("Marketplace Persona Instructions", server.HTML)
+        self.assertIn("Prefilled from the source session persona. Edit before publishing.", server.HTML)
+        self.assertIn("sourceSession", server.HTML)
+        self.assertIn("renameCreatorPersona", server.HTML)
+        self.assertIn("deleteCreatorPersona", server.HTML)
+        self.assertIn("/api/sessions/rename", server.HTML)
         self.assertIn("doSubscribe", server.HTML)
         self.assertIn("doUnsubscribe", server.HTML)
         self.assertIn("/api/marketplace/", server.HTML)

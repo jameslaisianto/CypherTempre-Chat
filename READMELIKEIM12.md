@@ -170,6 +170,16 @@ Your custom personas:
 data\users\<your-username>\custom_personas.json
 ```
 
+Your Creator Studio personas and marketplace drafts:
+
+```text
+data\users\<your-username>\created\<persona-id>\
+```
+
+Creator Studio training chats are normal sessions. Pressing **Train** opens the existing source session for that created persona, or creates one the first time.
+
+Pending memory cards belong to the active session. Switching sessions switches the pending review queue too.
+
 Global memory (shared):
 
 ```text

@@ -13,6 +13,21 @@ from server.llm import call_llm, classify_domain, normalize_custom_persona
 from server.timechain import finalize_chat_response, sanitize_session_id
 
 
+def _capsule_shared_hits(capsule: dict[str, Any] | None, *, limit: int = 8) -> list[dict[str, Any]]:
+    rings = list((capsule or {}).get("rings") or [])
+    rings.sort(key=lambda r: r.get("brightness", 0), reverse=True)
+    hits: list[dict[str, Any]] = []
+    for ring in rings[:limit]:
+        hits.append({
+            "content": ring.get("content", ""),
+            "domain": ring.get("domain", "?"),
+            "brightness": float(ring.get("brightness", 0) or 0),
+            "source_session": (capsule or {}).get("source_session", "marketplace"),
+            "source_ring": ring.get("n", "?"),
+        })
+    return hits
+
+
 def handle_chat(handler: Any, app: Any) -> None:
     try:
         user = marketplace.require_auth(dict(handler.headers))
@@ -29,9 +44,13 @@ def handle_chat(handler: Any, app: Any) -> None:
         app.save_custom_persona(persona_id, custom_persona, username=username)
     persona_id = app.bind_session_persona(persona_id, username=username)
     mp_persona = None
+    capsule_hits: list[dict[str, Any]] = []
     if user:
+        mp_persona = app.get_created_persona(persona_id, username=user["username"])
+    if user and not mp_persona:
         mp_entry = marketplace.get_marketplace_persona(persona_id)
         if mp_entry and marketplace.is_subscribed(user["username"], persona_id):
+            capsule_hits = _capsule_shared_hits(mp_entry.get("capsule"))
             mp_persona = {
                 "name": mp_entry.get("name", "Untitled"),
                 "domain": mp_entry.get("domain", "auto"),
@@ -50,6 +69,8 @@ def handle_chat(handler: Any, app: Any) -> None:
     if bool(payload.get("sharedMemory")):
         shared = app.shared_recall(username, message, exclude_session=app.active_session, limit=8)
         shared_hits = shared.get("hits", [])
+    if capsule_hits:
+        shared_hits = capsule_hits + (shared_hits or [])
 
     app.reload_agent()
     llm = app.generate_llm_response(
@@ -274,6 +295,26 @@ def handle_delete_session(handler: Any, app: Any) -> None:
     session_id = str(payload.get("session", "")).strip()
     try:
         result = app.delete_session(session_id, username=user["username"])
+    except KeyError:
+        handler.send_json({"ok": False, "error": f"Unknown session: {session_id}"}, HTTPStatus.NOT_FOUND)
+        return
+    except ValueError as exc:
+        handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
+        return
+    handler.send_json({"ok": True, **result})
+
+
+def handle_rename_session(handler: Any, app: Any) -> None:
+    try:
+        user = handler._auth_user()
+    except PermissionError as exc:
+        handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+        return
+    payload = handler.read_json()
+    session_id = str(payload.get("session", "")).strip()
+    name = str(payload.get("name", "")).strip()
+    try:
+        result = app.rename_session(session_id, name, username=user["username"])
     except KeyError:
         handler.send_json({"ok": False, "error": f"Unknown session: {session_id}"}, HTTPStatus.NOT_FOUND)
         return

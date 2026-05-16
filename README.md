@@ -29,7 +29,7 @@ Settings to configure llm provider
 - Multiple local sessions with separate memory chains
 - **Shared Memory** — opt-in cross-session recall that searches your other sessions for relevant accepted rings and can optionally inject them into chat context
 - **Persona Marketplace** — browse, subscribe to, and use published personas from other creators
-- **Creator Studio** — create, train through chat, distill, and publish your own personas to the marketplace
+- **Creator Studio** — create, train through chat, freeze, price, and publish your own personas to the marketplace
 - Recall over durable facts and prior accepted rings
 - LLM retry/repair for direct memory misses
 - Memory Inspector review controls for accepting, rejecting, editing, and forgetting proposed memories
@@ -269,7 +269,7 @@ Browse and subscribe to personas published by creators.
 
 - Open **Market** from the left rail or bottom nav.
 - Search and filter by domain, price (Free / Premium), or your subscriptions.
-- Click a card to open the detail drawer. View temporal mass, distilled experience rings, and subscribe.
+- Click a card to open the detail drawer. View temporal mass and capsule metadata, then subscribe.
 - Subscribed personas appear in your persona dropdown and can be used in any chat session.
 - Unsubscribe anytime from the same detail drawer.
 
@@ -278,11 +278,11 @@ Browse and subscribe to personas published by creators.
 Create and publish your own personas.
 
 1. Open **Settings → Creator Studio** (visible if your account has the `creator` role).
-2. Enter a name, tagline, domain, and system prompt. Save.
-3. Click **Train** to open a dedicated training session. Chat naturally to build temporal mass — bright interaction rings are what distillation captures.
-4. Click **Publish** to distill your training rings into a capsule and publish to the marketplace.
+2. Choose a source Timechain session, then enter a name, tagline, domain, marketplace instructions, and pricing mode. Save.
+3. Click **Train** to open the persona's training session. The first click creates a locked session; later clicks reopen the same source session so temporal mass keeps accumulating.
+4. Click **Publish** to freeze accepted interaction rings from the source session into a portable capsule and publish to the marketplace.
 
-Distillation collects your brightest interaction rings (brightness ≥ 0.6), builds a capsule summary, and copies the persona into the public catalog. Published personas are immediately visible to all users.
+Publishing stores the persona instructions plus a frozen accepted-ring capsule for recall. The marketplace detail drawer shows only aggregate metadata such as temporal mass, ring count, and domains; prior conversation text is not displayed. Published personas are immediately visible to all users. Creator Studio also supports renaming and deleting draft personas, and the Manage view supports renaming sessions.
 
 ## Long persona prompt
 

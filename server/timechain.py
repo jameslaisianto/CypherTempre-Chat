@@ -1200,7 +1200,7 @@ class App:
             persona_id = str(metadata.get("persona_id", "")).strip()
             sessions.append({
                 "id": session_id,
-                "name": "Default",
+                "name": str(metadata.get("name") or "Default"),
                 "rings": rings,
                 "persona_id": persona_id,
                 "persona_name": self.persona_name_for_id(persona_id, username=username),
@@ -1218,7 +1218,7 @@ class App:
                 persona_id = str(metadata.get("persona_id", "")).strip()
                 sessions.append({
                     "id": session_id,
-                    "name": session_name_from_id(session_id),
+                    "name": str(metadata.get("name") or session_name_from_id(session_id)),
                     "rings": rings,
                     "persona_id": persona_id,
                     "persona_name": self.persona_name_for_id(persona_id, username=username),
@@ -1236,16 +1236,41 @@ class App:
             session_id = f"{base}-{index}"
             index += 1
         self.use_session(session_id, username=username)
+        metadata = load_session_metadata(self.workspace)
+        metadata["name"] = str(name or session_name_from_id(session_id)).strip()[:120] or session_name_from_id(session_id)
+        save_session_metadata(self.workspace, metadata)
         if persona_id:
             self.bind_session_persona(persona_id, username=username)
         metadata = load_session_metadata(self.workspace)
         locked_persona = str(metadata.get("persona_id", "")).strip()
         return {
             "id": session_id,
-            "name": session_name_from_id(session_id),
+            "name": str(metadata.get("name") or session_name_from_id(session_id)),
             "rings": len(self.agent.chain),
             "persona_id": locked_persona,
             "persona_name": self.persona_name_for_id(locked_persona, username=username),
+        }
+
+    def rename_session(self, session_id: str, name: str, username: str | None = None) -> dict[str, Any]:
+        session_id = sanitize_session_id(session_id)
+        clean_name = str(name or "").strip()[:120]
+        if not clean_name:
+            raise ValueError("Session name is required.")
+        if session_id == "default":
+            workspace = self.workspace_for_session("default", username=username)
+        else:
+            sessions_dir = self.user_sessions_root(username) if username else self.sessions_root
+            workspace = (sessions_dir / session_id).resolve()
+            sessions_root_resolved = sessions_dir.resolve()
+            if sessions_root_resolved not in workspace.parents or not workspace.exists() or not workspace.is_dir():
+                raise KeyError(f"Unknown session: {session_id}")
+        metadata = load_session_metadata(workspace)
+        metadata["name"] = clean_name
+        save_session_metadata(workspace, metadata)
+        return {
+            "session": session_id,
+            "name": clean_name,
+            "sessions": self.list_sessions(username=username),
         }
 
     def delete_session(self, session_id: str, username: str | None = None) -> dict[str, Any]:
@@ -1273,6 +1298,8 @@ class App:
         persona_id = sanitize_session_id(persona_id or "")
         persona = self.get_custom_persona(persona_id, username=username) or PERSONAS.get(persona_id)
         if not persona and username:
+            persona = marketplace.get_created_persona(username, persona_id)
+        if not persona and username:
             mp_entry = marketplace.get_marketplace_persona(persona_id)
             if mp_entry and marketplace.is_subscribed(username, persona_id):
                 persona = mp_entry
@@ -1289,6 +1316,8 @@ class App:
             return locked
         persona_id = sanitize_session_id(persona_id or "companion")
         known = self.get_custom_persona(persona_id, username=username) or persona_id in PERSONAS
+        if not known and username:
+            known = bool(marketplace.get_created_persona(username, persona_id))
         if not known and username:
             mp_entry = marketplace.get_marketplace_persona(persona_id)
             known = bool(mp_entry and marketplace.is_subscribed(username, persona_id))
@@ -1371,7 +1400,11 @@ class App:
     def list_memories(self, *, now: dt.datetime | None = None) -> dict[str, Any]:
         model = self.memory_model()
         facts = [annotate_memory(fact, now=now) for fact in model.get("facts", [])]
-        pending = [fact for fact in facts if fact.get("status") == "pending"]
+        pending = [
+            fact for fact in facts
+            if fact.get("status") == "pending"
+            and str(fact.get("session_id", "default")) == self.active_session
+        ]
         accepted = [fact for fact in facts if fact.get("status") in MEMORY_ACCEPTED_STATUSES]
         inactive = [fact for fact in facts if fact.get("status") in MEMORY_INACTIVE_STATUSES]
         return {
@@ -1472,6 +1505,31 @@ class App:
     def get_custom_persona(self, persona_id: str, username: str | None = None) -> dict[str, str] | None:
         return self.custom_personas(username=username).get(sanitize_session_id(persona_id))
 
+    def created_personas(self, username: str | None = None) -> dict[str, dict[str, Any]]:
+        if not username:
+            return {}
+        result: dict[str, dict[str, Any]] = {}
+        for entry in marketplace.list_created_personas(username):
+            persona_id = sanitize_session_id(str(entry.get("persona_id", "")))
+            if not persona_id:
+                continue
+            persona = marketplace.get_created_persona(username, persona_id)
+            if persona:
+                result[persona_id] = {
+                    "name": persona.get("name", "Untitled"),
+                    "domain": persona.get("domain", "auto"),
+                    "system": persona.get("system", ""),
+                    "tagline": persona.get("tagline", ""),
+                    "status": persona.get("status", "draft"),
+                    "source_session": persona.get("source_session", ""),
+                }
+        return result
+
+    def get_created_persona(self, persona_id: str, username: str | None = None) -> dict[str, Any] | None:
+        if not username:
+            return None
+        return self.created_personas(username=username).get(sanitize_session_id(persona_id))
+
     def save_custom_persona(self, persona_id: str, persona: dict[str, str], username: str | None = None) -> dict[str, str]:
         persona_id = sanitize_session_id(persona_id)
         normalized = normalize_custom_persona(persona)
@@ -1556,10 +1614,14 @@ class App:
     def set_frozen(self, frozen: bool) -> dict[str, Any]:
         self.reload_agent()
         self.agent.freeze(bool(frozen))
+        metadata = load_session_metadata(self.workspace)
+        locked_persona = str(metadata.get("persona_id", "")).strip()
         return {
             "session": self.active_session,
             "frozen": self.agent.frozen,
             "rings": len(self.agent.chain),
+            "persona_id": locked_persona,
+            "persona_name": self.persona_name_for_id(locked_persona),
         }
 
     def run_dream(self, domains: str, *, cycles: int = 3) -> dict[str, Any]:

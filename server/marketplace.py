@@ -86,7 +86,9 @@ def handle_creator_create(handler: Any) -> None:
 def handle_creator_distill(handler: Any, app: Any, persona_id: str) -> None:
     try:
         user = marketplace.require_role(dict(handler.headers), "creator")
-        capsule = marketplace.distill_persona(user["username"], persona_id, app.timechain)
+        payload = handler.read_json()
+        source_session = str(payload.get("sourceSession") or payload.get("source_session") or "").strip() or None
+        capsule = marketplace.distill_persona(user["username"], persona_id, app.timechain, source_session=source_session)
         handler.send_json({"ok": True, "capsule": capsule})
     except PermissionError as exc:
         handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
@@ -111,5 +113,7 @@ def handle_creator_delete(handler: Any, persona_id: str) -> None:
         user = marketplace.require_role(dict(handler.headers), "creator")
         marketplace.delete_created_persona(user["username"], persona_id)
         handler.send_json({"ok": True, "deleted": persona_id})
+    except PermissionError as exc:
+        handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
     except PermissionError as exc:
         handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)

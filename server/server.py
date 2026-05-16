@@ -91,6 +91,7 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                     mp_personas = {}
                     custom_personas = {}
                     public_personas = {}
+                    creator_personas = {}
                     if user:
                         subs = marketplace.get_subscriptions(user["username"])
                         for sub in subs:
@@ -102,6 +103,7 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                                     "system": entry.get("system", ""),
                                 }
                         custom_personas = app.custom_personas(username=user["username"])
+                        creator_personas = app.created_personas(username=user["username"])
                         public_personas = load_all_public_custom_personas(app.root_workspace)
                         # Exclude the user's own public personas from the public list
                         for key in list(public_personas.keys()):
@@ -118,6 +120,7 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                             for key, value in PERSONAS.items()
                         },
                         "custom_personas": custom_personas,
+                        "creator_personas": creator_personas,
                         "public_personas": public_personas,
                         "marketplace_personas": mp_personas,
                     })
@@ -385,6 +388,9 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 if path == "/api/sessions/delete":
                     self.handle_delete_session()
                     return
+                if path == "/api/sessions/rename":
+                    self.handle_rename_session()
+                    return
                 if path == "/api/auth/register":
                     self.handle_auth_register()
                     return
@@ -489,6 +495,9 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
 
         def handle_delete_session(self) -> None:
             chat.handle_delete_session(self, app)
+
+        def handle_rename_session(self) -> None:
+            chat.handle_rename_session(self, app)
 
         def handle_provider_test(self) -> None:
             chat.handle_provider_test(self, app)
