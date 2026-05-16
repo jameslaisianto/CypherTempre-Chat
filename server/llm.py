@@ -20,7 +20,7 @@ from server.config import (
     RECALLED_RING_SNIPPET_CHARS, TRIMMED_RECALLED_RING_SNIPPET_CHARS,
     PROMPT_BUDGET_CHARS, MIN_COMPACTED_PERSONA_CHARS,
     DEFAULT_RESPONSE_TOKENS, LONG_RESPONSE_TOKENS,
-    ACTIVE_CONTEXT_DAYS,
+    ACTIVE_CONTEXT_DAYS, SESSION_PAUSE_NOTICE_DAYS,
     default_provider_url, resolve_chat_completions_url,
 )
 
@@ -345,6 +345,9 @@ def build_memory_context(
         if len(content) > snippet_limit:
             content = content[: max(0, snippet_limit - 3)].rstrip() + "..."
         label = relative_time_label(getattr(ring, "ts", ""), now=now)
+        days = _age_days(getattr(ring, "ts", ""), now=now)
+        if days is not None and days > ACTIVE_CONTEXT_DAYS:
+            label = f"{label}, revived older memory"
         lines.append(
             f"- Ring #{ring.n} [{ring.domain}, brightness={ring.brightness:.3f}, "
             f"epistemic={ring.epistemic}, {label}]: {content}"
@@ -383,8 +386,14 @@ def build_recent_turns(chain: list[Any], limit: int = 8) -> list[dict[str, str]]
     selected = interactions[-max(0, min(limit, 20)):]
     turns: list[dict[str, str]] = []
     for ring in selected:
-        turns.append({"role": "user", "content": trim_for_prompt(ring.query)})
-        turns.append({"role": "assistant", "content": trim_for_prompt(ring.content)})
+        timestamp = str(getattr(ring, "ts", "") or "")
+        user_turn = {"role": "user", "content": trim_for_prompt(ring.query)}
+        assistant_turn = {"role": "assistant", "content": trim_for_prompt(ring.content)}
+        if timestamp:
+            user_turn["ts"] = timestamp
+            assistant_turn["ts"] = timestamp
+        turns.append(user_turn)
+        turns.append(assistant_turn)
     return turns
 
 def prompt_size(messages: list[dict[str, str]]) -> int:
@@ -407,7 +416,22 @@ def build_prompt_messages(
     covenant: str,
     now: dt.datetime,
     model: str = "",
+    temporal_context: str = "",
 ) -> list[dict[str, str]]:
+    pause_note = ""
+    for turn in reversed(recent_turns):
+        parsed = parse_ring_time(turn.get("ts", ""))
+        if parsed is None:
+            continue
+        days = _age_days(parsed.isoformat(), now=now)
+        if days is not None and days >= SESSION_PAUSE_NOTICE_DAYS:
+            pause_note = (
+                f"\n\nUser may be returning after a pause: last interaction was "
+                f"{relative_time_label(parsed.isoformat(), now=now)}. "
+                "Prefer a brief continuity check before assuming current intent."
+            )
+        break
+    temporal_line = f"{temporal_context}\n\n" if temporal_context else ""
     system_text = (
         f"{persona['system']}\n\n"
         "You are connected to a local CypherTempre Timechain. "
@@ -417,7 +441,8 @@ def build_prompt_messages(
         "Be conversational and useful. Do not expose hidden reasoning. "
         "If memory is weak or absent, say so briefly.\n\n"
         f"Engineering covenant: {covenant}\n\n"
-        f"{current_time_context(now)}\n\n"
+        f"{current_time_context(now)}{pause_note}\n\n"
+        f"{temporal_line}"
         f"Durable memories:\n{durable_context}\n\n"
         f"Relevant recalled rings:\n{memory_context}\n\n"
         f"Current neuro-state: {neuro_line}"
@@ -432,7 +457,10 @@ def build_prompt_messages(
         messages.append({"role": "assistant", "content": "Understood. I will follow these instructions."})
     else:
         messages.append({"role": "system", "content": system_text})
-    messages.extend(recent_turns)
+    messages.extend(
+        {"role": turn.get("role", "user"), "content": turn.get("content", "")}
+        for turn in recent_turns
+    )
     messages.append({"role": "user", "content": query})
     return messages
 
@@ -627,6 +655,7 @@ def build_messages(
     prompt_budget_chars: int = PROMPT_BUDGET_CHARS,
     now: dt.datetime | None = None,
     model: str = "",
+    temporal_context: str = "",
 ) -> list[dict[str, str]]:
     current_time = now or dt.datetime.now(dt.timezone.utc)
     if current_time.tzinfo is None:
@@ -646,6 +675,7 @@ def build_messages(
         covenant=covenant,
         now=current_time,
         model=model,
+        temporal_context=temporal_context,
     )
     if prompt_budget_chars > 0 and prompt_size(messages) > prompt_budget_chars and retrieved:
         memory_context = build_memory_context(

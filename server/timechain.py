@@ -1414,22 +1414,26 @@ class App:
             fact for fact in accepted
             if not memory_activity(fact, now=now)["active"]
         ]
-        active_chain = active_recall_chain(self.agent.chain, now=now)
         _, stale_rings = split_active_rings(self.agent.chain, now=now)
         retrieved = self.timechain.retrieve(
-            active_chain,
+            self.agent.chain,
             query,
             domain=domain,
             cphy_weights=self.agent.cphy_weights,
-            config=self.timechain.RetrieverConfig(limit=max(1, min(limit, 20))),
+            config=self.timechain.RetrieverConfig(limit=max(1, min(limit, 20)), now=now, block_recency_weight=0.35),
         )
         results = []
         for score, ring in retrieved:
             content = ring.content[:500] if len(ring.content) > 500 else ring.content
+            ring_age_days = age_days(getattr(ring, "ts", ""), now=now)
             results.append({
                 "score": round(float(score), 4),
                 "n": ring.n,
                 "ts": ring.ts,
+                "age_days": ring_age_days,
+                "relative_time": relative_time_label(ring.ts, now=now),
+                "revived": ring_age_days is not None and ring_age_days > ACTIVE_CONTEXT_DAYS,
+                "recency_basis": "elapsed-time",
                 "brightness": ring.brightness,
                 "kind": ring.kind,
                 "domain": ring.domain,
@@ -1445,7 +1449,7 @@ class App:
             f"domain filter: {domain or 'none'}",
             f"active context days: {ACTIVE_CONTEXT_DAYS}",
             f"stale durable facts filtered: {len(stale_facts)}",
-            f"stale rings filtered: {len(stale_rings)}",
+            f"stale rings available for high-relevance revival: {len(stale_rings)}",
         ]
         return {
             "query": query,
@@ -1456,6 +1460,7 @@ class App:
             "active_context_days": ACTIVE_CONTEXT_DAYS,
             "filtered_stale_memory_count": len(stale_facts),
             "filtered_stale_ring_count": len(stale_rings),
+            "stale_ring_count": len(stale_rings),
         }
 
     def custom_personas(self, username: str | None = None) -> dict[str, dict[str, str]]:
@@ -1801,13 +1806,12 @@ class App:
         persona = custom_persona or self.get_custom_persona(persona_id) or PERSONAS.get(persona_id) or PERSONAS["companion"]
         memory_model = self.memory_model()
         durable_hits = recall_memory_facts(memory_model, query, limit=16, session_id=self.active_session)
-        active_chain = active_recall_chain(self.agent.chain)
         retrieved_scored = self.timechain.retrieve(
-            active_chain,
+            self.agent.chain,
             query,
             domain=domain,
             cphy_weights=self.agent.cphy_weights,
-            config=self.timechain.RetrieverConfig(limit=12),
+            config=self.timechain.RetrieverConfig(limit=12, block_recency_weight=0.35),
         )
         retrieved = [ring for _, ring in retrieved_scored]
         recent_turns = build_recent_turns(self.agent.chain, limit=8)
@@ -1821,6 +1825,7 @@ class App:
             neuro=neuro,
             covenant=self.agent.values,
             model=model or self.default_model,
+            temporal_context=self.agent.get_temporal_context(),
         )
         key = api_key or self.api_key
         provider = (provider or self.provider).strip().lower()

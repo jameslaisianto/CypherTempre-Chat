@@ -69,6 +69,7 @@ IMAGE_PROVIDERS: dict[str, dict[str, Any]] = {
 DEFAULT_TIMECHAIN_PATH = pathlib.Path(__file__).resolve().parent.parent / "timechain.py"
 DEFAULT_ENV_PATH = pathlib.Path(__file__).resolve().parent.parent / ".env.local"
 ACTIVE_CONTEXT_DAYS = 90
+SESSION_PAUSE_NOTICE_DAYS = 2
 PROMPT_BUDGET_CHARS = 32000
 RECALLED_RING_SNIPPET_CHARS = 700
 TRIMMED_RECALLED_RING_SNIPPET_CHARS = 220

@@ -113,6 +113,117 @@ class PromptAssemblyTests(unittest.TestCase):
             {"role": "user", "content": "What is my name?"},
         ])
 
+    def test_build_messages_warns_after_long_pause(self):
+        persona = {"name": "Mira", "system": "Stay in character."}
+
+        messages = server.build_messages(
+            persona=persona,
+            query="Where were we?",
+            retrieved=[],
+            durable_memories=[],
+            recent_turns=[
+                {"role": "user", "content": "Let's redesign recall.", "ts": "2026-05-01T12:00:00+00:00"},
+                {"role": "assistant", "content": "We can make it time-aware.", "ts": "2026-05-01T12:01:00+00:00"},
+            ],
+            neuro={},
+            covenant="Be useful.",
+            now=server.dt.datetime(2026, 5, 8, 12, 0, tzinfo=server.dt.timezone.utc),
+        )
+
+        self.assertIn("User may be returning after a pause", messages[0]["content"])
+        self.assertIn("last interaction was 6 days ago", messages[0]["content"])
+
+    def test_retriever_uses_elapsed_time_over_ring_position_for_recency(self):
+        tc = server.load_timechain_module(server.DEFAULT_TIMECHAIN_PATH)
+        genesis = tc.Ring(
+            n=0,
+            prev="0" * 64,
+            ts="2026-05-01T00:00:00+00:00",
+            kind="genesis",
+            domain="self",
+            query="",
+            content="genesis",
+            brightness=1.0,
+        )
+        recent = tc.Ring(
+            n=1,
+            prev="a" * 64,
+            ts="2026-05-08T11:00:00+00:00",
+            kind="interaction",
+            domain="architecture",
+            query="architecture boundary",
+            content="Architecture boundary decision uses modular services.",
+            brightness=0.7,
+            tags=["architecture", "decision"],
+        )
+        old_high_ring = tc.Ring(
+            n=90,
+            prev="b" * 64,
+            ts="2026-04-01T11:00:00+00:00",
+            kind="interaction",
+            domain="architecture",
+            query="architecture boundary",
+            content="Architecture boundary decision uses modular services.",
+            brightness=0.7,
+            tags=["architecture", "decision"],
+        )
+
+        recalled = tc.retrieve(
+            [genesis, recent, old_high_ring],
+            "architecture boundary decision",
+            domain="architecture",
+            config=tc.RetrieverConfig(limit=2, now=server.dt.datetime(2026, 5, 8, 12, 0, tzinfo=server.dt.timezone.utc)),
+        )
+
+        self.assertEqual(recalled[0][1].n, 1)
+
+    def test_app_recall_can_revive_old_relevant_rings(self):
+        app = server.App(
+            self.make_workspace(),
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
+        tc = app.timechain
+        app.agent.chain.append(tc.Ring(
+            n=1,
+            prev=app.agent.chain[-1].hash,
+            ts="2026-01-01T12:00:00+00:00",
+            kind="interaction",
+            domain="security",
+            query="auth boundary decision",
+            content="Security decision: auth boundary remains server-side and token validation is centralized.",
+            brightness=0.92,
+            tags=["security", "architecture", "decision", "boundary"],
+            epistemic="known",
+            hash="a" * 64,
+        ))
+        app.agent.chain.append(tc.Ring(
+            n=2,
+            prev="a" * 64,
+            ts="2026-05-08T11:00:00+00:00",
+            kind="interaction",
+            domain="image",
+            query="make a logo",
+            content="Generated an abstract logo concept.",
+            brightness=0.8,
+            tags=["image"],
+            epistemic="known",
+            hash="b" * 64,
+        ))
+
+        recalled = app.recall(
+            "Where did we decide the auth boundary should live?",
+            domain="security",
+            now=server.dt.datetime(2026, 5, 8, 12, 0, tzinfo=server.dt.timezone.utc),
+        )
+
+        self.assertIn(1, [ring["n"] for ring in recalled["rings"]])
+        self.assertGreaterEqual(recalled["filtered_stale_ring_count"], 1)
+
     def test_serialize_history_reconstructs_user_and_assistant_turns(self):
         chain = [
             SimpleNamespace(kind="genesis"),

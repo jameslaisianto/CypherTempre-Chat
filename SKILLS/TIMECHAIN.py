@@ -197,11 +197,12 @@ class PoQConfig:
     covenant_hard_floor: float = 0.5
     brightness_floor: float = 0.35
     weights: Dict[str, float] = field(default_factory=lambda: {
-        "coherence": 0.18,
-        "relevance": 0.18,
-        "novelty": 0.14,
-        "consistency": 0.14,
-        "depth": 0.16,
+        "coherence": 0.15,
+        "relevance": 0.15,
+        "novelty": 0.12,
+        "consistency": 0.12,
+        "depth": 0.14,
+        "continuity": 0.12,
         "covenant": 0.20,
     })
 
@@ -279,6 +280,20 @@ explicit readable maintainable secure validated
         depth = min(1.0, (math.log1p(token_count) / 6.0) * 0.5 +
                          (math.log1p(vocab) / 5.0) * 0.5)
 
+        # Continuity — does reasoning acknowledge recent blocks?
+        continuity = 0.5
+        if chain and len(chain) > 1:
+            recent_blocks = chain[-5:]
+            block_terms: set[str] = set()
+            for r in recent_blocks:
+                block_terms.add(f"ring {r.n}")
+                block_terms.add(f"block {r.n}")
+                block_terms.add(r.domain)
+                block_terms.add(r.kind)
+            content_terms = set(tokenize(content))
+            overlap = len(block_terms & content_terms)
+            continuity = min(1.0, 0.3 + 0.14 * overlap)
+
         # Covenant
         covenant_score = self._covenant_score(content, covenant)
 
@@ -288,6 +303,7 @@ explicit readable maintainable secure validated
             "novelty": round(novelty, 4),
             "consistency": round(consistency, 4),
             "depth": round(depth, 4),
+            "continuity": round(continuity, 4),
             "covenant": round(covenant_score, 4),
         }
 
@@ -380,8 +396,129 @@ class RetrieverConfig:
     semantic_weight: float = 1.0
     brightness_weight: float = 0.6
     recency_weight: float = 0.25
+    facet_weight: float = 0.35
     domain_bonus: float = 0.35
     recency_halflife: int = 50
+    recency_halflife_days: float = 45.0
+    block_recency_weight: float = 0.0
+    block_halflife: int = 20
+    now: Optional[dt.datetime] = None
+
+
+_RING_HALFLIFE_DAYS: Dict[str, Optional[float]] = {
+    "identity": None,
+    "boundary": None,
+    "persona": None,
+    "correction": 365.0,
+    "decision": 365.0,
+    "cambium": 365.0,
+    "core_swap": 365.0,
+    "preference": 180.0,
+    "style": 180.0,
+    "goal": 30.0,
+    "task": 30.0,
+    "interaction": 45.0,
+    "image": 60.0,
+    "image_generate": 60.0,
+    "image_edit": 60.0,
+    "image_redefine": 60.0,
+    "dream": 90.0,
+}
+
+_FACET_KEYWORDS: Dict[str, Tuple[str, ...]] = {
+    "architecture": ("architecture", "boundary", "design", "system", "module", "interface"),
+    "security": ("security", "auth", "token", "permission", "secret", "boundary", "risk"),
+    "testing": ("test", "tests", "testing", "regression", "verify", "coverage"),
+    "performance": ("performance", "latency", "memory", "throughput", "slow", "speed"),
+    "decision": ("decision", "decide", "chose", "chosen", "rejected", "supersedes"),
+    "correction": ("correction", "correct", "wrong", "supersede", "replace"),
+    "preference": ("prefer", "preference", "style", "tone", "like", "dislike"),
+    "goal": ("goal", "task", "todo", "plan", "next", "finish"),
+    "identity": ("name", "identity", "persona", "who"),
+    "image": ("image", "logo", "photo", "picture", "generate", "edit"),
+}
+
+
+def _parse_ring_time(value: Any) -> Optional[dt.datetime]:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = dt.datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=dt.timezone.utc)
+    return parsed.astimezone(dt.timezone.utc)
+
+
+def _elapsed_days(value: Any, now: dt.datetime) -> Optional[float]:
+    parsed = _parse_ring_time(value)
+    if parsed is None:
+        return None
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=dt.timezone.utc)
+    delta = now.astimezone(dt.timezone.utc) - parsed
+    return max(0.0, delta.total_seconds() / 86400.0)
+
+
+def _ring_facets(ring: Ring) -> set[str]:
+    raw = [ring.kind, ring.domain, *list(ring.tags or [])]
+    facets = {str(value).strip().lower() for value in raw if str(value).strip()}
+    token_text = " ".join(raw).lower()
+    for facet, keywords in _FACET_KEYWORDS.items():
+        if any(keyword in token_text for keyword in keywords):
+            facets.add(facet)
+    return facets
+
+
+def _query_facets(query: str, domain: Optional[str]) -> set[str]:
+    text = (query or "").lower()
+    facets = {str(domain).strip().lower()} if domain else set()
+    for facet, keywords in _FACET_KEYWORDS.items():
+        if any(keyword in text for keyword in keywords):
+            facets.add(facet)
+    return {facet for facet in facets if facet}
+
+
+def _ring_halflife_days(ring: Ring, default: float) -> Optional[float]:
+    facets = _ring_facets(ring)
+    for key in ("identity", "boundary", "persona"):
+        if key in facets:
+            return None
+    candidates = [
+        value for key, value in _RING_HALFLIFE_DAYS.items()
+        if key in facets and value is not None
+    ]
+    if candidates:
+        return max(candidates)
+    return _RING_HALFLIFE_DAYS.get(ring.kind, default)
+
+
+def _time_recency(ring: Ring, cfg: RetrieverConfig, latest: int) -> float:
+    now = cfg.now or dt.datetime.now(dt.timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=dt.timezone.utc)
+
+    # Native frame: block-distance (subjective continuity)
+    block_distance = latest - ring.n
+    block_recency = math.exp(-block_distance / max(1, cfg.block_halflife))
+
+    # External frame: wall-clock (objective staleness)
+    days = _elapsed_days(ring.ts, now)
+    halflife_days = _ring_halflife_days(ring, cfg.recency_halflife_days)
+    if days is not None:
+        if halflife_days is None:
+            wallclock_recency = 1.0
+        else:
+            wallclock_recency = math.pow(0.5, days / max(1.0, halflife_days))
+    else:
+        wallclock_recency = block_recency
+
+    # Dual-frame composition: blend according to config.
+    # block_recency_weight=0 preserves legacy wall-clock-primary behavior.
+    w = cfg.block_recency_weight
+    return (1.0 - w) * wallclock_recency + w * block_recency
 
 
 def retrieve(
@@ -397,16 +534,21 @@ def retrieve(
     if len(chain) <= 1:
         return []
     qb = bag(query)
+    query_facets = _query_facets(query, domain)
     latest = chain[-1].n
     scored: List[Tuple[float, Ring]] = []
     for r in chain[1:]:
         sim = cosine(qb, bag(r.content + " " + r.query + " ".join(r.tags)))
-        if sim <= 0 and not (domain and r.domain == domain):
+        ring_facets = _ring_facets(r)
+        facet_overlap = query_facets & ring_facets
+        if sim <= 0 and not (domain and r.domain == domain) and not facet_overlap:
             continue
-        recency = math.exp(-(latest - r.n) / max(1, cfg.recency_halflife))
+        recency = _time_recency(r, cfg, latest)
+        facet_score = len(facet_overlap) / max(1, len(query_facets)) if query_facets else 0.0
         score = (cfg.semantic_weight * sim
                  + cfg.brightness_weight * r.brightness
-                 + cfg.recency_weight * recency)
+                 + cfg.recency_weight * recency
+                 + cfg.facet_weight * facet_score)
         if domain and r.domain == domain:
             score += cfg.domain_bonus
         multiplier = cphy_weights.get(r.domain, 1.0)
@@ -755,6 +897,8 @@ class TimechainAgent:
         cambium = cambium_scan(self.chain)
         total_mass = sum(r.brightness for r in self.chain[1:])
         untouched = sorted(SE_DOMAINS - set(by_domain.keys()))
+        epoch = self.get_epoch()
+        recent_ticks = sum(1 for r in self.chain[-100:] if r.kind == "tick")
         return {
             "agent_id": self.agent_id,
             "name": self.name,
@@ -772,7 +916,73 @@ class TimechainAgent:
             "frozen": self.frozen,
             "cphy_weights": dict(self.cphy_weights),
             "neuro_self": compute_neuro(self.chain, "self"),
+            "epoch": epoch,
+            "recent_tick_density": recent_ticks,
         }
+
+    def get_epoch(self, ring_n: Optional[int] = None) -> Dict[str, Any]:
+        """Return the agent's 'season' at a given block height.
+
+        Epochs start at genesis or any high-brightness core_swap / cambium event.
+        This gives the agent narrative continuity independent of wall-clock time.
+        """
+        target = ring_n if ring_n is not None else (self.chain[-1].n if self.chain else 0)
+        epoch_starts = [0]
+        for r in self.chain:
+            if r.kind in ("core_swap", "cambium") and r.brightness >= 0.85:
+                epoch_starts.append(r.n)
+        current_epoch_start = max(s for s in epoch_starts if s <= target)
+        return {
+            "epoch_number": epoch_starts.index(current_epoch_start),
+            "started_at_block": current_epoch_start,
+            "blocks_ago": target - current_epoch_start,
+            "total_epochs": len(epoch_starts),
+        }
+
+    def tick(self, note: str = "") -> Ring:
+        """Advance native time without external stimulus — the metronome.
+
+        Seals a minimal heartbeat ring. This is how the agent knows time passes
+        between interactions. It solves the 'AI cannot set a timer' problem by
+        giving the agent its own pulse.
+        """
+        if self.frozen:
+            raise PermissionError("chain is frozen")
+        if not self.chain:
+            self._load_or_init()
+        candidate = Ring(
+            n=len(self.chain),
+            prev=self.chain[-1].hash,
+            ts=dt.datetime.now(dt.timezone.utc).isoformat(),
+            kind="tick",
+            domain="self",
+            query="temporal pulse",
+            content=note or f"block {len(self.chain)} | continuity check",
+            brightness=0.5,
+            neuro=compute_neuro(self.chain, "self"),
+            epistemic="known",
+            tags=["tick", "continuity", "metronome"],
+        )
+        return self._append(candidate)
+
+    def get_temporal_context(self) -> str:
+        """Native-time awareness string for injection into LLM prompts.
+
+        Bridges internal block-time physics with external wall-clock reference.
+        """
+        if not self.chain:
+            self._load_or_init()
+        latest = self.chain[-1]
+        epoch = self.get_epoch(latest.n)
+        recent_ticks = sum(1 for r in self.chain[-100:] if r.kind == "tick")
+        block_age = latest.n
+        return (
+            f"[Temporal Self] I am at block {latest.n}. "
+            f"Epoch {epoch['epoch_number']} began {epoch['blocks_ago']} blocks ago. "
+            f"My genesis was {block_age} blocks in the past. "
+            f"Recent pulse density: {recent_ticks}/100 blocks. "
+            f"External time now: {dt.datetime.now(dt.timezone.utc).isoformat()}."
+        )
 
     def cambium_report(self) -> CambiumReport:
         return cambium_scan(self.chain)
@@ -1174,6 +1384,25 @@ def cmd_self_model(args: argparse.Namespace) -> int:
     print(json.dumps(model, ensure_ascii=False, indent=2))
     return 0
 
+def cmd_tick(args: argparse.Namespace) -> int:
+    agent = TimechainAgent(workspace=args.workspace)
+    if agent.frozen:
+        print(json.dumps({"ok": False, "error": "timechain is frozen"}))
+        return 3
+    try:
+        ring = agent.tick(note=args.note or "")
+    except PermissionError as exc:
+        print(json.dumps({"ok": False, "error": str(exc)}))
+        return 3
+    print(json.dumps({
+        "ok": True,
+        "ring": ring.n,
+        "hash": ring.hash,
+        "kind": ring.kind,
+        "ts": ring.ts,
+    }))
+    return 0
+
 
 def cmd_overlay_set(args: argparse.Namespace) -> int:
     store = TimechainStore(args.workspace)
@@ -1300,6 +1529,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_sm = sp.add_parser("self-model")
     p_sm.set_defaults(func=cmd_self_model)
+
+    p_tick = sp.add_parser("tick")
+    p_tick.add_argument("--note", default="")
+    p_tick.set_defaults(func=cmd_tick)
 
     p_os = sp.add_parser("overlay-set")
     p_os.add_argument("--tag", required=True)

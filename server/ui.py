@@ -1184,7 +1184,11 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
           ? data.facts.map(f => `fact ${f.key}=${f.value} confidence=${f.confidence} source=#${f.source_ring} score=${f.score}`).join('\n')
           : 'No durable fact hits.';
         const ringText = data.rings?.length
-          ? data.rings.map(r => `#${r.n} score=${r.score} brightness=${r.brightness} ${r.domain}\n${r.content}`).join('\n\n')
+          ? data.rings.map(r => {
+              const revived = r.revived ? ' revived' : '';
+              const age = r.relative_time ? ` ${r.relative_time}` : '';
+              return `#${r.n} score=${r.score} brightness=${r.brightness} ${r.domain}${age}${revived}\n${r.content}`;
+            }).join('\n\n')
           : 'No matching rings.';
         const diagnostics = data.diagnostics?.length ? data.diagnostics.join(' | ') : 'No diagnostics.';
         els.recallResults.textContent = `Durable facts\n${factText}\n\nRings\n${ringText}\n\nDiagnostics\n${diagnostics}`;
