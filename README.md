@@ -27,6 +27,9 @@ Settings to configure llm provider
 - Reviewable durable memory candidates in `.timechain/memory_model.json`
 - Global user profile memories plus session-local notes
 - Multiple local sessions with separate memory chains
+- **Shared Memory** — opt-in cross-session recall that searches your other sessions for relevant accepted rings and can optionally inject them into chat context
+- **Persona Marketplace** — browse, subscribe to, and use published personas from other creators
+- **Creator Studio** — create, train through chat, distill, and publish your own personas to the marketplace
 - Recall over durable facts and prior accepted rings
 - LLM retry/repair for direct memory misses
 - Memory Inspector review controls for accepting, rejecting, editing, and forgetting proposed memories
@@ -198,6 +201,8 @@ cyphertempre-chat-poc/data/users/<username>/sessions/<session-id>/.timechain/cha
 ```
 
 - Each session has its own Timechain memory and session-local memory notes.
+- Stable global user profile memories are shared across your sessions, while the full ring timeline remains session-local by default.
+- Shared Memory can be enabled as a chat toggle for automatic cross-session recall, or used manually from the Timechain Workbench to import or synthesize thoughts from your other sessions.
 - Switching sessions reloads chat history, memory review state, recall, self-model, and verify state.
 - `Reset Chain Memory` clears only the active session.
 - Provider settings are shared across sessions.
@@ -235,12 +240,49 @@ The memory model is intentionally generic rather than a hardcoded name fix. It p
 
 Active context is a prompt-window policy, not model retraining. Accepted identity, boundary, and persona facts stay active until changed or forgotten. Accepted preferences, goals, style notes, corrections, uncertainties, and relevant rings are active for the current 90-day context window; older items remain in the audit trail.
 
+## Persistent memory vs Shared Memory
+
+Persistent memory already has two scopes:
+
+- **Global durable facts** are shared across your sessions. These are profile-style facts such as identity, preferences, boundaries, style, and persona facts.
+- **Session-local memory** stays with the active session. This includes the accepted ring timeline and local notes for that conversation.
+
+Shared Memory is different from ordinary persistence. It is an explicit opt-in layer that lets ideas bounce between your sessions:
+
+- **Chat toggle:** Check "Use shared memory" above the composer to automatically search your other sessions and inject relevant accepted rings into the current prompt context.
+- **Workbench search:** In Settings → Timechain Workbench → Shared Memory, enter a query to search across all your other sessions.
+- **Import:** Select hits and import them into the current session. Each import goes through the normal PoQ gate and seals as a `fleet_import` ring with source provenance preserved.
+- **Synthesize:** Select multiple hits and synthesize them into a new comprehension ring that bridges ideas from different sessions. Synthesis is also PoQ-gated.
+
+Shared Memory is same-user only. Pending, rejected, superseded, forgotten, and stale memories remain excluded. Source session, ring number, brightness, score, and hash prefix are preserved and visible in the UI.
+
 Not persisted as rings:
 
 - rejected PoQ responses
 - pending memory candidates
 - unsent drafts
 - temporary UI state
+
+## Persona Marketplace
+
+Browse and subscribe to personas published by creators.
+
+- Open **Market** from the left rail or bottom nav.
+- Search and filter by domain, price (Free / Premium), or your subscriptions.
+- Click a card to open the detail drawer. View temporal mass, distilled experience rings, and subscribe.
+- Subscribed personas appear in your persona dropdown and can be used in any chat session.
+- Unsubscribe anytime from the same detail drawer.
+
+## Creator Studio
+
+Create and publish your own personas.
+
+1. Open **Settings → Creator Studio** (visible if your account has the `creator` role).
+2. Enter a name, tagline, domain, and system prompt. Save.
+3. Click **Train** to open a dedicated training session. Chat naturally to build temporal mass — bright interaction rings are what distillation captures.
+4. Click **Publish** to distill your training rings into a capsule and publish to the marketplace.
+
+Distillation collects your brightest interaction rings (brightness ≥ 0.6), builds a capsule summary, and copies the persona into the public catalog. Published personas are immediately visible to all users.
 
 ## Long persona prompt
 

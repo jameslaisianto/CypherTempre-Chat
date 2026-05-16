@@ -46,6 +46,11 @@ def handle_chat(handler: Any, app: Any) -> None:
         handler.send_json({"ok": False, "error": "message is required"}, HTTPStatus.BAD_REQUEST)
         return
 
+    shared_hits = None
+    if bool(payload.get("sharedMemory")):
+        shared = app.shared_recall(username, message, exclude_session=app.active_session, limit=8)
+        shared_hits = shared.get("hits", [])
+
     app.reload_agent()
     llm = app.generate_llm_response(
         query=message,
@@ -56,6 +61,7 @@ def handle_chat(handler: Any, app: Any) -> None:
         api_key=api_key,
         provider=str(payload.get("provider", "")).strip(),
         base_url=str(payload.get("baseUrl", "")).strip() or app.base_url,
+        shared_hits=shared_hits,
     )
     response = finalize_chat_response(
         app=app,
@@ -347,3 +353,67 @@ def handle_delete_persona(handler: Any, app: Any) -> None:
         return
     handler.send_json({"ok": True, "id": sanitize_session_id(persona_id), "custom_personas": custom_personas})
 
+
+
+def handle_shared_memory_recall(handler: Any, app: Any) -> None:
+    try:
+        user = handler._auth_user()
+    except PermissionError as exc:
+        handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+        return
+    session = handler.query_param("session")
+    query = handler.query_param("query")
+    limit = int(handler.query_param("limit") or "12")
+    if not query:
+        handler.send_json({"ok": False, "error": "query is required"}, HTTPStatus.BAD_REQUEST)
+        return
+    app.use_session(session, username=user["username"])
+    result = app.shared_recall(user["username"], query, exclude_session=app.active_session, limit=limit)
+    handler.send_json({"ok": True, **result})
+
+
+def handle_shared_memory_import(handler: Any, app: Any) -> None:
+    try:
+        user = handler._auth_user()
+    except PermissionError as exc:
+        handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+        return
+    payload = handler.read_json()
+    app.use_session(str(payload.get("session", "")).strip() or handler.query_param("session"), username=user["username"])
+    hit_id = str(payload.get("hitId", "")).strip()
+    if not hit_id:
+        handler.send_json({"ok": False, "error": "hitId is required"}, HTTPStatus.BAD_REQUEST)
+        return
+    try:
+        result = app.import_shared_memory(hit_id, username=user["username"])
+    except PermissionError as exc:
+        handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.CONFLICT)
+        return
+    except ValueError as exc:
+        handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
+        return
+    handler.send_json(result)
+
+
+def handle_shared_memory_synthesize(handler: Any, app: Any) -> None:
+    try:
+        user = handler._auth_user()
+    except PermissionError as exc:
+        handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+        return
+    payload = handler.read_json()
+    app.use_session(str(payload.get("session", "")).strip() or handler.query_param("session"), username=user["username"])
+    query = str(payload.get("query", "")).strip()
+    hit_ids = payload.get("hitIds", [])
+    if not isinstance(hit_ids, list):
+        handler.send_json({"ok": False, "error": "hitIds must be a list"}, HTTPStatus.BAD_REQUEST)
+        return
+    try:
+        result = app.synthesize_comprehension(query, hit_ids, username=user["username"])
+    except PermissionError as exc:
+        handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.CONFLICT)
+        return
+    except ValueError as exc:
+        handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
+        return
+    handler.send_json(result)

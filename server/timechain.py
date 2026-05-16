@@ -43,6 +43,7 @@ from server.llm import (
     utc_offset_label,
     current_time_context,
     build_memory_context,
+    build_shared_memory_context,
     trim_for_prompt,
     compact_persona_system,
     build_recent_turns,
@@ -1660,6 +1661,173 @@ class App:
             "brightness": round(float(imported.brightness), 4),
         }
 
+    def _other_session_chains(self, username: str, exclude_session: str) -> list[tuple[str, pathlib.Path, list[Any]]]:
+        sessions = self.list_sessions(username=username)
+        results: list[tuple[str, pathlib.Path, list[Any]]] = []
+        for session in sessions:
+            session_id = session["id"]
+            if session_id == exclude_session:
+                continue
+            workspace = self.workspace_for_session(session_id, username=username)
+            chain = self.timechain.TimechainStore(workspace).load_chain()
+            if chain:
+                results.append((session_id, workspace, chain))
+        return results
+
+    def shared_recall(
+        self,
+        username: str,
+        query: str,
+        exclude_session: str | None = None,
+        limit: int = 12,
+    ) -> dict[str, Any]:
+        exclude_session = sanitize_session_id(exclude_session or self.active_session)
+        hits: list[dict[str, Any]] = []
+        for session_id, _workspace, chain in self._other_session_chains(username, exclude_session):
+            retrieved = self.timechain.retrieve(
+                chain,
+                query,
+                cphy_weights=self.agent.cphy_weights,
+                config=self.timechain.RetrieverConfig(limit=max(1, min(limit, 20)), block_recency_weight=0.35),
+            )
+            for score, ring in retrieved:
+                hits.append({
+                    "id": f"{session_id}:{ring.n}:{ring.hash[:16]}",
+                    "source_session": session_id,
+                    "source_ring": ring.n,
+                    "source_hash_prefix": ring.hash[:16],
+                    "domain": ring.domain,
+                    "query": ring.query,
+                    "content": ring.content[:500] if len(ring.content) > 500 else ring.content,
+                    "brightness": round(float(ring.brightness), 4),
+                    "epistemic": ring.epistemic,
+                    "score": round(float(score), 4),
+                    "tags": list(ring.tags or []),
+                })
+        hits.sort(key=lambda h: h["score"], reverse=True)
+        return {
+            "ok": True,
+            "query": query,
+            "hits": hits[:limit],
+            "count": len(hits),
+        }
+
+    def import_shared_memory(self, hit_id: str, target_session: str | None = None, username: str | None = None) -> dict[str, Any]:
+        target_session = sanitize_session_id(target_session or self.active_session)
+        self.use_session(target_session, username=username)
+        self.reload_agent()
+        if self.agent.frozen:
+            raise PermissionError("timechain is frozen")
+        parts = str(hit_id or "").strip().split(":")
+        if len(parts) < 2:
+            raise ValueError("hit_id must be session_id:ring_n[:hash_prefix]")
+        source_session = parts[0]
+        try:
+            source_ring_n = int(parts[1])
+        except (TypeError, ValueError) as exc:
+            raise ValueError("hit_id ring number must be an integer") from exc
+        source_hash_prefix = parts[2] if len(parts) > 2 else ""
+        source_workspace = self.workspace_for_session(source_session, username=username)
+        chain = self.timechain.TimechainStore(source_workspace).load_chain()
+        ring = next((r for r in chain if r.n == source_ring_n and (not source_hash_prefix or r.hash.startswith(source_hash_prefix))), None)
+        if ring is None:
+            raise ValueError(f"Ring not found in session {source_session}: {source_ring_n}")
+        ring_dict = ring.to_dict()
+        imported = self.agent.fleet_import(ring_dict, source=source_session)
+        if imported is None:
+            raise ValueError("shared memory import rejected by covenant gate")
+        return {
+            "ok": True,
+            "session": self.active_session,
+            "ring": imported.n,
+            "kind": imported.kind,
+            "hash": imported.hash[:16],
+            "brightness": round(float(imported.brightness), 4),
+            "source_session": source_session,
+            "source_ring": source_ring_n,
+        }
+
+    def synthesize_comprehension(
+        self,
+        query: str,
+        hit_ids: list[str],
+        target_session: str | None = None,
+        username: str | None = None,
+    ) -> dict[str, Any]:
+        target_session = sanitize_session_id(target_session or self.active_session)
+        self.use_session(target_session, username=username)
+        self.reload_agent()
+        if self.agent.frozen:
+            raise PermissionError("timechain is frozen")
+        if not hit_ids:
+            raise ValueError("at least one hit_id is required")
+        picks: list[tuple[Any, str]] = []
+        for hit_id in hit_ids:
+            parts = str(hit_id or "").strip().split(":")
+            if len(parts) < 2:
+                continue
+            source_session = parts[0]
+            try:
+                source_ring_n = int(parts[1])
+            except (TypeError, ValueError):
+                continue
+            source_hash_prefix = parts[2] if len(parts) > 2 else ""
+            source_workspace = self.workspace_for_session(source_session, username=username)
+            chain = self.timechain.TimechainStore(source_workspace).load_chain()
+            ring = next((r for r in chain if r.n == source_ring_n and (not source_hash_prefix or r.hash.startswith(source_hash_prefix))), None)
+            if ring is not None:
+                picks.append((ring, source_session))
+        if len(picks) < 1:
+            raise ValueError("no valid source rings found for synthesis")
+        content = "Shared memory comprehension synthesis:\n" + "\n".join(
+            f"  [{ring.domain} session={source_session} ring {ring.n}] {ring.content[:120]}" for ring, source_session in picks
+        )
+        scores, brightness = self.agent.poq.evaluate(
+            query=query or "shared memory comprehension synthesis",
+            content=content,
+            covenant=self.agent.values,
+            retrieved=[ring for ring, _ in picks],
+            chain=self.agent.chain,
+        )
+        accepted, reason = self.agent.poq.gate(scores, brightness)
+        if not accepted:
+            return {
+                "ok": False,
+                "session": self.active_session,
+                "rejected": True,
+                "reason": reason,
+                "brightness": round(float(brightness), 4),
+                "scores": {k: round(float(v), 4) for k, v in scores.items()},
+            }
+        candidate = self.timechain.Ring(
+            n=len(self.agent.chain),
+            prev=self.agent.chain[-1].hash if self.agent.chain else "0" * 64,
+            ts=dt.datetime.now(dt.timezone.utc).isoformat(),
+            kind="interaction",
+            domain="comprehension",
+            query=query or "shared memory comprehension synthesis",
+            content=content,
+            brightness=min(brightness, 0.65),
+            scores=scores,
+            neuro=self.timechain.compute_neuro(self.agent.chain, "comprehension"),
+            retrieved=[ring.n for ring, _ in picks],
+            epistemic="speculated",
+            tags=["comprehension", "shared_memory"] + [ring.domain for ring, _ in picks],
+            source=f"synthesis:{','.join(f'{session}:{ring.n}' for ring, session in picks)}",
+        )
+        sealed = self.agent._append(candidate)
+        return {
+            "ok": True,
+            "session": self.active_session,
+            "ring": sealed.n,
+            "kind": sealed.kind,
+            "hash": sealed.hash[:16],
+            "brightness": round(float(sealed.brightness), 4),
+            "epistemic": sealed.epistemic,
+            "tags": sealed.tags,
+            "reason": reason,
+        }
+
     def challenge(self, indices: str, *, nonce: str = "") -> dict[str, Any]:
         self.reload_agent()
         try:
@@ -1801,6 +1969,7 @@ class App:
         api_key: str,
         provider: str = "",
         base_url: str = "",
+        shared_hits: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         persona_id = self.bind_session_persona(persona_id)
         persona = custom_persona or self.get_custom_persona(persona_id) or PERSONAS.get(persona_id) or PERSONAS["companion"]
@@ -1821,6 +1990,7 @@ class App:
             query=query,
             retrieved=retrieved,
             durable_memories=durable_hits,
+            shared_hits=shared_hits,
             recent_turns=recent_turns,
             neuro=neuro,
             covenant=self.agent.values,

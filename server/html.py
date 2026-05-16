@@ -1906,6 +1906,12 @@ HTML_TEMPLATE = r"""<!doctype html>
             Paid or higher-context models can run it with this warning. Free models are blocked for this persona.
           </span>
         </div>
+        <div class="composer-options" style="max-width:1020px;margin:0 auto 8px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);cursor:pointer;">
+            <input type="checkbox" id="shared-memory-toggle" style="width:16px;height:16px;">
+            Use shared memory
+          </label>
+        </div>
         <form id="composer-form" class="composer-form">
           <textarea id="message" placeholder="Ask anything..." required enterkeyhint="send"></textarea>
           <button id="send" class="send" type="submit" aria-label="Send">→</button>
@@ -2391,11 +2397,22 @@ HTML_TEMPLATE = r"""<!doctype html>
           </div>
           <div class="settings-row">
             <div class="settings-field">
+              <label for="shared-memory-query">Shared Memory</label>
+              <input id="shared-memory-query" placeholder="Search across other sessions...">
+              <button id="search-shared-memory" class="secondary" type="button">Search</button>
+              <div id="shared-memory-results" class="hint">No shared memory search yet.</div>
+              <div class="hint">Persistent memories are durable facts shared per user; Shared Memory manually pulls accepted rings from other sessions.</div>
+              <button id="import-shared-memory" class="secondary" type="button" style="margin-top:6px;">Import Selected</button>
+              <button id="synthesize-shared-memory" class="secondary" type="button" style="margin-top:6px;">Synthesize Selected</button>
+            </div>
+            <div class="settings-field">
               <label for="fleet-source">Fleet import</label>
               <input id="fleet-source" placeholder="source agent">
               <textarea id="fleet-ring-json" placeholder='{"domain":"architecture","query":"...","content":"..."}'></textarea>
               <button id="run-fleet-import" class="secondary" type="button">Import Ring</button>
             </div>
+          </div>
+          <div class="settings-row">
             <div class="settings-field">
               <label for="challenge-indices">Temporal challenge</label>
               <input id="challenge-indices" placeholder="0,1">
@@ -2580,6 +2597,7 @@ HTML_TEMPLATE = r"""<!doctype html>
     </div>
     <div class="detail-drawer-foot">
       <button class="auth-submit" id="detail-subscribe" type="button">Subscribe</button>
+      <button class="secondary" id="detail-unsubscribe" type="button" style="display:none;">Unsubscribe</button>
       <div class="auth-hint" id="detail-sub-hint"></div>
     </div>
   </aside>

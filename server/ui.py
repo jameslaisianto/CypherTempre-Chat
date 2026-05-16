@@ -34,6 +34,12 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       challengeIndices: document.getElementById('challenge-indices'),
       challengeNonce: document.getElementById('challenge-nonce'),
       runChallenge: document.getElementById('run-challenge'),
+      sharedMemoryToggle: document.getElementById('shared-memory-toggle'),
+      sharedMemoryQuery: document.getElementById('shared-memory-query'),
+      searchSharedMemory: document.getElementById('search-shared-memory'),
+      sharedMemoryResults: document.getElementById('shared-memory-results'),
+      importSharedMemory: document.getElementById('import-shared-memory'),
+      synthesizeSharedMemory: document.getElementById('synthesize-shared-memory'),
       advancedTimechainResults: document.getElementById('advanced-timechain-results'),
       pendingMemories: document.getElementById('pending-memories'),
       acceptedMemories: document.getElementById('accepted-memories'),
@@ -132,6 +138,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       detailMassBar: document.getElementById('detail-mass-bar'),
       detailCapsule: document.getElementById('detail-capsule'),
       detailSubscribe: document.getElementById('detail-subscribe'),
+      detailUnsubscribe: document.getElementById('detail-unsubscribe'),
       detailSubHint: document.getElementById('detail-sub-hint'),
       mobMarketplace: document.getElementById('mob-marketplace'),
       navImagegen: document.getElementById('nav-imagegen'),
@@ -935,6 +942,77 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       showAdvancedTimechainResult('Temporal challenge', data);
     }
 
+    let sharedMemoryHits = [];
+    let selectedSharedHitIds = new Set();
+
+    async function searchSharedMemory() {
+      const query = els.sharedMemoryQuery.value.trim();
+      if (!query) return;
+      els.sharedMemoryResults.textContent = 'Searching...';
+      try {
+        const data = await api(`/api/shared-memory?session=${encodeURIComponent(activeSession)}&query=${encodeURIComponent(query)}&limit=12`);
+        sharedMemoryHits = data.hits || [];
+        selectedSharedHitIds.clear();
+        if (!sharedMemoryHits.length) {
+          els.sharedMemoryResults.textContent = 'No shared memory hits found.';
+          return;
+        }
+        els.sharedMemoryResults.innerHTML = sharedMemoryHits.map((hit, idx) => {
+          const content = esc(hit.content || '');
+          return `<div style="margin:6px 0;padding:8px;border:1px solid var(--line);border-radius:8px;cursor:pointer;" data-idx="${idx}">
+            <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;">
+              <input type="checkbox" data-hit-id="${esc(hit.id)}" style="margin-top:2px;">
+              <div style="font-size:13px;line-height:1.4;">
+                <div style="color:var(--muted);font-size:12px;">session=${esc(hit.source_session)} ring=${esc(hit.source_ring)} score=${esc(hit.score)} brightness=${esc(hit.brightness)}</div>
+                <div>[${esc(hit.domain)}] ${content}</div>
+              </div>
+            </label>
+          </div>`;
+        }).join('');
+        els.sharedMemoryResults.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+          cb.addEventListener('change', () => {
+            if (cb.checked) selectedSharedHitIds.add(cb.dataset.hitId);
+            else selectedSharedHitIds.delete(cb.dataset.hitId);
+          });
+        });
+      } catch (error) {
+        els.sharedMemoryResults.textContent = error.message;
+      }
+    }
+
+    async function importSharedMemory() {
+      if (!selectedSharedHitIds.size) {
+        showAdvancedTimechainResult('Shared memory import', { ok: false, error: 'No hits selected.' });
+        return;
+      }
+      for (const hitId of selectedSharedHitIds) {
+        const data = await api('/api/shared-memory/import', {
+          method: 'POST',
+          body: JSON.stringify({ session: activeSession, hitId })
+        });
+        showAdvancedTimechainResult('Shared memory import', data);
+      }
+      await refreshOperationalState();
+    }
+
+    async function synthesizeSharedMemory() {
+      if (!selectedSharedHitIds.size) {
+        showAdvancedTimechainResult('Shared memory synthesis', { ok: false, error: 'No hits selected.' });
+        return;
+      }
+      const query = els.sharedMemoryQuery.value.trim() || 'shared memory comprehension synthesis';
+      const data = await api('/api/shared-memory/synthesize', {
+        method: 'POST',
+        body: JSON.stringify({
+          session: activeSession,
+          query,
+          hitIds: Array.from(selectedSharedHitIds)
+        })
+      });
+      showAdvancedTimechainResult('Shared memory synthesis', data);
+      await refreshOperationalState();
+    }
+
     function memoryMeta(memory) {
       const scope = memory.scope || 'legacy';
       const confidence = Number(memory.confidence || 0).toFixed(2);
@@ -1126,7 +1204,8 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
             model: els.model.value.trim() || 'venice-uncensored',
             apiKey: els.apiKey.value.trim(),
             provider: els.provider.value,
-            baseUrl: els.baseUrl.value.trim()
+            baseUrl: els.baseUrl.value.trim(),
+            sharedMemory: els.sharedMemoryToggle?.checked || false
           })
         });
         removeThinkingMessage();
@@ -1224,6 +1303,15 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     });
     els.runChallenge.addEventListener('click', () => {
       runChallenge().catch(error => { els.advancedTimechainResults.textContent = error.message; });
+    });
+    if (els.searchSharedMemory) els.searchSharedMemory.addEventListener('click', () => {
+      searchSharedMemory().catch(error => { els.sharedMemoryResults.textContent = error.message; });
+    });
+    if (els.importSharedMemory) els.importSharedMemory.addEventListener('click', () => {
+      importSharedMemory().catch(error => { els.advancedTimechainResults.textContent = error.message; });
+    });
+    if (els.synthesizeSharedMemory) els.synthesizeSharedMemory.addEventListener('click', () => {
+      synthesizeSharedMemory().catch(error => { els.advancedTimechainResults.textContent = error.message; });
     });
     document.querySelector('.inspector')?.addEventListener('click', (event) => {
       const button = event.target.closest('[data-action][data-id]');
@@ -1515,8 +1603,12 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
         }
         const isSubbed = p.is_subscribed;
         if (els.detailSubscribe) {
-          els.detailSubscribe.textContent = isSubbed ? 'Subscribed' : (p.price?.model === 'free' ? 'Subscribe Free' : `Subscribe — $${p.price?.amount}`);
-          els.detailSubscribe.disabled = isSubbed;
+          els.detailSubscribe.style.display = isSubbed ? 'none' : 'block';
+          els.detailSubscribe.textContent = p.price?.model === 'free' ? 'Subscribe Free' : `Subscribe — $${p.price?.amount}`;
+          els.detailSubscribe.disabled = false;
+        }
+        if (els.detailUnsubscribe) {
+          els.detailUnsubscribe.style.display = isSubbed ? 'block' : 'none';
         }
         if (els.detailSubHint) els.detailSubHint.textContent = isSubbed ? 'You already have access to this persona.' : '';
       } catch (error) {
@@ -1527,11 +1619,21 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       if (!currentDetailId || !currentUser) return;
       try {
         const data = await api(`/api/marketplace/${encodeURIComponent(currentDetailId)}/subscribe`, { method: 'POST', body: '{}' });
-        if (els.detailSubscribe) {
-          els.detailSubscribe.textContent = 'Subscribed';
-          els.detailSubscribe.disabled = true;
-        }
+        if (els.detailSubscribe) els.detailSubscribe.style.display = 'none';
+        if (els.detailUnsubscribe) els.detailUnsubscribe.style.display = 'block';
         if (els.detailSubHint) els.detailSubHint.textContent = 'Subscribed successfully.';
+        loadMarketplace();
+      } catch (error) {
+        if (els.detailSubHint) els.detailSubHint.textContent = error.message;
+      }
+    }
+    async function doUnsubscribe() {
+      if (!currentDetailId || !currentUser) return;
+      try {
+        const data = await api(`/api/marketplace/${encodeURIComponent(currentDetailId)}/unsubscribe`, { method: 'POST', body: '{}' });
+        if (els.detailSubscribe) els.detailSubscribe.style.display = 'block';
+        if (els.detailUnsubscribe) els.detailUnsubscribe.style.display = 'none';
+        if (els.detailSubHint) els.detailSubHint.textContent = 'Unsubscribed.';
         loadMarketplace();
       } catch (error) {
         if (els.detailSubHint) els.detailSubHint.textContent = error.message;
@@ -1641,7 +1743,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
         await api(`/api/creator/personas/${encodeURIComponent(personaId)}/distill`, { method: 'POST', body: '{}' });
         await api(`/api/creator/personas/${encodeURIComponent(personaId)}/publish`, { method: 'POST', body: JSON.stringify({ price: { model: 'free', amount: 0, currency: 'USD' } }) });
         loadCreatorPersonas();
-        els.manageStatusDetail.textContent = 'Published to marketplace (pending approval).';
+        els.manageStatusDetail.textContent = 'Published to marketplace.';
       } catch (error) {
         els.manageStatusDetail.textContent = error.message;
       }
@@ -1665,6 +1767,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     if (els.mobImagegen) els.mobImagegen.addEventListener('click', () => setMainView('imagegen'));
     if (els.detailClose) els.detailClose.addEventListener('click', closeDetail);
     if (els.detailSubscribe) els.detailSubscribe.addEventListener('click', doSubscribe);
+    if (els.detailUnsubscribe) els.detailUnsubscribe.addEventListener('click', doUnsubscribe);
     if (els.mpSearch) els.mpSearch.addEventListener('input', renderMarketplace);
     document.querySelectorAll('.filter-pill').forEach(pill => {
       pill.addEventListener('click', () => {

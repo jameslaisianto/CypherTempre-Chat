@@ -225,6 +225,14 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                     ok, status = app.timechain.verify_chain(app.agent.chain)
                     self.send_json({"ok": ok, "status": status, "rings": len(app.agent.chain)})
                     return
+                if path == "/api/shared-memory":
+                    try:
+                        user = self._auth_user()
+                    except PermissionError as exc:
+                        self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                        return
+                    chat.handle_shared_memory_recall(self, app)
+                    return
                 if path == "/api/auth/me":
                     auth.handle_auth_me(self)
                     return
@@ -368,6 +376,12 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 if path == "/api/challenge":
                     self.handle_challenge()
                     return
+                if path == "/api/shared-memory/import":
+                    self.handle_shared_memory_import()
+                    return
+                if path == "/api/shared-memory/synthesize":
+                    self.handle_shared_memory_synthesize()
+                    return
                 if path == "/api/sessions/delete":
                     self.handle_delete_session()
                     return
@@ -463,6 +477,12 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
 
         def handle_challenge(self) -> None:
             chat.handle_challenge(self, app)
+
+        def handle_shared_memory_import(self) -> None:
+            chat.handle_shared_memory_import(self, app)
+
+        def handle_shared_memory_synthesize(self) -> None:
+            chat.handle_shared_memory_synthesize(self, app)
 
         def handle_create_session(self) -> None:
             chat.handle_create_session(self, app)

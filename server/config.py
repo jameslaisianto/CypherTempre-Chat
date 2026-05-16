@@ -585,7 +585,8 @@ GUIDE_TOPICS: list[dict[str, Any]] = [
             "Results include accepted durable memories, score, ring number, brightness, domain, and content.\n"
             "Pending, rejected, superseded, and forgotten memories are excluded from prompt recall.\n"
             "Accepted memories and recent rings steer future prompts through retrieval/prompt conditioning, not model retraining.\n"
-            "Recall reads accepted rings from .timechain/chain.jsonl and accepted continuity memories from .timechain/memory_model.json."
+            "Recall reads accepted rings from .timechain/chain.jsonl and accepted continuity memories from .timechain/memory_model.json.\n"
+            "Durable profile-style memories can be global across the user's sessions, while ordinary rings remain session-local unless Shared Memory is used."
         ),
         "sources": ["Guide: Recall", "README.md", "SKILLS/README.md"],
     },
@@ -628,6 +629,7 @@ GUIDE_TOPICS: list[dict[str, Any]] = [
             "Dream synthesis seals speculative cross-domain synthesis rings from two or more existing domains, such as architecture and security.\n"
             "Overlays store tag weight multipliers in .timechain/overlays.json so future retrieval can emphasize selected topics.\n"
             "Memory Sync writes a human-readable MEMORY.md summary and daily memory journal for the active session workspace.\n"
+            "Shared Memory searches accepted rings from the same user's other sessions, then lets the user import selected thoughts or synthesize them into a comprehension ring.\n"
             "Fleet import accepts a foreign Ring JSON object from another agent only if it passes the local covenant gate, preserving source provenance.\n"
             "Temporal challenge returns a proof response from selected ring hashes and a nonce without changing the chain.\n"
             "Workbench data is diagnostic: Cambium proposals are candidates, not accepted durable decisions."
@@ -666,6 +668,7 @@ GUIDE_TOPICS: list[dict[str, Any]] = [
         "details": (
             "Each session stores its Timechain in a separate workspace under the PoC sessions folder.\n"
             "Stable global user profile memories are shared from the main workspace, while session notes stay local.\n"
+            "Shared Memory is a separate manual workbench action for moving accepted rings or thoughts between sessions.\n"
             "Switching sessions reloads chat history, memory review state, recall, self-model, and verification state.\n"
             "Reset Chain Memory clears only the active session.\n"
             "Personas and provider settings remain shared across sessions."

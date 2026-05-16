@@ -1507,6 +1507,7 @@ class PromptAssemblyTests(unittest.TestCase):
         for endpoint in ["/api/dream", "/api/overlays", "/api/memory-sync", "/api/fleet-import", "/api/challenge"]:
             self.assertIn(endpoint, server.HTML)
         self.assertIn("confirmTimechainMutation", server.HTML)
+        self.assertIn("Persistent memories are durable facts shared per user", server.HTML)
 
     def test_imagegen_ui_and_routes_use_imagegen_namespace(self):
         handler_source = inspect.getsource(server.make_handler)
@@ -1597,6 +1598,315 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertIn(".thought-segment {", server.HTML)
         self.assertIn("display: inline", server.HTML)
         self.assertIn('<span class="${part.type === \'thought\' ? \'thought-segment\' : \'text-segment\'}"', server.HTML)
+
+    def test_shared_recall_finds_ring_from_other_session_and_excludes_active(self):
+        workspace = self.make_workspace()
+        app = server.App(
+            workspace,
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
+        # Create two sessions for the same user
+        session_a = app.create_session("Session A", username="testuser")
+        app.use_session(session_a["id"], username="testuser")
+        app.agent.interact("architecture decision", domain="architecture", override_content="Use modular services.")
+
+        session_b = app.create_session("Session B", username="testuser")
+        app.use_session(session_b["id"], username="testuser")
+        app.agent.interact("security decision", domain="security", override_content="Auth boundary stays server-side.")
+
+        # From session_b, search for architecture — should find session_a's ring
+        result = app.shared_recall("testuser", "modular services", exclude_session=session_b["id"], limit=8)
+        self.assertTrue(result["ok"])
+        self.assertGreaterEqual(len(result["hits"]), 1)
+        hit = result["hits"][0]
+        self.assertEqual(hit["source_session"], session_a["id"])
+        self.assertEqual(hit["domain"], "architecture")
+        self.assertIn("modular services", hit["content"].lower())
+
+        # Should not find session_b's own ring
+        for h in result["hits"]:
+            self.assertNotEqual(h["source_session"], session_b["id"])
+
+    def test_shared_recall_is_same_user_only(self):
+        workspace = self.make_workspace()
+        app = server.App(
+            workspace,
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
+        # alice's session
+        alice_session = app.create_session("Alice", username="alice")
+        app.use_session(alice_session["id"], username="alice")
+        app.agent.interact("alice decision", domain="architecture", override_content="Alice uses modular services.")
+
+        # bob's session
+        bob_session = app.create_session("Bob", username="bob")
+        app.use_session(bob_session["id"], username="bob")
+        app.agent.interact("bob decision", domain="security", override_content="Bob uses centralized auth.")
+
+        # alice searching should not find bob's session
+        app.use_session(alice_session["id"], username="alice")
+        result = app.shared_recall("alice", "centralized auth", exclude_session=alice_session["id"], limit=8)
+        self.assertTrue(result["ok"])
+        self.assertEqual(len(result["hits"]), 0)
+
+    def test_build_messages_includes_shared_memory_when_provided(self):
+        persona = {"name": "Companion", "system": "Stay useful."}
+        shared_hits = [
+            {
+                "id": "other-session:3:abc123",
+                "source_session": "other-session",
+                "source_ring": 3,
+                "domain": "architecture",
+                "content": "Use modular boundary services.",
+                "brightness": 0.82,
+                "score": 0.91,
+                "tags": ["architecture"],
+            }
+        ]
+
+        messages = server.build_messages(
+            persona=persona,
+            query="What should we build next?",
+            retrieved=[],
+            shared_hits=shared_hits,
+            recent_turns=[],
+            neuro={},
+            covenant="Be useful.",
+        )
+
+        system = messages[0]["content"]
+        self.assertIn("Shared memory from other sessions", system)
+        self.assertIn("modular boundary services", system)
+        self.assertIn("other-session", system)
+
+    def test_build_messages_omits_shared_memory_when_empty(self):
+        persona = {"name": "Companion", "system": "Stay useful."}
+
+        messages = server.build_messages(
+            persona=persona,
+            query="What should we build next?",
+            retrieved=[],
+            shared_hits=[],
+            recent_turns=[],
+            neuro={},
+            covenant="Be useful.",
+        )
+
+        system = messages[0]["content"]
+        self.assertNotIn("Shared memory from other sessions", system)
+
+    def test_import_shared_memory_creates_fleet_import_ring(self):
+        workspace = self.make_workspace()
+        app = server.App(
+            workspace,
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
+        source_session = app.create_session("Source", username="testuser")
+        app.use_session(source_session["id"], username="testuser")
+        app.agent.interact("source decision", domain="architecture", override_content="Use modular services.")
+        source_ring = app.agent.chain[-1]
+
+        target_session = app.create_session("Target", username="testuser")
+        app.use_session(target_session["id"], username="testuser")
+        before = len(app.agent.chain)
+
+        hit_id = f"{source_session['id']}:{source_ring.n}:{source_ring.hash[:16]}"
+        result = app.import_shared_memory(hit_id, target_session=target_session["id"], username="testuser")
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["kind"], "fleet_import")
+        self.assertEqual(result["source_session"], source_session["id"])
+        self.assertEqual(result["source_ring"], source_ring.n)
+        self.assertEqual(len(app.agent.chain), before + 1)
+
+    def test_synthesize_comprehension_creates_ring_or_rejects(self):
+        workspace = self.make_workspace()
+        app = server.App(
+            workspace,
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
+        source_session = app.create_session("Source", username="testuser")
+        app.use_session(source_session["id"], username="testuser")
+        app.agent.interact("architecture", domain="architecture", override_content="Use modular testable documented services.")
+        ring_a = app.agent.chain[-1]
+        app.agent.interact("security", domain="security", override_content="Use secure reviewed boundary checks.")
+        ring_b = app.agent.chain[-1]
+
+        target_session = app.create_session("Target", username="testuser")
+        app.use_session(target_session["id"], username="testuser")
+        before = len(app.agent.chain)
+
+        hit_ids = [
+            f"{source_session['id']}:{ring_a.n}:{ring_a.hash[:16]}",
+            f"{source_session['id']}:{ring_b.n}:{ring_b.hash[:16]}",
+        ]
+        result = app.synthesize_comprehension("synthesize shared memory", hit_ids, target_session=target_session["id"], username="testuser")
+
+        # Should either create a ring or reject with a reason
+        if result.get("rejected"):
+            self.assertIn("reason", result)
+            self.assertEqual(len(app.agent.chain), before)
+        else:
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["kind"], "interaction")
+            self.assertEqual(len(app.agent.chain), before + 1)
+            self.assertIn("comprehension", result.get("tags", []))
+
+    def test_shared_memory_ui_exposed_in_workbench_and_chat(self):
+        self.assertIn('id="shared-memory-toggle"', server.HTML)
+        self.assertIn('id="shared-memory-query"', server.HTML)
+        self.assertIn('id="search-shared-memory"', server.HTML)
+        self.assertIn('id="shared-memory-results"', server.HTML)
+        self.assertIn('id="import-shared-memory"', server.HTML)
+        self.assertIn('id="synthesize-shared-memory"', server.HTML)
+        self.assertIn("/api/shared-memory", server.HTML)
+        self.assertIn("/api/shared-memory/import", server.HTML)
+        self.assertIn("/api/shared-memory/synthesize", server.HTML)
+        self.assertIn("searchSharedMemory", server.HTML)
+        self.assertIn("importSharedMemory", server.HTML)
+        self.assertIn("synthesizeSharedMemory", server.HTML)
+        self.assertIn("Shared Memory manually pulls accepted rings", server.HTML)
+
+    def test_handler_routes_expose_shared_memory_endpoints(self):
+        handler_source = inspect.getsource(server.make_handler)
+        self.assertIn('path == "/api/shared-memory"', handler_source)
+        self.assertIn('path == "/api/shared-memory/import"', handler_source)
+        self.assertIn('path == "/api/shared-memory/synthesize"', handler_source)
+        self.assertIn("handle_shared_memory_import", handler_source)
+        self.assertIn("handle_shared_memory_synthesize", handler_source)
+
+    def test_marketplace_catalog_shows_published_personas(self):
+        root = self.make_workspace()
+        mp = server.marketplace
+        mp.DATA_DIR = root / "data"
+        mp.USERS_PATH = mp.DATA_DIR / "users.json"
+        mp.AUTH_SESSIONS_PATH = mp.DATA_DIR / "auth_sessions.json"
+        mp.MARKETPLACE_DIR = mp.DATA_DIR / "marketplace"
+        mp.CATALOG_PATH = mp.MARKETPLACE_DIR / "catalog.json"
+        mp.USERS_DIR = mp.DATA_DIR / "users"
+
+        # Publish a persona directly
+        mp.MARKETPLACE_DIR.mkdir(parents=True, exist_ok=True)
+        catalog = {"personas": {}}
+        catalog["personas"]["test-architect"] = {
+            "persona_id": "test-architect",
+            "owner": "alice",
+            "name": "Test Architect",
+            "tagline": "A test persona.",
+            "domain": "architecture",
+            "status": "published",
+            "price": {"model": "free", "amount": 0, "currency": "USD"},
+            "stats": {"subscribers": 0, "rating": 0, "temporal_mass": 0},
+            "created_at": "2026-01-01T00:00:00+00:00",
+            "published_at": "2026-01-01T00:00:00+00:00",
+        }
+        mp._save_json(mp.CATALOG_PATH, catalog)
+
+        personas = mp.get_catalog()
+        self.assertEqual(len(personas), 1)
+        self.assertEqual(personas[0]["name"], "Test Architect")
+        self.assertEqual(personas[0]["status"], "published")
+
+    def test_marketplace_publish_sets_published_status(self):
+        root = self.make_workspace()
+        mp = server.marketplace
+        mp.DATA_DIR = root / "data"
+        mp.USERS_PATH = mp.DATA_DIR / "users.json"
+        mp.AUTH_SESSIONS_PATH = mp.DATA_DIR / "auth_sessions.json"
+        mp.MARKETPLACE_DIR = mp.DATA_DIR / "marketplace"
+        mp.CATALOG_PATH = mp.MARKETPLACE_DIR / "catalog.json"
+        mp.USERS_DIR = mp.DATA_DIR / "users"
+
+        mp.save_created_persona("alice", "mp_test", {
+            "name": "Test Persona",
+            "domain": "testing",
+            "tagline": "A test",
+            "system": "You are a test persona.",
+        })
+        result = mp.publish_persona("alice", "mp_test")
+        self.assertEqual(result["status"], "published")
+        catalog = mp._load_json(mp.CATALOG_PATH, {"personas": {}})
+        self.assertEqual(catalog["personas"]["mp_test"]["status"], "published")
+
+    def test_marketplace_subscribe_and_unsubscribe(self):
+        root = self.make_workspace()
+        mp = server.marketplace
+        mp.DATA_DIR = root / "data"
+        mp.USERS_PATH = mp.DATA_DIR / "users.json"
+        mp.AUTH_SESSIONS_PATH = mp.DATA_DIR / "auth_sessions.json"
+        mp.MARKETPLACE_DIR = mp.DATA_DIR / "marketplace"
+        mp.CATALOG_PATH = mp.MARKETPLACE_DIR / "catalog.json"
+        mp.USERS_DIR = mp.DATA_DIR / "users"
+
+        mp.create_user("bob", "Bob", "password123", "subscriber")
+        mp.save_created_persona("alice", "mp_sub", {
+            "name": "Sub Test",
+            "domain": "testing",
+            "tagline": "Sub",
+            "system": "Test.",
+        })
+        mp.publish_persona("alice", "mp_sub")
+
+        sub = mp.subscribe("bob", "mp_sub")
+        self.assertEqual(sub["persona_id"], "mp_sub")
+        self.assertTrue(mp.is_subscribed("bob", "mp_sub"))
+
+        mp.unsubscribe("bob", "mp_sub")
+        self.assertFalse(mp.is_subscribed("bob", "mp_sub"))
+
+    def test_marketplace_auth_token_falls_back_to_x_auth_token_header(self):
+        root = self.make_workspace()
+        mp = server.marketplace
+        mp.DATA_DIR = root / "data"
+        mp.USERS_PATH = mp.DATA_DIR / "users.json"
+        mp.AUTH_SESSIONS_PATH = mp.DATA_DIR / "auth_sessions.json"
+        mp.MARKETPLACE_DIR = mp.DATA_DIR / "marketplace"
+        mp.CATALOG_PATH = mp.MARKETPLACE_DIR / "catalog.json"
+        mp.USERS_DIR = mp.DATA_DIR / "users"
+
+        mp.create_user("carol", "Carol", "password123", "subscriber")
+        token = mp.create_auth_session("carol")
+
+        # Cookie token works
+        user_cookie = mp.require_auth({"Cookie": f"ct_auth={token}"})
+        self.assertEqual(user_cookie["username"], "carol")
+
+        # X-Auth-Token header works
+        user_header = mp.require_auth({"X-Auth-Token": token})
+        self.assertEqual(user_header["username"], "carol")
+
+        # Neither fails
+        with self.assertRaises(PermissionError):
+            mp.require_auth({})
+
+    def test_marketplace_ui_has_subscribe_and_unsubscribe_buttons(self):
+        self.assertIn('id="detail-subscribe"', server.HTML)
+        self.assertIn('id="detail-unsubscribe"', server.HTML)
+        self.assertIn("doSubscribe", server.HTML)
+        self.assertIn("doUnsubscribe", server.HTML)
+        self.assertIn("/api/marketplace/", server.HTML)
+        self.assertIn("/subscribe", server.HTML)
+        self.assertIn("/unsubscribe", server.HTML)
 
 
 if __name__ == "__main__":

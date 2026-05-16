@@ -391,8 +391,8 @@ def distill_persona(username: str, persona_id: str, timechain_module: Any, min_b
     if not creator_dir.exists():
         raise KeyError(f"Persona not found: {persona_id}")
 
-    # Load chain
-    chain_path = creator_dir / ".timechain" / "chain.jsonl"
+    # Load chain from training session (created by trainCreatorPersona in the UI)
+    chain_path = USERS_DIR / _sanitize_username(username) / "sessions" / f"train-{persona_id}" / ".timechain" / "chain.jsonl"
     rings: list[dict[str, Any]] = []
     if chain_path.exists():
         with chain_path.open("r", encoding="utf-8") as f:
@@ -438,7 +438,7 @@ def publish_persona(username: str, persona_id: str, price_data: dict[str, Any] |
         raise KeyError(f"Persona not found: {persona_id}")
 
     manifest = _load_json(creator_dir / "manifest.json", {})
-    manifest["status"] = "pending"
+    manifest["status"] = "published"
     manifest["published_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
     if price_data:
         manifest["price"] = {
@@ -468,7 +468,7 @@ def publish_persona(username: str, persona_id: str, price_data: dict[str, Any] |
         "name": manifest.get("name", "Untitled"),
         "tagline": manifest.get("tagline", ""),
         "domain": manifest.get("domain", "auto"),
-        "status": manifest["status"],
+        "status": manifest.get("status", "published"),
         "price": manifest.get("price", {"model": "free", "amount": 0, "currency": "USD"}),
         "stats": manifest.get("stats", {"subscribers": 0, "rating": 0, "temporal_mass": 0}),
         "created_at": manifest.get("created_at", ""),
@@ -541,8 +541,12 @@ def get_cookie_token(headers: dict[str, str]) -> str:
     return ""
 
 
+def get_auth_token(headers: dict[str, str]) -> str:
+    return get_cookie_token(headers) or headers.get("X-Auth-Token", "")
+
+
 def require_auth(headers: dict[str, str]) -> dict[str, Any]:
-    token = get_cookie_token(headers)
+    token = get_auth_token(headers)
     user = get_auth_user(token)
     if not user:
         raise PermissionError("Authentication required.")

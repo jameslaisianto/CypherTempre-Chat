@@ -10,7 +10,7 @@ import marketplace
 
 def handle_catalog(handler: Any) -> None:
     catalog = marketplace.get_catalog()
-    user = marketplace.get_auth_user(marketplace.get_cookie_token(dict(handler.headers)))
+    user = marketplace.get_auth_user(marketplace.get_auth_token(dict(handler.headers)))
     subs = marketplace.get_subscriptions(user["username"]) if user else []
     sub_ids = {s["persona_id"] for s in subs}
     for entry in catalog:
@@ -23,7 +23,7 @@ def handle_persona_detail(handler: Any, persona_id: str) -> None:
     if not entry:
         handler.send_error(HTTPStatus.NOT_FOUND, "Not found")
         return
-    user = marketplace.get_auth_user(marketplace.get_cookie_token(dict(handler.headers)))
+    user = marketplace.get_auth_user(marketplace.get_auth_token(dict(handler.headers)))
     entry["is_subscribed"] = marketplace.is_subscribed(user["username"], persona_id) if user else False
     handler.send_json({"ok": True, "persona": entry})
 
