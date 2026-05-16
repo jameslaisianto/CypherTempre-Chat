@@ -5,11 +5,19 @@ Standalone local browser UI for testing `timechain.py` with LLM-backed chat, per
 This project is an interactive demonstration of the Cypher Tempre cognitive architecture. See [LICENSE](LICENSE) for the Cypher Tempre Open Intelligence License (CTOIL), attribution to Michael Joseph / CyberphysicsAI, and the Architecture disclaimer.
 
 Chat Session
-<img width="2532" height="1327" alt="image" src="https://github.com/user-attachments/assets/5fdbec2c-8bd6-47e1-8073-28c82a247592" />
+<img width="2537" height="1324" alt="image" src="https://github.com/user-attachments/assets/175c8973-3981-4e5b-84b1-bc57acb24819" />
+
 Guide to understand Cypher Tempre Architecture
-<img width="1377" height="1341" alt="image" src="https://github.com/user-attachments/assets/8f3e9468-7442-40c9-b787-783c2458ae8c" />
+<img width="2537" height="1303" alt="image" src="https://github.com/user-attachments/assets/9e060e33-5e9a-4ae0-85dc-4cd9c14b4700" />
+
 Settings to configure llm provider
-<img width="1357" height="707" alt="image" src="https://github.com/user-attachments/assets/10441aab-56d4-4a33-9700-9dae8c51134f" />
+<img width="2542" height="1133" alt="image" src="https://github.com/user-attachments/assets/e154c6d0-b528-4beb-8de2-76d5b0fd0437" />
+
+Share your persona
+<img width="1968" height="1298" alt="image" src="https://github.com/user-attachments/assets/8985a4e3-ad07-43f8-af65-4c6fc836357d" />
+
+Marketplace
+<img width="1970" height="993" alt="image" src="https://github.com/user-attachments/assets/a32fcc5a-0d64-4e87-babf-36045bc5bcc4" />
 
 
 ## Features
