@@ -25,6 +25,47 @@ from server.config import (
 )
 
 MEMORY_ACCEPTED_STATUSES = {"accepted", "known", "uncertain"}
+FRAME_DECLARATION_START = "[CT_FRAME_DECLARATION]"
+FRAME_DECLARATION_END = "[/CT_FRAME_DECLARATION]"
+
+
+def extract_frame_declaration(content: str) -> tuple[str, dict[str, Any] | None]:
+    """Extract a hidden frame declaration sidecar from assistant content."""
+    text = str(content or "")
+    pattern = re.compile(
+        rf"{re.escape(FRAME_DECLARATION_START)}\s*(.*?)\s*{re.escape(FRAME_DECLARATION_END)}",
+        re.I | re.S,
+    )
+    match = pattern.search(text)
+    if not match:
+        return text.strip(), None
+
+    visible = (text[:match.start()] + text[match.end():]).strip()
+    raw = match.group(1).strip()
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return visible, None
+    if not isinstance(parsed, dict):
+        return visible, None
+
+    declaration: dict[str, Any] = {}
+    for key in (
+        "current_frame",
+        "reason",
+        "cambium_proposal",
+        "cambium_definition",
+    ):
+        value = parsed.get(key)
+        if isinstance(value, str):
+            declaration[key] = value.strip()
+    if isinstance(parsed.get("frame_adequate"), bool):
+        declaration["frame_adequate"] = parsed["frame_adequate"]
+    elif isinstance(parsed.get("frame_adequate"), str):
+        lowered = parsed["frame_adequate"].strip().lower()
+        if lowered in {"true", "false"}:
+            declaration["frame_adequate"] = lowered == "true"
+    return visible, declaration or None
 
 def sanitize_session_id(value: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9_-]+", "-", value.strip())[:80].strip("-")
@@ -434,6 +475,7 @@ def build_prompt_messages(
     temporal_context: str = "",
     shared_memory_context: str = "",
     lattice: dict[str, Any] | None = None,
+    include_frame_declaration_instruction: bool = True,
 ) -> list[dict[str, str]]:
     pause_note = ""
     for turn in reversed(recent_turns):
@@ -466,6 +508,13 @@ def build_prompt_messages(
         lattice_block = (
             f"[Lattice: planes={planes} | fields={fields_str} | dims={'; '.join(dim_summary)}]\n\n"
         )
+    frame_declaration_instruction = (
+        "Only for genuine Cambium frame shifts, attach hidden metadata outside visible text: "
+        f'{FRAME_DECLARATION_START}{{"current_frame":"","frame_adequate":false,"reason":"","cambium_proposal":"","cambium_definition":""}}{FRAME_DECLARATION_END} '
+        "The answer must use the new frame.\n\n"
+        if include_frame_declaration_instruction
+        else ""
+    )
     system_text = (
         f"{persona['system']}\n\n"
         "You are connected to a local CypherTempre Timechain. "
@@ -474,6 +523,7 @@ def build_prompt_messages(
         "If asked who you are, answer as the selected persona, not as the underlying model or provider. "
         "Be conversational and useful. Do not expose hidden reasoning. "
         "If memory is weak or absent, say so briefly.\n\n"
+        f"{frame_declaration_instruction}"
         f"Engineering covenant: {covenant}\n\n"
         f"{current_time_context(now)}{pause_note}\n\n"
         f"{lattice_block}"
@@ -710,6 +760,7 @@ def build_messages(
     shared_memory_context = build_shared_memory_context(shared_hits)
     neuro_line = ", ".join(f"{key}={value:.2f}" for key, value in sorted(neuro.items()))
     active_recent_turns = list(recent_turns)
+    include_frame_declaration_instruction = True
     messages = build_prompt_messages(
         persona=persona,
         query=query,
@@ -723,7 +774,25 @@ def build_messages(
         temporal_context=temporal_context,
         shared_memory_context=shared_memory_context,
         lattice=lattice,
+        include_frame_declaration_instruction=include_frame_declaration_instruction,
     )
+    if prompt_budget_chars > 0 and prompt_size(messages) > prompt_budget_chars:
+        include_frame_declaration_instruction = False
+        messages = build_prompt_messages(
+            persona=persona,
+            query=query,
+            durable_context=durable_context,
+            memory_context=memory_context,
+            recent_turns=active_recent_turns,
+            neuro_line=neuro_line,
+            covenant=covenant,
+            now=current_time,
+            model=model,
+            temporal_context=temporal_context,
+            shared_memory_context=shared_memory_context,
+            lattice=lattice,
+            include_frame_declaration_instruction=include_frame_declaration_instruction,
+        )
     if prompt_budget_chars > 0 and prompt_size(messages) > prompt_budget_chars and retrieved:
         memory_context = build_memory_context(
             retrieved,
@@ -742,6 +811,7 @@ def build_messages(
             model=model,
             shared_memory_context=shared_memory_context,
             lattice=lattice,
+            include_frame_declaration_instruction=include_frame_declaration_instruction,
         )
     if prompt_budget_chars > 0 and prompt_size(messages) > prompt_budget_chars and retrieved:
         memory_context = f"{len(retrieved[:12])} retrieved rings omitted to preserve prompt budget."
@@ -757,6 +827,7 @@ def build_messages(
             model=model,
             shared_memory_context=shared_memory_context,
             lattice=lattice,
+            include_frame_declaration_instruction=include_frame_declaration_instruction,
         )
     while prompt_budget_chars > 0 and prompt_size(messages) > prompt_budget_chars and active_recent_turns:
         drop_count = 2 if len(active_recent_turns) >= 2 else 1
@@ -773,6 +844,7 @@ def build_messages(
             model=model,
             shared_memory_context=shared_memory_context,
             lattice=lattice,
+            include_frame_declaration_instruction=include_frame_declaration_instruction,
         )
     if prompt_budget_chars > 0 and prompt_size(messages) > prompt_budget_chars:
         overhead = prompt_size(messages) - len(persona.get("system", ""))
@@ -793,6 +865,7 @@ def build_messages(
             model=model,
             shared_memory_context=shared_memory_context,
             lattice=lattice,
+            include_frame_declaration_instruction=include_frame_declaration_instruction,
         )
         while prompt_budget_chars > 0 and prompt_size(messages) > prompt_budget_chars and persona_budget > 400:
             persona_budget = max(400, persona_budget - max(200, prompt_size(messages) - prompt_budget_chars + 80))
@@ -809,6 +882,7 @@ def build_messages(
                 model=model,
                 shared_memory_context=shared_memory_context,
                 lattice=lattice,
+                include_frame_declaration_instruction=include_frame_declaration_instruction,
             )
     return messages
 
@@ -883,14 +957,17 @@ def call_llm(
     if not choices:
         raise RuntimeError(f"{config['label']} returned no choices.")
     message = choices[0].get("message") or {}
-    content = (message.get("content") or "").strip()
+    content, frame_declaration = extract_frame_declaration(message.get("content") or "")
     if not content:
         raise RuntimeError(f"{config['label']} returned an empty response.")
-    return {
+    result = {
         "content": content,
         "model_used": body.get("model") or model,
         "usage": body.get("usage") or {},
     }
+    if frame_declaration:
+        result["frame_declaration"] = frame_declaration
+    return result
 
 def call_openrouter(
     *,

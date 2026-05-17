@@ -197,6 +197,9 @@ def custom_personas_path(workspace: pathlib.Path) -> pathlib.Path:
 def session_metadata_path(workspace: pathlib.Path) -> pathlib.Path:
     return workspace / ".timechain" / "session.json"
 
+def poq_cambium_events_path(workspace: pathlib.Path) -> pathlib.Path:
+    return workspace / ".timechain" / "cambium_events.json"
+
 def load_session_metadata(workspace: pathlib.Path) -> dict[str, Any]:
     path = session_metadata_path(workspace)
     if not path.exists():
@@ -211,6 +214,37 @@ def save_session_metadata(workspace: pathlib.Path, metadata: dict[str, Any]) -> 
     path = session_metadata_path(workspace)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+
+def load_poq_cambium_events(workspace: pathlib.Path) -> list[dict[str, Any]]:
+    path = poq_cambium_events_path(workspace)
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return []
+    if not isinstance(data, list):
+        return []
+    return [item for item in data if isinstance(item, dict)]
+
+def save_poq_cambium_events(workspace: pathlib.Path, events: list[dict[str, Any]]) -> None:
+    path = poq_cambium_events_path(workspace)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(events[-500:], ensure_ascii=False, indent=2), encoding="utf-8")
+
+def summarize_poq_cambium_events(events: list[dict[str, Any]]) -> dict[str, Any]:
+    total = len(events)
+    valid_count = sum(1 for event in events if event.get("status") == "valid")
+    evasion_count = sum(1 for event in events if event.get("status") == "evasion")
+    recent = list(reversed(events[-10:]))
+    return {
+        "total_fired": total,
+        "valid_count": valid_count,
+        "evasion_count": evasion_count,
+        "valid_rate": round(valid_count / total, 4) if total else 0.0,
+        "evasion_rate": round(evasion_count / total, 4) if total else 0.0,
+        "recent_events": recent,
+    }
 
 def load_custom_personas(workspace: pathlib.Path) -> dict[str, dict[str, str]]:
     path = custom_personas_path(workspace)
@@ -1881,7 +1915,35 @@ class App:
     def cambium_workbench(self) -> dict[str, Any]:
         self.reload_agent()
         report = self.agent.cambium_report()
-        return serialize_cambium_report(report)
+        payload = serialize_cambium_report(report)
+        payload["poq_cambium_stats"] = summarize_poq_cambium_events(
+            load_poq_cambium_events(self.workspace)
+        )
+        return payload
+
+    def append_poq_cambium_event(
+        self,
+        *,
+        query: str,
+        event: dict[str, Any] | None,
+        frame_declaration: dict[str, Any] | None,
+        ring_n: int | None = None,
+    ) -> None:
+        if not isinstance(event, dict) or event.get("status") not in {"valid", "evasion"}:
+            return
+        events = load_poq_cambium_events(self.workspace)
+        events.append({
+            "ts": dt.datetime.now(dt.timezone.utc).isoformat(),
+            "session": self.active_session,
+            "query": str(query or "")[:240],
+            "proposal": str(event.get("proposal", "") or ""),
+            "status": str(event.get("status", "") or ""),
+            "quality_score": round(float(event.get("quality_score", 0.0) or 0.0), 3),
+            "evasion_reason": str(event.get("evasion_reason", "") or ""),
+            "ring": ring_n,
+            "frame_declaration": frame_declaration or {},
+        })
+        save_poq_cambium_events(self.workspace, events)
 
     def sync_snapshot(self) -> dict[str, Any]:
         self.reload_agent()
@@ -2424,6 +2486,12 @@ class App:
         poq_is_enabled = self.poq.get("enabled", DEFAULT_POQ_ENABLED) if poq_enabled is None else bool(poq_enabled)
         if poq_is_enabled and not llm.get("provider_error"):
             try:
+                past_events = load_poq_cambium_events(self.workspace)
+                known_proposals = {
+                    event.get("proposal", "")
+                    for event in past_events
+                    if event.get("proposal")
+                }
                 poq_result = PoQGate(
                     llm_callable=active_call_llm,
                     provider=provider,
@@ -2435,7 +2503,13 @@ class App:
                     max_retries=int(self.poq.get("max_retries", DEFAULT_POQ_MAX_RETRIES)),
                     max_tokens=response_token_budget(query),
                     overfitting_check=bool(self.poq.get("overfitting_check", DEFAULT_POQ_OVERFITTING_CHECK)),
-                ).review_and_repair(messages=messages, answer=str(llm.get("content", "")), query=query)
+                ).review_and_repair(
+                    messages=messages,
+                    answer=str(llm.get("content", "")),
+                    query=query,
+                    frame_declaration=llm.get("frame_declaration"),
+                    known_proposals=known_proposals,
+                )
                 llm["content"] = poq_result["content"]
                 llm["poq"] = poq_result
             except RuntimeError as exc:
@@ -2508,6 +2582,11 @@ def finalize_chat_response(
         }
     poq = llm.get("poq", {})
     if poq and poq.get("passed") is False and not poq.get("skipped"):
+        app.append_poq_cambium_event(
+            query=message,
+            event=poq.get("cambium_event"),
+            frame_declaration=poq.get("frame_declaration"),
+        )
         return {
             "ok": True,
             "accepted": False,
@@ -2534,6 +2613,11 @@ def finalize_chat_response(
         override_content=llm["content"],
     )
     if not result.get("accepted"):
+        app.append_poq_cambium_event(
+            query=message,
+            event=llm.get("poq", {}).get("cambium_event"),
+            frame_declaration=llm.get("poq", {}).get("frame_declaration"),
+        )
         return {
             "ok": True,
             "accepted": False,
@@ -2550,6 +2634,12 @@ def finalize_chat_response(
         }
 
     ring = result["ring"]
+    app.append_poq_cambium_event(
+        query=message,
+        event=llm.get("poq", {}).get("cambium_event"),
+        frame_declaration=llm.get("poq", {}).get("frame_declaration"),
+        ring_n=ring.get("n"),
+    )
     staged = app.queue_memory_candidates(
         SimpleNamespace(**ring),
         persona_name=persona_name,

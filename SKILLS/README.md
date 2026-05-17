@@ -14,6 +14,8 @@ Proof of Qualia is the quality gate used before an assistant response becomes a 
 
 PoQ acceptance is not the same as accepting every extracted user-continuity fact. After a response is sealed, CypherTempre may propose durable memory candidates for review. Those candidates remain pending until the user accepts them in the Memory Inspector.
 
+The chat PoC also uses PoQ to check Cambium frame declarations. The prompt may ask the model to attach a hidden `CT_FRAME_DECLARATION` sidecar only when a genuine frame shift is needed. The server strips that marker from visible chat, scores the declaration for a specific reason, coherent new frame, and answer follow-through, then classifies it as valid, weak, or evasion. Valid or weak declarations can prevent deterministic overfitting checks from rejecting a legitimate frame shift. Evasive declarations fail PoQ and are not sealed.
+
 ## Memory Review Queue
 
 The chat PoC separates sealed conversation rings from reviewed durable continuity memories.
@@ -58,6 +60,7 @@ It includes:
 
 - A recent Ring timeline with kind, domain, brightness, epistemic status, PoQ score details, hash prefix, retrieved-ring links, and supersession hints.
 - Cambium results from the local Timechain scan, including low-brightness gaps, consolidation candidates, and growth proposals.
+- PoQ Cambium statistics from `.timechain/cambium_events.json`, including valid frame-shift counts, evasion counts, rates, and recent events.
 - A Copy Sync Snapshot action that creates a `CT_SYNC_SNAPSHOT` handoff artifact with current state, important recent rings, accepted memories, pending open loops, verification status, risks, and next steps.
 - Dream synthesis, which seals speculative cross-domain synthesis rings from two or more existing domains.
 - Overlays, which store tag weight multipliers in `.timechain/overlays.json` so selected topics can be emphasized by retrieval.
@@ -65,7 +68,26 @@ It includes:
 - Fleet import, which accepts a foreign Ring JSON object from another agent only after the local covenant gate accepts it, preserving source provenance.
 - Temporal challenge, which returns a proof response from selected ring hashes and a nonce without mutating the chain.
 
-Workbench output is diagnostic. Cambium proposals and Dream synthesis rings are candidates for user or developer review; they are not durable decisions until accepted through the normal Cypher Tempre discipline. Mutating actions in the Workbench are explicit controls and should be treated as local workspace operations.
+Workbench output is diagnostic. Cambium proposals, PoQ Cambium events, and Dream synthesis rings are candidates for user or developer review; they are not durable decisions until accepted through the normal Cypher Tempre discipline. Mutating actions in the Workbench are explicit controls and should be treated as local workspace operations.
+
+## ImageGen Studio
+
+ImageGen Studio is the app-local image workspace. It can generate images from text, edit an uploaded image, redefine an existing gallery image, delete saved images, and show lineage for image variants.
+
+Generated images are private to the authenticated user and live under:
+
+```text
+data/users/<username>/gallery/
+data/users/<username>/gallery/index.json
+```
+
+Image operations seal metadata rings in a separate image Timechain:
+
+```text
+data/users/<username>/gallery/.timechain/chain.jsonl
+```
+
+Image rings use `image_generate`, `image_edit`, or `image_redefine` kinds with `domain="image"`. Redefine operations preserve the source image id and superseded source ring so lineage can be inspected without mixing image history into the chat-session chain.
 
 ## Chain Verification
 
@@ -73,4 +95,4 @@ Verification replays the hash chain to confirm that each ring still points to th
 
 ## Source Rule
 
-Guide explanations may use this folder, `README.md`, `.env.example`, and the Guide topic text. They should say when a requested detail is not covered by those sources.
+Guide explanations may use this folder, `README.md`, `.env.example`, and the Guide topic text. Guide topics are defined in `server/config.py`. They should say when a requested detail is not covered by those sources.

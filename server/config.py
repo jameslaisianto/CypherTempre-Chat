@@ -597,6 +597,9 @@ GUIDE_TOPICS: list[dict[str, Any]] = [
         "summary": "The app only saves responses that pass quality and covenant checks.",
         "details": (
             "Proof-of-Qualia scores coherence, relevance, novelty, consistency, depth, and covenant alignment.\n"
+            "The post-generation review also checks configured score thresholds, deterministic overfitting patterns, and category-failure escapes.\n"
+            "For genuine Cambium frame shifts, the model may attach hidden CT_FRAME_DECLARATION metadata. The app strips it from visible chat and scores the frame shift for specificity, coherence, and follow-through.\n"
+            "Valid or weak frame shifts can avoid false overfitting rejection. Shallow declarations are treated as evasion and are not sealed.\n"
             "Accepted responses become hash-linked rings.\n"
             "Rejected responses are shown but not sealed.\n"
             "Brightness is computed by the gate rather than manually assigned."
@@ -652,6 +655,7 @@ GUIDE_TOPICS: list[dict[str, Any]] = [
             "The Timechain Workbench turns hidden continuity data into a visible workflow surface.\n"
             "The Ring timeline lists recent sealed rings with kind, domain, brightness, epistemic status, PoQ scores, hash prefix, and lineage hints.\n"
             "Cambium shows repeated low-brightness gaps, consolidation candidates, and growth proposals from the local Timechain scan.\n"
+            "PoQ Cambium stats summarize hidden frame-shift declarations that were accepted as valid Cambium or rejected as evasion.\n"
             "Copy Sync Snapshot creates a CT_SYNC_SNAPSHOT handoff artifact with current state, recent rings, accepted memories, pending open loops, verification status, and next-step signals.\n"
             "Dream synthesis seals speculative cross-domain synthesis rings from two or more existing domains, such as architecture and security.\n"
             "Overlays store tag weight multipliers in .timechain/overlays.json so future retrieval can emphasize selected topics.\n"
@@ -683,7 +687,9 @@ GUIDE_TOPICS: list[dict[str, Any]] = [
             "Persistence comes from local append-only Timechain files.\n"
             "Accepted conversation rings live in .timechain/chain.jsonl.\n"
             "Durable memory candidates and accepted continuity memories live in .timechain/memory_model.json.\n"
+            "PoQ Cambium frame-shift events live in .timechain/cambium_events.json for Workbench summaries.\n"
             "Creator Studio drafts live under the authenticated user's created-persona directory, and marketplace publishes copy a frozen capsule into the marketplace catalog.\n"
+            "ImageGen gallery files, index metadata, and image lineage rings live under data/users/<username>/gallery/.\n"
             "The UI restores accepted exchanges from /api/history.\n"
             "Unsent drafts, rejected PoQ responses, and pending memory candidates are not saved as rings."
         ),
@@ -703,6 +709,20 @@ GUIDE_TOPICS: list[dict[str, Any]] = [
             "Personas and provider settings remain shared across sessions."
         ),
         "sources": ["Guide: Sessions", "README.md"],
+    },
+    {
+        "id": "imagegen-studio",
+        "title": "ImageGen Studio",
+        "summary": "Generate, edit, redefine, and inspect image lineage from a per-user gallery.",
+        "details": (
+            "ImageGen Studio is available from the ImageGen navigation tab.\n"
+            "Generate creates a new image from a text prompt.\n"
+            "Edit uploads an image and applies an edit prompt.\n"
+            "Redefine starts from a saved gallery image and creates a linked child image.\n"
+            "Saved images are private to the authenticated user and stored under data/users/<username>/gallery/.\n"
+            "Each saved image operation seals an image-domain Timechain ring in the gallery workspace so lineage can show generated, edited, and redefined ancestry."
+        ),
+        "sources": ["Guide: ImageGen Studio", "README.md", "SKILLS/README.md"],
     },
     {
         "id": "reset-chain-memory",

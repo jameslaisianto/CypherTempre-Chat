@@ -1,40 +1,40 @@
-So timechain.py should own everything Timechain-related: not just the low-level operations, but also the server-level Timechain logic like session paths, memory model management, cambium scanning, overlays, dream synthesis, fleet import, challenge, memory sync, etc.
+# Server Refactor Map
 
-Here's the updated plan:
+`server/timechain.py` owns the server-level Timechain surface: session paths, memory model management, Cambium scanning, overlays, dream synthesis, fleet import, temporal challenge, memory sync, memory anchors, PoQ Cambium event summaries, and image lineage.
 
-Final Structure
+## Current Structure
 
+```text
 server/
-├── __init__.py          # Package init
-├── __main__.py          # Entry point: argparse + run server
-├── config.py            # Constants, providers, personas, prompts, guide topics (pure data)
-├── html.py              # The HTML + CSS template string
-├── ui.py                # The inline JavaScript SPA string
-├── timechain.py         # ALL Timechain operations: load/append/recall/verify, self-model, cambium, overlays, dream, fleet, challenge, memory sync, session workspace paths
-├── llm.py               # LLM provider calls, PoQ scoring, fallback generator, image generation
-├── chat.py              # Chat handler: message processing, persona selection, memory injection, response sealing
-├── marketplace.py       # Marketplace routes: listing, detail, subscribe, creator studio, publish
-├── auth.py              # Auth routes: login, register, logout, token verification
-├── server.py            # HTTP server class, route dispatch, all do_GET/do_POST routing, main()
-What goes into timechain.py
-Everything from server.py that touches the Timechain:
+  __init__.py       Public compatibility exports
+  __main__.py       Entry point for `python -m server`
+  config.py         Constants, providers, personas, prompts, guide topics
+  html.py           HTML and CSS template string
+  ui.py             Browser SPA JavaScript
+  timechain.py      Session-aware Timechain, memory, Workbench, gallery lineage
+  llm.py            Provider calls, prompt assembly, memory prompts, image calls, frame metadata parsing
+  poq.py            PoQ review, repair prompts, overfitting checks, Cambium frame/evasion scoring
+  chat.py           Chat, recall, session, memory, guide, and Timechain action handlers
+  marketplace.py    Marketplace and Creator Studio route handlers
+  imagegen.py       ImageGen generate/edit/redefine/delete handlers
+  auth.py           Login, register, logout, token verification
+  server.py         HTTP server class, route dispatch, CLI args, startup
+```
 
-load_timechain() — loads chain.jsonl for a session
-append_ring() — seals a new ring
-recall() — search rings + memory facts
-verify_chain() — hash chain verification
-summarize_self_model() — self-model summary
-scan_cambium() — gap detection + growth proposals
-save_overlay() / load_overlays()
-run_dream() — cross-domain synthesis
-fleet_import() — import foreign ring
-run_challenge() — temporal proof
-memory_sync() — write MEMORY.md
-get_session_path() — workspace path resolution
-reset_chain() — delete + recreate chain
-archive_and_rewind() — archive + truncate
-freeze_chain() / unfreeze_chain()
-load_memory_model() / save_memory_model() — memory.json CRUD
-extract_memory_candidates() — post-chat memory extraction
-restore_history() — reconstruct chat from rings
-This keeps the existing root timechain.py as the low-level library, while server/timechain.py adds the server-specific session-aware layer on top.
+The root `timechain.py` remains the low-level library. `server/timechain.py` is the app-specific, user/session-aware layer on top.
+
+## Timechain Responsibilities
+
+- Load, append, recall, verify, freeze, reset, archive, and rewind session chains.
+- Manage global and session-local memory models.
+- Stage, accept, reject, edit, forget, and supersede durable memory candidates.
+- Reconstruct visible chat history from accepted rings.
+- Build self-model, ring timeline, Cambium, overlays, Dream, Shared Memory, Sync Snapshot, Memory Sync, fleet import, temporal challenge, and memory-anchor outputs.
+- Persist PoQ Cambium frame-shift events in `.timechain/cambium_events.json` for Workbench summaries.
+- Store ImageGen gallery files and seal image-domain lineage rings under `data/users/<username>/gallery/.timechain/`.
+
+## PoQ/Cambium Split
+
+- `server/llm.py` instructs the model to attach hidden `CT_FRAME_DECLARATION` metadata only for real Cambium frame shifts, strips that metadata from visible chat, and forwards the parsed sidecar.
+- `server/poq.py` scores the sidecar for reason specificity, frame coherence, and answer follow-through. Valid or weak shifts can skip deterministic overfitting rejection; shallow shifts are marked as evasion and fail PoQ.
+- `server/timechain.py` records valid/evasive PoQ Cambium events and includes their summary in `/api/cambium`.

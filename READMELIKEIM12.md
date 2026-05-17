@@ -50,12 +50,20 @@ Copy-Item .env.example .env.local
 
 Open `.env.local` in a text editor.
 
-Put your own OpenRouter key here:
+Put your own provider settings here. The default example uses Morpheus:
 
 ```text
-OPENROUTER_API_KEY=YOUR_OPENROUTER_API_KEY
-OPENROUTER_MODEL=cognitivecomputations/dolphin-mistral-24b-venice-edition:free
+PROVIDER=morpheus
+API_KEY=YOUR_API_KEY
+MODEL=venice-uncensored
+BASE_URL=https://api.mor.org/api/v1
+POQ_ENABLED=true
+POQ_MIN_SCORE=7
+POQ_MAX_RETRIES=1
+POQ_OVERFITTING_CHECK=true
 ```
+
+You can also use OpenRouter or Kimi. `.env.example` has examples for those providers.
 
 Do not share `.env.local`. It contains your private key.
 
@@ -117,7 +125,7 @@ In Chrome or Samsung Internet on your phone:
 3. Tap **"Add to Home screen"**.
 4. It now opens like a real app with no browser bar.
 
-## 7. Test OpenRouter
+## 7. Test Your Provider
 
 In the app:
 
@@ -125,9 +133,9 @@ In the app:
 2. Check that the model is filled in.
 3. Click `Test`.
 
-If OpenRouter is working, you will see an OK message.
+If the provider is working, you will see an OK message.
 
-If it says `429 Too Many Requests`, the free model is rate-limited. Wait a bit or use another OpenRouter model.
+If it says `429 Too Many Requests`, the provider or model is rate-limited. Wait a bit or use another model.
 
 ## 8. Start Chatting
 
@@ -135,10 +143,12 @@ Click `Chat`, type a message, and press Enter.
 
 The app will:
 
-1. Send your message to OpenRouter if a key is available.
+1. Send your message to the configured provider if a key is available.
 2. Score the reply with the PoQ gate.
 3. Save accepted replies into local memory.
 4. Show memory metadata under the response.
+
+The PoQ gate can also check real frame changes. If the model claims it needs a new Cambium frame, the app scores that claim. Real frame shifts can pass; shallow frame-change excuses are rejected as evasion and are not saved into memory.
 
 ## 9. Use The Guide
 
@@ -148,7 +158,22 @@ Each card has an `Explain` button.
 
 Clicking `Explain` creates a new chat session that explains that topic using local guide text and local docs.
 
-## 10. Stop The App
+The Guide is source-grounded. Its topics live in the app code, and its explanations can read local markdown like `README.md` and `SKILLS\README.md`.
+
+## 10. Use ImageGen
+
+Click `ImageGen`.
+
+You can:
+
+1. Generate a new image from a prompt.
+2. Upload and edit an existing image.
+3. Redefine an image from your gallery.
+4. Select a gallery image to see its lineage.
+
+ImageGen needs an OpenRouter-compatible image model key. The generated images are saved under your user account.
+
+## 11. Stop The App
 
 Go back to PowerShell and press:
 
@@ -174,6 +199,20 @@ Your Creator Studio personas and marketplace drafts:
 
 ```text
 data\users\<your-username>\created\<persona-id>\
+```
+
+Your ImageGen gallery:
+
+```text
+data\users\<your-username>\gallery\
+data\users\<your-username>\gallery\index.json
+data\users\<your-username>\gallery\.timechain\chain.jsonl
+```
+
+PoQ Cambium frame-shift stats for a session:
+
+```text
+data\users\<your-username>\sessions\<session-name>\.timechain\cambium_events.json
 ```
 
 Creator Studio training chats are normal sessions. Pressing **Train** opens the existing source session for that created persona, or creates one the first time.
@@ -212,8 +251,9 @@ server\
   auth.py          login, register, logout
   marketplace.py   marketplace and creator routes
   imagegen.py      image generation routes
-  timechain.py     app Timechain/session logic
-  llm.py           provider calls and prompt building
+  timechain.py     app Timechain/session/image lineage logic
+  llm.py           provider calls, prompt building, hidden frame metadata parsing
+  poq.py           PoQ scoring, overfitting checks, Cambium frame-evasion checks
   config.py        settings, personas, guide topics
   html.py          page template
   ui.py            browser app JavaScript

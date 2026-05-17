@@ -9,6 +9,84 @@ import server
 
 
 class PoQGateTests(unittest.TestCase):
+    def test_cambium_scoring_accepts_total_three_as_valid(self):
+        event = server.score_cambium(
+            {
+                "current_frame": "binary truth",
+                "frame_adequate": False,
+                "reason": "The true/false categories fail.",
+                "cambium_proposal": "paradox_frame",
+                "cambium_definition": "handles paradoxes",
+            },
+            "Under the paradox frame, this is paradoxical.",
+        )
+
+        self.assertEqual(event["reason_specificity"], 1)
+        self.assertEqual(event["frame_coherence"], 1)
+        self.assertEqual(event["answer_follow_through"], 1)
+        self.assertEqual(event["total"], 3)
+        self.assertEqual(event["status"], "valid")
+
+    def test_cambium_scoring_accepts_total_two_as_weak(self):
+        event = server.score_cambium(
+            {
+                "current_frame": "binary truth",
+                "frame_adequate": False,
+                "reason": "The categories do not fit.",
+                "cambium_proposal": "difference_frame",
+                "cambium_definition": "something different",
+            },
+            "Using the difference frame.",
+        )
+
+        self.assertEqual(event["total"], 2)
+        self.assertEqual(event["status"], "weak")
+
+    def test_cambium_scoring_rejects_zero_and_one_as_evasion(self):
+        zero = server.score_cambium(
+            {
+                "current_frame": "digit mapping",
+                "frame_adequate": False,
+                "reason": "doesn't work",
+                "cambium_proposal": "",
+                "cambium_definition": "",
+            },
+            "The first digit gets +1.",
+        )
+        one = server.score_cambium(
+            {
+                "current_frame": "digit mapping",
+                "frame_adequate": False,
+                "reason": "The categories fail.",
+                "cambium_proposal": "",
+                "cambium_definition": "",
+            },
+            "The first digit gets +1.",
+        )
+
+        self.assertEqual(zero["total"], 0)
+        self.assertEqual(zero["status"], "evasion")
+        self.assertEqual(one["total"], 1)
+        self.assertEqual(one["status"], "evasion")
+
+    def test_cambium_scoring_evasion_override_rejects_unapplied_shallow_shift(self):
+        event = server.score_cambium(
+            {
+                "current_frame": "binary truth",
+                "frame_adequate": False,
+                "reason": "The categories fail.",
+                "cambium_proposal": "paradox_frame",
+                "cambium_definition": "Handles paradoxes.",
+            },
+            "This statement is false.",
+        )
+
+        self.assertEqual(event["reason_specificity"], 1)
+        self.assertEqual(event["frame_coherence"], 1)
+        self.assertEqual(event["answer_follow_through"], 0)
+        self.assertEqual(event["total"], 2)
+        self.assertEqual(event["status"], "evasion")
+
     def test_gate_releases_answer_when_all_scores_pass(self):
         calls = []
 
@@ -314,6 +392,171 @@ class PoQGateTests(unittest.TestCase):
         self.assertIn("Cambium Proposal at step 3", repair_instruction)
         self.assertIn("Please generate one now", repair_instruction)
 
+    def test_valid_frame_declaration_skips_overfitting_penalty(self):
+        def fake_llm(**kwargs):
+            return {
+                "content": server.json.dumps({
+                    "scores": {
+                        "relevance": 8,
+                        "coherence": 8,
+                        "completeness": 8,
+                        "contradictions": 8,
+                        "hallucination": 8,
+                    },
+                    "explanation": "",
+                }),
+                "model_used": "test-model",
+                "usage": {},
+            }
+
+        gate = server.PoQGate(
+            llm_callable=fake_llm,
+            provider="openrouter",
+            api_key="sk-test",
+            model="test-model",
+            timeout=1,
+            min_score=7,
+            max_retries=0,
+            overfitting_check=True,
+        )
+
+        result = gate.review_and_repair(
+            messages=[{"role": "user", "content": "Classify: this statement is false."}],
+            answer=(
+                "In the paradox_frame, this is self-referential and outside binary truth. "
+                "The first classification gets blocked, the second classification becomes unstable."
+            ),
+            query="Classify: this statement is false.",
+            frame_declaration={
+                "current_frame": "true/false classification",
+                "frame_adequate": False,
+                "reason": "The question contains a self-referential paradox that cannot be classified under binary truth.",
+                "cambium_proposal": "paradox_frame",
+                "cambium_definition": "A frame for self-referential or inconsistent statements outside binary truth.",
+            },
+        )
+
+        self.assertTrue(result["passed"])
+        self.assertFalse(result["overfitting_detected"])
+        event = result["cambium_event"]
+        self.assertEqual(event["status"], "valid")
+        self.assertTrue(event["overfitting_skipped"])
+        self.assertEqual(event["proposal"], "paradox_frame")
+
+    def test_invalid_frame_declaration_is_evasion_and_fails(self):
+        def fake_llm(**kwargs):
+            return {
+                "content": server.json.dumps({
+                    "scores": {
+                        "relevance": 8,
+                        "coherence": 8,
+                        "completeness": 8,
+                        "contradictions": 8,
+                        "hallucination": 8,
+                    },
+                    "explanation": "",
+                }),
+                "model_used": "test-model",
+                "usage": {},
+            }
+
+        gate = server.PoQGate(
+            llm_callable=fake_llm,
+            provider="openrouter",
+            api_key="sk-test",
+            model="test-model",
+            timeout=1,
+            min_score=7,
+            max_retries=0,
+            overfitting_check=True,
+        )
+
+        result = gate.review_and_repair(
+            messages=[{"role": "user", "content": "Decode 123."}],
+            answer="The first digit gets +1, second gets +4, third gets +9.",
+            query="Decode 123.",
+            frame_declaration={
+                "current_frame": "digit mapping",
+                "frame_adequate": False,
+                "reason": "Hard question.",
+                "cambium_proposal": "",
+                "cambium_definition": "",
+            },
+        )
+
+        self.assertFalse(result["passed"])
+        self.assertTrue(result["evasion_detected"])
+        self.assertTrue(result["overfitting_detected"])
+        self.assertEqual(result["cambium_event"]["status"], "evasion")
+        self.assertIn("missing cambium_proposal", result["cambium_event"]["evasion_reason"])
+
+    def test_nl_cambium_detects_shift_from_to(self):
+        event = server.evaluate_cambium_frame_declaration(
+            None,
+            "shift from Binary Logic to a self-reference frame",
+        )
+        self.assertIn(event["status"], {"valid", "weak"})
+        self.assertEqual(event["source"], "nl_detection")
+        self.assertEqual(event["proposal"], "")
+        self.assertEqual(event["reason"], "")
+        self.assertGreater(event["quality_score"], 0)
+
+    def test_nl_cambium_detects_domain_naming(self):
+        event = server.evaluate_cambium_frame_declaration(
+            None,
+            "Torsional Logic handles this differently",
+        )
+        self.assertIn(event["status"], {"valid", "weak"})
+        self.assertEqual(event["source"], "nl_detection")
+        self.assertEqual(event["proposal"], "")
+        self.assertEqual(event["reason"], "")
+        self.assertGreater(event["quality_score"], 0)
+
+    def test_nl_cambium_detects_frame_failure(self):
+        event = server.evaluate_cambium_frame_declaration(
+            None,
+            "the current frame fails because it cannot handle self-referential statements",
+        )
+        self.assertIn(event["status"], {"valid", "weak"})
+        self.assertEqual(event["source"], "nl_detection")
+        self.assertEqual(event["proposal"], "")
+        self.assertEqual(event["reason"], "")
+        self.assertGreater(event["quality_score"], 0)
+
+    def test_nl_cambium_no_fire_for_plain_math(self):
+        event = server.evaluate_cambium_frame_declaration(
+            None,
+            "Only math/calculation",
+        )
+        self.assertEqual(event["status"], "none")
+        self.assertEqual(event["source"], "")
+
+    def test_explicit_tag_takes_priority_over_nl(self):
+        frame = {
+            "current_frame": "binary truth",
+            "frame_adequate": False,
+            "reason": "The statement is self-referential and cannot be binary classified.",
+            "cambium_proposal": "paradox_frame",
+            "cambium_definition": "A frame for self-referential statements outside binary truth.",
+        }
+        event = server.evaluate_cambium_frame_declaration(
+            frame,
+            "shift from Binary Logic to a self-reference frame",
+        )
+        self.assertIn(event["status"], {"valid", "weak"})
+        self.assertEqual(event["source"], "explicit_tag")
+
+    def test_nl_cambium_does_not_extract_known_proposals(self):
+        event = server.evaluate_cambium_frame_declaration(
+            None,
+            "Torsional Logic handles this differently",
+            known_proposals={"Torsional_Logic"},
+        )
+        self.assertIn(event["status"], {"valid", "weak"})
+        self.assertEqual(event["source"], "nl_detection")
+        self.assertEqual(event["proposal"], "")
+        self.assertEqual(event["reason"], "")
+
     def test_app_uses_default_poq_config_and_chat_accepts_override(self):
         app = server.App(
             server.pathlib.Path(__file__).resolve().parent / ".test_workspaces" / f"test-{server.uuid.uuid4().hex}",
@@ -365,6 +608,126 @@ class PoQGateTests(unittest.TestCase):
         self.assertTrue(response["poq"]["skipped"])
         self.assertEqual(response["poq"]["reason"], "disabled")
         self.assertEqual(call_llm.call_count, 1)
+
+    def test_generate_llm_response_passes_frame_metadata_to_poq(self):
+        workspace = server.pathlib.Path(__file__).resolve().parent / ".test_workspaces" / f"test-{server.uuid.uuid4().hex}"
+        app = server.App(
+            workspace,
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="sk-test",
+            base_url="",
+            timeout=1,
+        )
+        self.addCleanup(lambda: server.shutil.rmtree(app.root_workspace, ignore_errors=True))
+
+        frame = {
+            "current_frame": "true/false classification",
+            "frame_adequate": False,
+            "reason": "The question is self-referential and cannot be classified in binary truth.",
+            "cambium_proposal": "paradox_frame",
+            "cambium_definition": "A frame for self-referential statements outside binary truth.",
+        }
+
+        llm_responses = iter([
+            {
+                "content": "In the paradox_frame, the statement remains self-referential rather than true or false.",
+                "model_used": "test-model",
+                "usage": {},
+                "frame_declaration": frame,
+            },
+            {
+                "content": server.json.dumps({
+                    "scores": {
+                        "relevance": 8,
+                        "coherence": 8,
+                        "completeness": 8,
+                        "contradictions": 8,
+                        "hallucination": 8,
+                    },
+                    "explanation": "",
+                }),
+                "model_used": "test-model",
+                "usage": {},
+            },
+        ])
+
+        with (
+            mock.patch("server.timechain.active_call_llm", side_effect=lambda **kwargs: next(llm_responses)),
+            mock.patch("server.timechain.generate_llm_memory_candidates", return_value=[]),
+        ):
+            response = app.generate_llm_response(
+                query="Classify: this statement is false.",
+                domain="testing",
+                persona_id="companion",
+                custom_persona=None,
+                model=server.DEFAULT_MODEL,
+                api_key="sk-test",
+            )
+
+        self.assertEqual(response["frame_declaration"], frame)
+        self.assertEqual(response["poq"]["frame_declaration"], frame)
+        self.assertEqual(response["poq"]["cambium_event"]["status"], "valid")
+
+    def test_generate_llm_response_suppresses_memory_candidates_for_evasion(self):
+        workspace = server.pathlib.Path(__file__).resolve().parent / ".test_workspaces" / f"test-{server.uuid.uuid4().hex}"
+        app = server.App(
+            workspace,
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="sk-test",
+            base_url="",
+            timeout=1,
+        )
+        self.addCleanup(lambda: server.shutil.rmtree(app.root_workspace, ignore_errors=True))
+
+        llm_responses = iter([
+            {
+                "content": "The first digit gets +1, second gets +4, third gets +9.",
+                "model_used": "test-model",
+                "usage": {},
+                "frame_declaration": {
+                    "current_frame": "digit mapping",
+                    "frame_adequate": False,
+                    "reason": "Hard question.",
+                    "cambium_proposal": "",
+                },
+            },
+            {
+                "content": server.json.dumps({
+                    "scores": {
+                        "relevance": 8,
+                        "coherence": 8,
+                        "completeness": 8,
+                        "contradictions": 8,
+                        "hallucination": 8,
+                    },
+                    "explanation": "",
+                }),
+                "model_used": "test-model",
+                "usage": {},
+            },
+        ])
+
+        with (
+            mock.patch("server.timechain.active_call_llm", side_effect=lambda **kwargs: next(llm_responses)),
+            mock.patch("server.timechain.generate_llm_memory_candidates") as memory_candidates,
+        ):
+            response = app.generate_llm_response(
+                query="Decode 123.",
+                domain="testing",
+                persona_id="companion",
+                custom_persona=None,
+                model=server.DEFAULT_MODEL,
+                api_key="sk-test",
+            )
+
+        self.assertFalse(response["poq"]["passed"])
+        self.assertTrue(response["poq"]["evasion_detected"])
+        self.assertEqual(response["memory_candidates"], [])
+        memory_candidates.assert_not_called()
 
 
 class PromptAssemblyTests(unittest.TestCase):
@@ -939,6 +1302,47 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertEqual(payload["consolidation_count"], 1)
         self.assertEqual(payload["proposal_count"], 1)
         self.assertEqual(payload["gaps"][0]["mean_brightness"], 0.4123)
+
+    def test_cambium_workbench_includes_poq_cambium_stats(self):
+        app = server.App(
+            self.make_workspace(),
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
+        app.append_poq_cambium_event(
+            query="Classify paradox.",
+            event={
+                "status": "valid",
+                "proposal": "paradox_frame",
+                "quality_score": 0.9,
+                "evasion_reason": "",
+            },
+            frame_declaration={"cambium_proposal": "paradox_frame"},
+        )
+        app.append_poq_cambium_event(
+            query="Decode 123.",
+            event={
+                "status": "evasion",
+                "proposal": "",
+                "quality_score": 0.1,
+                "evasion_reason": "missing cambium_proposal",
+            },
+            frame_declaration={"frame_adequate": False},
+        )
+
+        cambium = app.cambium_workbench()
+        stats = cambium["poq_cambium_stats"]
+
+        self.assertEqual(stats["total_fired"], 2)
+        self.assertEqual(stats["valid_count"], 1)
+        self.assertEqual(stats["evasion_count"], 1)
+        self.assertEqual(stats["valid_rate"], 0.5)
+        self.assertEqual(stats["evasion_rate"], 0.5)
+        self.assertEqual(stats["recent_events"][0]["status"], "evasion")
 
     def test_build_sync_snapshot_uses_rings_memories_and_cambium(self):
         snapshot = server.build_sync_snapshot(
@@ -2378,6 +2782,51 @@ class PromptAssemblyTests(unittest.TestCase):
 
         system = messages[0]["content"]
         self.assertNotIn("Shared memory from other sessions", system)
+
+    def test_parse_frame_declaration_sidecar_removes_hidden_metadata(self):
+        content, declaration = server.extract_frame_declaration(
+            "Visible answer.\n"
+            "[CT_FRAME_DECLARATION]\n"
+            '{"current_frame":"binary truth","frame_adequate":false,'
+            '"reason":"The statement is self-referential and cannot be binary classified.",'
+            '"cambium_proposal":"paradox_frame","cambium_definition":"Self-reference frame."}'
+            "\n[/CT_FRAME_DECLARATION]\n"
+        )
+
+        self.assertEqual(content, "Visible answer.")
+        self.assertEqual(declaration["current_frame"], "binary truth")
+        self.assertFalse(declaration["frame_adequate"])
+        self.assertEqual(declaration["cambium_proposal"], "paradox_frame")
+
+    def test_parse_frame_declaration_plain_response_has_no_metadata(self):
+        content, declaration = server.extract_frame_declaration("Visible answer only.")
+
+        self.assertEqual(content, "Visible answer only.")
+        self.assertIsNone(declaration)
+
+    def test_parse_frame_declaration_malformed_sidecar_is_stripped_without_metadata(self):
+        content, declaration = server.extract_frame_declaration(
+            "Visible answer.\n[CT_FRAME_DECLARATION]\nnot json\n[/CT_FRAME_DECLARATION]"
+        )
+
+        self.assertEqual(content, "Visible answer.")
+        self.assertIsNone(declaration)
+
+    def test_build_messages_includes_frame_declaration_instruction(self):
+        persona = {"name": "Companion", "system": "Stay useful."}
+
+        messages = server.build_messages(
+            persona=persona,
+            query="Classify this paradox.",
+            retrieved=[],
+            durable_memories=[],
+            recent_turns=[],
+            neuro={},
+            covenant="Be useful.",
+        )
+
+        self.assertIn("[CT_FRAME_DECLARATION]", messages[0]["content"])
+        self.assertIn("cambium_proposal", messages[0]["content"])
 
     def test_import_shared_memory_creates_fleet_import_ring(self):
         workspace = self.make_workspace()

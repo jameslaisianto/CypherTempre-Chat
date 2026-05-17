@@ -40,8 +40,11 @@ Marketplace
 - **Creator Studio** — create, train through chat, freeze, price, and publish your own personas to the marketplace
 - Recall over durable facts and prior accepted rings
 - LLM retry/repair for direct memory misses
+- **PoQ Cambium frame checks** - genuine frame shifts can be declared as hidden metadata, scored for specificity/coherence/follow-through, and rejected as evasion if they are shallow
 - Memory Inspector review controls for accepting, rejecting, editing, and forgetting proposed memories
 - Self-model and chain verification panels
+- **Timechain Workbench** - inspect rings, Cambium gaps, Shared Memory, overlays, Sync Snapshots, Dream synthesis, fleet import, temporal challenges, and PoQ Cambium stats
+- **ImageGen Studio** - generate, edit, redefine, and delete images with a per-user gallery and Timechain lineage
 - One-click reset for local chain memory
 - Built-in Guide page with simple and comprehensive explanations
 - Source-grounded Guide explanations that open dedicated chat sessions
@@ -120,11 +123,12 @@ BASE_URL=https://api.mor.org/api/v1
 POQ_ENABLED=true
 POQ_MIN_SCORE=7
 POQ_MAX_RETRIES=1
+POQ_OVERFITTING_CHECK=true
 ```
 
 `.env.local` is ignored by git. Do not commit real keys.
 
-`POQ_ENABLED`, `POQ_MIN_SCORE`, and `POQ_MAX_RETRIES` tune the post-generation PoQ gate. A chat request can send `"poq": false` to skip the gate for speed-sensitive calls.
+`POQ_ENABLED`, `POQ_MIN_SCORE`, `POQ_MAX_RETRIES`, and `POQ_OVERFITTING_CHECK` tune the post-generation PoQ gate. A chat request can send `"poq": false` to skip the gate for speed-sensitive calls.
 
 ### 5. Start the server
 
@@ -192,6 +196,8 @@ This deletes and recreates the local `.timechain` chain for the PoC workspace. I
 - `Enter` sends the message.
 - `Shift+Enter` inserts a new line.
 - The current model, resolved domain, ring number, brightness, retry status, memory-hit count, and epistemic status appear under accepted responses.
+- The PoQ gate can ask the model to declare a hidden `CT_FRAME_DECLARATION` only when the answer genuinely changes frame. The marker is stripped from visible chat before display.
+- Valid Cambium frame declarations can bypass deterministic overfitting penalties when the answer actually uses the new frame. Shallow declarations are treated as evasion and are not sealed.
 - Accepted responses can create pending memory candidates. Review them in Memory Inspector before they become active durable memories.
 - Persona Studio has a required `Persona name` field plus a seed/style field. The generated persona uses the supplied name.
 - API key and model selection live behind the Settings gear; emptying the browser key removes the saved browser key.
@@ -201,6 +207,8 @@ This deletes and recreates the local `.timechain` chain for the PoC workspace. I
 Open `Guide`, then click `Explain` on a topic card. The PoC creates a new session named `Explain: <topic>` and seeds it with a source-grounded explanation from local guide content plus relevant app-local docs.
 
 The guide explainer can read only files inside `cyphertempre-chat-poc`, including `README.md`, `.env.example`, and `SKILLS/README.md`. It is instructed to avoid assumptions and to say when a requested fact is not covered by the provided sources.
+
+Guide topics are defined in `server/config.py`. They are source-grounded by local markdown and app-local guide text, so update both places when behavior changes.
 
 ## Sessions
 
@@ -241,10 +249,24 @@ Session-local memory notes live under your user session workspace:
 cyphertempre-chat-poc/data/users/<username>/sessions/<session-id>/.timechain/memory_model.json
 ```
 
+PoQ Cambium frame declarations that are valid or evasive are summarized per session:
+
+```text
+cyphertempre-chat-poc/data/users/<username>/sessions/<session-id>/.timechain/cambium_events.json
+```
+
 Custom personas are stored in your user folder:
 
 ```text
 cyphertempre-chat-poc/data/users/<username>/custom_personas.json
+```
+
+ImageGen Studio stores generated image files, a gallery index, and a separate image Timechain under your user folder:
+
+```text
+cyphertempre-chat-poc/data/users/<username>/gallery/
+cyphertempre-chat-poc/data/users/<username>/gallery/index.json
+cyphertempre-chat-poc/data/users/<username>/gallery/.timechain/chain.jsonl
 ```
 
 Server restarts and browser reloads keep sealed rings, reviewed durable memories, pending memory candidates, and custom personas. The UI reconstructs visible chat from the Timechain rings through `/api/history`, and the Memory Inspector shows pending and accepted memories through `/api/memories`, `/api/self-model`, and `/api/recall`.
@@ -275,6 +297,33 @@ Not persisted as rings:
 - pending memory candidates
 - unsent drafts
 - temporary UI state
+
+## Timechain Workbench
+
+Open **Settings -> Workbench** to inspect and operate on the active session's continuity state.
+
+- **Ring timeline:** recent sealed rings with kind, domain, brightness, epistemic status, PoQ scores, hash prefix, retrieved lineage, and supersession hints.
+- **Cambium:** low-brightness gaps, consolidation candidates, and growth proposals from the local Timechain scan.
+- **PoQ Cambium stats:** counts of valid frame shifts and rejected Cambium evasions captured from post-generation PoQ review.
+- **Sync Snapshot:** copies a `CT_SYNC_SNAPSHOT` handoff artifact with current state, recent rings, accepted memories, pending open loops, verification status, risks, and next steps.
+- **Dream synthesis:** seals speculative cross-domain synthesis rings from existing accepted domains.
+- **Overlays:** writes tag weight multipliers to `.timechain/overlays.json` so selected topics can be emphasized by retrieval.
+- **Memory Sync:** writes a human-readable `MEMORY.md` summary and daily memory journal for the active session workspace.
+- **Fleet import and Temporal challenge:** import foreign rings with covenant checks, or prove continuity from selected hashes and a nonce.
+
+Workbench output is diagnostic. Cambium proposals and PoQ Cambium events are not durable user memories by themselves.
+
+## ImageGen Studio
+
+Open **ImageGen** from the left rail or bottom nav.
+
+- **Generate:** create an image from a text prompt.
+- **Edit:** upload an image and apply an edit prompt.
+- **Redefine:** select an existing gallery image and create a revised child image from it.
+- **Gallery:** browse and delete your saved images.
+- **Lineage:** selecting an image shows the chain of generated, edited, and redefined images.
+
+Image generation currently uses the OpenRouter-compatible image endpoint configured by the UI model selector or server defaults. Each saved image operation also seals an image-domain Timechain ring in the user's gallery workspace, separate from chat session memory.
 
 ## Persona Marketplace
 
@@ -392,7 +441,7 @@ The UI is fully responsive and works on phones.
 
 ### Mobile navigation
 
-- **Bottom tabs:** Chat, Guide, and Settings are always one tap away.
+- **Bottom tabs:** Chat, Guide, Market, ImageGen, and Settings are one tap away.
 - **☰ Menu:** Opens the left drawer (personas, domains, sessions, persona studio).
 - **🧠 Memory:** Opens the right drawer (Self Model, Recall, Verify Chain).
 
@@ -415,9 +464,10 @@ If the UI says the provider is not ready:
 - check that `.env.local` exists
 - check that `API_KEY` (or `MORPHEUS_API_KEY`) is spelled correctly
 - restart the server after editing `.env.local`
-- confirm the provider is `morpheus`
-- confirm the model is set to `venice-uncensored`
+- confirm the provider/model match your key, such as `morpheus` + `venice-uncensored` or an OpenRouter model
 
 If responses use `local-default-generator`, the server did not receive an API key.
 
 If `timechain.py` is missing, copy it into `cyphertempre-chat-poc/timechain.py` or use `--timechain-path`.
+
+If ImageGen says an API key is required, configure an OpenRouter-compatible key in Settings or pass one through the ImageGen request.
