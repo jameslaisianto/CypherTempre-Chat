@@ -23,6 +23,8 @@ from server import marketplace as marketplace_routes
 from server.config import (
     DEFAULT_MODEL, DEFAULT_PROVIDER, PROVIDERS, PERSONAS,
     DEFAULT_TIMECHAIN_PATH, DEFAULT_ENV_PATH,
+    DEFAULT_POQ_ENABLED, DEFAULT_POQ_MIN_SCORE, DEFAULT_POQ_MAX_RETRIES,
+    DEFAULT_POQ_OVERFITTING_CHECK,
     default_provider_url,
 )
 from server.html import HTML_TEMPLATE
@@ -123,6 +125,7 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                         "creator_personas": creator_personas,
                         "public_personas": public_personas,
                         "marketplace_personas": mp_personas,
+                        "poq": app.poq,
                     })
                     return
                 if path == "/api/guide/topics":
@@ -235,6 +238,9 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                         self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
                         return
                     chat.handle_shared_memory_recall(self, app)
+                    return
+                if path.startswith("/api/session/") and path.endswith("/anchor/list"):
+                    self.handle_session_anchor_list(path)
                     return
                 if path == "/api/auth/me":
                     auth.handle_auth_me(self)
@@ -384,6 +390,12 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                     return
                 if path == "/api/shared-memory/synthesize":
                     self.handle_shared_memory_synthesize()
+                    return
+                if path.startswith("/api/session/") and path.endswith("/anchor"):
+                    self.handle_session_anchor(path)
+                    return
+                if path.startswith("/api/session/") and path.endswith("/anchor/auto"):
+                    self.handle_session_anchor_auto(path)
                     return
                 if path == "/api/sessions/delete":
                     self.handle_delete_session()
@@ -537,6 +549,57 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
 
         def handle_creator_delete(self, persona_id: str) -> None:
             marketplace_routes.handle_creator_delete(self, persona_id)
+
+        def _session_id_from_anchor_path(self, path: str, suffix: str) -> str:
+            prefix = "/api/session/"
+            if not path.startswith(prefix) or not path.endswith(suffix):
+                return ""
+            session_id = path[len(prefix): -len(suffix)]
+            return sanitize_session_id(urllib.parse.unquote(session_id.strip("/")))
+
+        def handle_session_anchor_list(self, path: str) -> None:
+            try:
+                user = self._auth_user()
+            except PermissionError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                return
+            session_id = self._session_id_from_anchor_path(path, "/anchor/list")
+            app.use_session(session_id, username=user["username"])
+            self.send_json(app.list_memory_anchors())
+
+        def handle_session_anchor(self, path: str) -> None:
+            try:
+                user = self._auth_user()
+            except PermissionError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                return
+            session_id = self._session_id_from_anchor_path(path, "/anchor")
+            app.use_session(session_id, username=user["username"])
+            try:
+                self.send_json(app.write_memory_anchor())
+            except PermissionError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.CONFLICT)
+
+        def handle_session_anchor_auto(self, path: str) -> None:
+            try:
+                user = self._auth_user()
+            except PermissionError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                return
+            payload = self.read_json()
+            session_id = self._session_id_from_anchor_path(path, "/anchor/auto")
+            app.use_session(session_id, username=user["username"])
+            try:
+                interval = int(payload.get("interval", 100) or 100)
+            except (TypeError, ValueError):
+                self.send_json({"ok": False, "error": "interval must be an integer"}, HTTPStatus.BAD_REQUEST)
+                return
+            result = app.configure_auto_memory_anchor(
+                enabled=bool(payload.get("enabled", True)),
+                interval=interval,
+            )
+            self.send_json(result)
+
         def query_param(self, name: str) -> str:
             parsed = urlparse(self.path)
             pairs = [part.split("=", 1) for part in parsed.query.split("&") if part]
@@ -626,7 +689,65 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--timeout", type=float, default=45.0)
     parser.add_argument("--openrouter-timeout", type=float, default=None, help="Deprecated. Use --timeout instead.")
+    parser.add_argument(
+        "--poq-enabled",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable or disable the post-generation PoQ gate.",
+    )
+    parser.add_argument("--poq-min-score", type=float, default=None, help="Minimum PoQ score required for release.")
+    parser.add_argument("--poq-max-retries", type=int, default=None, help="Maximum PoQ repair attempts.")
+    parser.add_argument(
+        "--poq-overfitting-check",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable or disable deterministic PoQ overfitting detection.",
+    )
     return parser
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in {"0", "false", "no", "off"}
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+def build_poq_config(args: argparse.Namespace) -> dict[str, Any]:
+    enabled = _env_bool("POQ_ENABLED", DEFAULT_POQ_ENABLED)
+    min_score = _env_float("POQ_MIN_SCORE", float(DEFAULT_POQ_MIN_SCORE))
+    max_retries = _env_int("POQ_MAX_RETRIES", int(DEFAULT_POQ_MAX_RETRIES))
+    overfitting_check = _env_bool("POQ_OVERFITTING_CHECK", DEFAULT_POQ_OVERFITTING_CHECK)
+    if args.poq_enabled is not None:
+        enabled = bool(args.poq_enabled)
+    if args.poq_min_score is not None:
+        min_score = float(args.poq_min_score)
+    if args.poq_max_retries is not None:
+        max_retries = int(args.poq_max_retries)
+    if args.poq_overfitting_check is not None:
+        overfitting_check = bool(args.poq_overfitting_check)
+    return {
+        "enabled": enabled,
+        "min_score": min_score,
+        "max_retries": max(0, max_retries),
+        "overfitting_check": overfitting_check,
+    }
 
 def migrate_global_data_to_users(app: App) -> None:
     users_path = app.root_workspace / "data" / "users.json"
@@ -686,6 +807,7 @@ def main() -> int:
         api_key=api_key,
         base_url=base_url,
         timeout=timeout,
+        poq=build_poq_config(args),
     )
     migrate_global_data_to_users(app)
     handler = make_handler(app)

@@ -109,9 +109,14 @@ PROVIDER=morpheus
 API_KEY=YOUR_API_KEY
 MODEL=venice-uncensored
 BASE_URL=https://api.mor.org/api/v1
+POQ_ENABLED=true
+POQ_MIN_SCORE=7
+POQ_MAX_RETRIES=1
 ```
 
 `.env.local` is ignored by git. Do not commit real keys.
+
+`POQ_ENABLED`, `POQ_MIN_SCORE`, and `POQ_MAX_RETRIES` tune the post-generation PoQ gate. A chat request can send `"poq": false` to skip the gate for speed-sensitive calls.
 
 ### 5. Start the server
 

@@ -25,8 +25,10 @@ from server.config import (
     DEFAULT_MODEL, DEFAULT_PROVIDER, PROVIDERS, IMAGE_PROVIDERS, PERSONAS,
     DOMAIN_KEYWORDS, GUIDE_TOPICS, GUIDE_EXPLAINER_PERSONA,
     DEFAULT_TIMECHAIN_PATH, DEFAULT_ENV_PATH,
-    ACTIVE_CONTEXT_DAYS,
+    ACTIVE_CONTEXT_DAYS, DEFAULT_POQ_ENABLED, DEFAULT_POQ_MIN_SCORE,
+    DEFAULT_POQ_MAX_RETRIES, DEFAULT_POQ_OVERFITTING_CHECK,
 )
+from server.poq import PoQGate
 
 from server.llm import (
     recall_memory_facts,
@@ -870,6 +872,146 @@ def prune_memory_model_to_ring(model: dict[str, Any], max_ring: int) -> dict[str
     model["facts"] = facts
     return model
 
+ANCHOR_MARKER = "[ANCHOR"
+DEFAULT_ANCHOR_INTERVAL = 100
+ANCHOR_RECENT_RING_LIMIT = 50
+ANCHOR_MAX_LINES = 40
+_ANCHOR_TERM_STOPWORDS = {
+    "Every", "The", "This", "That", "These", "Those", "Remember", "Response",
+    "Backward", "Inverted", "Verified", "Constraint", "World", "Fact",
+}
+_ANCHOR_CONSTRAINT_RE = re.compile(
+    r"\b(every response must|response must|must|always|never|do not|don't|required|constraint)\b",
+    re.IGNORECASE,
+)
+_ANCHOR_FACT_RE = re.compile(
+    r"\b(is|are|means|includes|uses|equals|called|named|codename|must begin with)\b",
+    re.IGNORECASE,
+)
+_ANCHOR_TERM_RE = re.compile(
+    r"\b(?:[A-Z][a-z0-9]+|[A-Z]{2,})(?:\s+(?:[A-Z][a-z0-9]+|[A-Z]{2,}|[a-z][a-z0-9_-]+)){0,3}\b"
+)
+_ANCHOR_IDENTIFIER_RE = re.compile(r"\b[A-Za-z][A-Za-z0-9_-]*(?:[_-][A-Za-z0-9_-]+|\d[A-Za-z0-9_-]*)\b")
+
+
+def _anchor_sentence_candidates(text: str) -> list[str]:
+    normalized = re.sub(r"\s+", " ", str(text or "")).strip()
+    if not normalized:
+        return []
+    pieces = re.split(r"(?<=[.!?])\s+|\n+", normalized)
+    return [piece.strip(" \t\r\n.!?") for piece in pieces if piece.strip(" \t\r\n.!?")]
+
+
+def _anchor_clean_value(value: str, *, limit: int = 180) -> str:
+    cleaned = re.sub(r"\s+", " ", str(value or "")).strip(" \t\r\n:-")
+    if len(cleaned) > limit:
+        cleaned = cleaned[: limit - 3].rstrip() + "..."
+    return cleaned
+
+
+def _anchor_line_key(line: str) -> str:
+    text = str(line or "").strip().lower()
+    if ":" in text:
+        text = text.split(":", 1)[1]
+    return re.sub(r"\s+", " ", text).strip().strip('"')
+
+
+def _is_anchor_ring(ring: Any) -> bool:
+    tags = {str(tag).strip().lower() for tag in getattr(ring, "tags", []) or []}
+    content = str(getattr(ring, "content", "") or "")
+    return (
+        str(getattr(ring, "kind", "") or "").lower() == "anchor"
+        or "anchor" in tags
+        or "memory-anchor" in tags
+        or ANCHOR_MARKER in content
+    )
+
+
+def _existing_anchor_fact_keys(chain: list[Any]) -> set[str]:
+    keys: set[str] = set()
+    for ring in chain:
+        if not _is_anchor_ring(ring):
+            continue
+        for line in str(getattr(ring, "content", "") or "").splitlines():
+            line = line.strip()
+            if not line or line.startswith(ANCHOR_MARKER):
+                continue
+            key = _anchor_line_key(line)
+            if key:
+                keys.add(key)
+    return keys
+
+
+def _anchor_lines_from_ring(ring: Any) -> list[str]:
+    ring_n = int(getattr(ring, "n", 0) or 0)
+    content = str(getattr(ring, "content", "") or "")
+    query = str(getattr(ring, "query", "") or "")
+    lines: list[str] = []
+
+    for sentence in _anchor_sentence_candidates(" ".join([query, content])):
+        value = _anchor_clean_value(sentence)
+        if not value:
+            continue
+        if _ANCHOR_CONSTRAINT_RE.search(sentence):
+            lines.append(f'Constraint-ring_{ring_n}: "{value}"')
+        elif _ANCHOR_FACT_RE.search(sentence):
+            lines.append(f'Fact-ring_{ring_n}: "{value}"')
+
+    seen_terms: set[str] = set()
+    for term in _ANCHOR_TERM_RE.findall(content):
+        clean = _anchor_clean_value(term, limit=80)
+        if not clean or clean in _ANCHOR_TERM_STOPWORDS or len(clean) < 3:
+            continue
+        if clean.lower() in seen_terms:
+            continue
+        seen_terms.add(clean.lower())
+        lines.append(f'Term-ring_{ring_n}: "{clean}"')
+
+    for identifier in _ANCHOR_IDENTIFIER_RE.findall(content):
+        clean = _anchor_clean_value(identifier, limit=80)
+        if not clean or clean.lower() in seen_terms:
+            continue
+        if clean.lower() in {"timechain", "cyphertempre"}:
+            continue
+        seen_terms.add(clean.lower())
+        lines.append(f'Identifier-ring_{ring_n}: "{clean}"')
+
+    deduped: list[str] = []
+    seen_values: set[str] = set()
+    for line in lines:
+        key = _anchor_line_key(line)
+        if key and key not in seen_values:
+            seen_values.add(key)
+            deduped.append(line)
+    return deduped
+
+
+def build_memory_anchor_content(
+    chain: list[Any],
+    *,
+    recent_limit: int = ANCHOR_RECENT_RING_LIMIT,
+    max_lines: int = ANCHOR_MAX_LINES,
+) -> tuple[str, int, list[str]]:
+    anchor_ring = max((int(getattr(ring, "n", 0) or 0) for ring in chain), default=0)
+    existing = _existing_anchor_fact_keys(chain)
+    candidates: list[str] = []
+    source_rings = [
+        ring for ring in chain
+        if getattr(ring, "kind", "") != "genesis" and not _is_anchor_ring(ring)
+    ][-max(1, int(recent_limit or ANCHOR_RECENT_RING_LIMIT)):]
+    for ring in source_rings:
+        for line in _anchor_lines_from_ring(ring):
+            key = _anchor_line_key(line)
+            if key and key not in existing:
+                existing.add(key)
+                candidates.append(line)
+            if len(candidates) >= max_lines:
+                break
+        if len(candidates) >= max_lines:
+            break
+    content = "\n".join([f"[ANCHOR:RING={anchor_ring}]", *candidates])
+    return content, anchor_ring, candidates
+
 class App:
     def __init__(
         self,
@@ -881,6 +1023,7 @@ class App:
         api_key: str,
         base_url: str,
         timeout: float,
+        poq: dict[str, Any] | None = None,
     ) -> None:
         self.root_workspace = workspace.resolve()
         self.root_workspace.mkdir(parents=True, exist_ok=True)
@@ -890,6 +1033,13 @@ class App:
         self.api_key = api_key
         self.base_url = base_url
         self.timeout = timeout
+        raw_poq = poq or {}
+        self.poq = {
+            "enabled": bool(raw_poq.get("enabled", DEFAULT_POQ_ENABLED)),
+            "min_score": float(raw_poq.get("min_score", DEFAULT_POQ_MIN_SCORE)),
+            "max_retries": max(0, int(raw_poq.get("max_retries", DEFAULT_POQ_MAX_RETRIES))),
+            "overfitting_check": bool(raw_poq.get("overfitting_check", DEFAULT_POQ_OVERFITTING_CHECK)),
+        }
         self.active_session = "default"
         self.user_active_sessions: dict[str, str] = {}
         self._image_agents: dict[str, Any] = {}
@@ -998,6 +1148,9 @@ class App:
             epistemic="known",
             tags=[kind, mode, "image"],
             supersedes=supersedes,
+            perception={k: [0.45] * 5 for k in self.timechain.PERCEPTION_DIMENSIONS},
+            fields={k: 0.45 for k in self.timechain.EXPERIENTIAL_FIELDS},
+            planes=["aesthetic_harmony", "poetic_reasoning", "pattern_matching"],
         )
         sealed = agent._append(candidate)
         return sealed.n
@@ -1294,6 +1447,146 @@ class App:
     def reload_agent(self) -> None:
         self.agent = self.timechain.TimechainAgent(workspace=self.workspace)
 
+    def memory_anchor_config(self) -> dict[str, Any]:
+        metadata = load_session_metadata(self.workspace)
+        raw = metadata.get("auto_anchor")
+        if not isinstance(raw, dict):
+            raw = {}
+        interval = int(raw.get("interval", DEFAULT_ANCHOR_INTERVAL) or DEFAULT_ANCHOR_INTERVAL)
+        return {
+            "enabled": bool(raw.get("enabled", False)),
+            "interval": max(1, interval),
+            "last_anchor_ring": int(raw.get("last_anchor_ring", 0) or 0),
+        }
+
+    def configure_auto_memory_anchor(self, *, enabled: bool = True, interval: int = DEFAULT_ANCHOR_INTERVAL) -> dict[str, Any]:
+        metadata = load_session_metadata(self.workspace)
+        current = self.memory_anchor_config()
+        current["enabled"] = bool(enabled)
+        current["interval"] = max(1, int(interval or DEFAULT_ANCHOR_INTERVAL))
+        metadata["auto_anchor"] = current
+        save_session_metadata(self.workspace, metadata)
+        return {
+            "ok": True,
+            "session": self.active_session,
+            "auto_anchor": current,
+        }
+
+    def _save_memory_anchor_progress(self, anchored_ring: int) -> None:
+        metadata = load_session_metadata(self.workspace)
+        config = self.memory_anchor_config()
+        config["last_anchor_ring"] = max(int(config.get("last_anchor_ring", 0) or 0), int(anchored_ring))
+        metadata["auto_anchor"] = config
+        save_session_metadata(self.workspace, metadata)
+
+    def list_memory_anchors(self) -> dict[str, Any]:
+        self.reload_agent()
+        anchors = []
+        for ring in self.agent.chain:
+            if not _is_anchor_ring(ring):
+                continue
+            content = str(getattr(ring, "content", "") or "")
+            match = re.search(r"\[ANCHOR:RING=(\d+)\]", content)
+            anchors.append({
+                "n": int(getattr(ring, "n", 0) or 0),
+                "anchored_ring": int(match.group(1)) if match else 0,
+                "ts": str(getattr(ring, "ts", "") or ""),
+                "content": content,
+                "brightness": round(float(getattr(ring, "brightness", 0) or 0), 4),
+                "hash_prefix": str(getattr(ring, "hash", "") or "")[:16],
+                "tags": list(getattr(ring, "tags", []) or []),
+            })
+        return {
+            "ok": True,
+            "session": self.active_session,
+            "count": len(anchors),
+            "anchors": anchors,
+            "auto_anchor": self.memory_anchor_config(),
+        }
+
+    def write_memory_anchor(self, *, recent_limit: int = ANCHOR_RECENT_RING_LIMIT) -> dict[str, Any]:
+        self.reload_agent()
+        if self.agent.frozen:
+            raise PermissionError("timechain is frozen")
+        content, anchored_ring, lines = build_memory_anchor_content(
+            self.agent.chain,
+            recent_limit=recent_limit,
+        )
+        if not lines:
+            return {
+                "ok": True,
+                "session": self.active_session,
+                "written": False,
+                "ring": None,
+                "anchored_ring": anchored_ring,
+                "content": content,
+                "fact_count": 0,
+                "reason": "no new anchor facts",
+                "auto_anchor": self.memory_anchor_config(),
+            }
+        neuro = self.timechain.compute_neuro(self.agent.chain, "memory")
+        lattice = self.timechain.compute_lattice(
+            "memory anchor",
+            content,
+            [],
+            self.agent.chain,
+            domain="memory",
+        )
+        candidate = self.timechain.Ring(
+            n=len(self.agent.chain),
+            prev=self.agent.chain[-1].hash,
+            ts=dt.datetime.now(dt.timezone.utc).isoformat(),
+            kind="anchor",
+            domain="memory",
+            query=f"memory anchor ring {anchored_ring}",
+            content=content,
+            brightness=1.0,
+            scores={"coherence": 1.0, "relevance": 1.0, "novelty": 0.7, "consistency": 1.0, "depth": 0.8, "continuity": 1.0, "covenant": 1.0},
+            neuro=neuro,
+            retrieved=[],
+            epistemic="known",
+            tags=["anchor", "memory-anchor", f"anchor-ring:{anchored_ring}"],
+            importance=1.0,
+            perception=lattice["perception"],
+            fields=lattice["fields"],
+            planes=lattice["planes"],
+        )
+        sealed = self.agent._append(candidate)
+        self._save_memory_anchor_progress(anchored_ring)
+        return {
+            "ok": True,
+            "session": self.active_session,
+            "written": True,
+            "ring": sealed.n,
+            "anchored_ring": anchored_ring,
+            "content": sealed.content,
+            "fact_count": len(lines),
+            "hash": sealed.hash,
+            "hash_prefix": sealed.hash[:16],
+            "brightness": round(float(sealed.brightness), 4),
+            "auto_anchor": self.memory_anchor_config(),
+        }
+
+    def maybe_write_auto_memory_anchor(self) -> dict[str, Any]:
+        self.reload_agent()
+        config = self.memory_anchor_config()
+        if not config.get("enabled"):
+            return {"ok": True, "session": self.active_session, "written": False, "reason": "auto anchor disabled", "auto_anchor": config}
+        current_ring = max((int(getattr(ring, "n", 0) or 0) for ring in self.agent.chain), default=0)
+        interval = max(1, int(config.get("interval", DEFAULT_ANCHOR_INTERVAL) or DEFAULT_ANCHOR_INTERVAL))
+        last_anchor_ring = int(config.get("last_anchor_ring", 0) or 0)
+        if current_ring - last_anchor_ring < interval:
+            return {
+                "ok": True,
+                "session": self.active_session,
+                "written": False,
+                "reason": "interval not reached",
+                "rings_until_next": interval - (current_ring - last_anchor_ring),
+                "auto_anchor": config,
+            }
+        anchor = self.write_memory_anchor()
+        return {"ok": True, "session": self.active_session, "written": bool(anchor.get("written")), "anchor": anchor, "auto_anchor": anchor.get("auto_anchor", config)}
+
     def persona_name_for_id(self, persona_id: str, username: str | None = None) -> str:
         persona_id = sanitize_session_id(persona_id or "")
         persona = self.get_custom_persona(persona_id, username=username) or PERSONAS.get(persona_id)
@@ -1476,6 +1769,7 @@ class App:
                 "tags": ring.tags,
                 "hash_prefix": ring.hash[:16],
                 "epistemic": ring.epistemic,
+                "authoritative": _is_anchor_ring(ring),
             })
         diagnostics = [
             f"durable facts matched: {len(fact_hits)}",
@@ -1876,6 +2170,9 @@ class App:
             epistemic="speculated",
             tags=["comprehension", "shared_memory"] + [ring.domain for ring, _ in picks],
             source=f"synthesis:{','.join(f'{session}:{ring.n}' for ring, session in picks)}",
+            perception={k: [0.5] * 5 for k in self.timechain.PERCEPTION_DIMENSIONS},
+            fields={k: 0.5 for k in self.timechain.EXPERIENTIAL_FIELDS},
+            planes=["meta_cognitive_self", "dialectical_synthesis", "pattern_matching"],
         )
         sealed = self.agent._append(candidate)
         return {
@@ -2032,6 +2329,7 @@ class App:
         provider: str = "",
         base_url: str = "",
         shared_hits: list[dict[str, Any]] | None = None,
+        poq_enabled: bool | None = None,
     ) -> dict[str, Any]:
         persona_id = self.bind_session_persona(persona_id)
         persona = custom_persona or self.get_custom_persona(persona_id) or PERSONAS.get(persona_id) or PERSONAS["companion"]
@@ -2047,6 +2345,9 @@ class App:
         retrieved = [ring for _, ring in retrieved_scored]
         recent_turns = build_recent_turns(self.agent.chain, limit=8)
         neuro = self.timechain.compute_neuro(self.agent.chain, domain)
+        lattice = self.timechain.compute_lattice(
+            query, query, retrieved, self.agent.chain, domain=domain
+        )
         messages = build_messages(
             persona=persona,
             query=query,
@@ -2058,6 +2359,7 @@ class App:
             covenant=self.agent.values,
             model=model or self.default_model,
             temporal_context=self.agent.get_temporal_context(),
+            lattice=lattice,
         )
         key = api_key or self.api_key
         provider = (provider or self.provider).strip().lower()
@@ -2076,6 +2378,12 @@ class App:
                 "memory_hits": durable_hits,
                 "memory_candidates": [],
                 "retry": {"attempted": bool(local_repair), "reason": retry_reason},
+                "poq": {
+                    "enabled": bool(self.poq.get("enabled")),
+                    "skipped": True,
+                    "passed": True,
+                    "reason": "no_api_key" if not key else "provider_error",
+                },
                 "persona": persona,
             }
             if provider_error:
@@ -2113,6 +2421,45 @@ class App:
                 retry["attempted"] = True
             except RuntimeError as exc:
                 llm["provider_error"] = str(exc)
+        poq_is_enabled = self.poq.get("enabled", DEFAULT_POQ_ENABLED) if poq_enabled is None else bool(poq_enabled)
+        if poq_is_enabled and not llm.get("provider_error"):
+            try:
+                poq_result = PoQGate(
+                    llm_callable=active_call_llm,
+                    provider=provider,
+                    api_key=key,
+                    model=model or self.default_model,
+                    timeout=self.timeout,
+                    base_url=base_url,
+                    min_score=float(self.poq.get("min_score", DEFAULT_POQ_MIN_SCORE)),
+                    max_retries=int(self.poq.get("max_retries", DEFAULT_POQ_MAX_RETRIES)),
+                    max_tokens=response_token_budget(query),
+                    overfitting_check=bool(self.poq.get("overfitting_check", DEFAULT_POQ_OVERFITTING_CHECK)),
+                ).review_and_repair(messages=messages, answer=str(llm.get("content", "")), query=query)
+                llm["content"] = poq_result["content"]
+                llm["poq"] = poq_result
+            except RuntimeError as exc:
+                llm["poq"] = {
+                    "enabled": True,
+                    "skipped": True,
+                    "passed": True,
+                    "reason": "poq_error",
+                    "error": str(exc),
+                }
+        else:
+            llm["poq"] = {
+                "enabled": bool(poq_is_enabled),
+                "skipped": True,
+                "passed": True,
+                "reason": "disabled" if not poq_is_enabled else "provider_error",
+            }
+        if llm.get("poq", {}).get("passed") is False:
+            llm["memory_candidates"] = []
+            llm["retrieved"] = [ring.n for ring in retrieved]
+            llm["memory_hits"] = durable_hits
+            llm["retry"] = retry
+            llm["persona"] = persona
+            return llm
         llm["memory_candidates"] = generate_llm_memory_candidates(
             provider=provider,
             api_key=key,
@@ -2154,6 +2501,27 @@ def finalize_chat_response(
             "retrieved": llm.get("retrieved", []),
             "memory_hits": llm.get("memory_hits", []),
             "retry": llm.get("retry", {"attempted": False, "reason": ""}),
+            "poq": llm.get("poq", {}),
+            "usage": llm.get("usage", {}),
+            "persona_name": persona_name,
+            "domain": domain,
+        }
+    poq = llm.get("poq", {})
+    if poq and poq.get("passed") is False and not poq.get("skipped"):
+        return {
+            "ok": True,
+            "accepted": False,
+            "reason": "poq_failed",
+            "brightness": 0,
+            "scores": {},
+            "content": llm.get("content", ""),
+            "model": model,
+            "model_used": llm.get("model_used"),
+            "provider_error": "",
+            "retrieved": llm.get("retrieved", []),
+            "memory_hits": llm.get("memory_hits", []),
+            "retry": llm.get("retry", {"attempted": False, "reason": ""}),
+            "poq": poq,
             "usage": llm.get("usage", {}),
             "persona_name": persona_name,
             "domain": domain,
@@ -2176,6 +2544,7 @@ def finalize_chat_response(
             "model": model,
             "model_used": llm.get("model_used"),
             "provider_error": "",
+            "poq": llm.get("poq", {}),
             "persona_name": persona_name,
             "domain": domain,
         }
@@ -2186,6 +2555,7 @@ def finalize_chat_response(
         persona_name=persona_name,
         llm_candidates=llm.get("memory_candidates", []),
     )
+    auto_anchor = app.maybe_write_auto_memory_anchor()
     return {
         "ok": True,
         "accepted": True,
@@ -2199,7 +2569,9 @@ def finalize_chat_response(
         "memory_hits": llm.get("memory_hits", []),
         "memory_extracted": staged,
         "memory_pending": [memory for memory in staged if memory.get("status") == "pending"],
+        "anchor": auto_anchor.get("anchor") if auto_anchor.get("written") else None,
         "retry": llm.get("retry", {"attempted": False, "reason": ""}),
+        "poq": llm.get("poq", {}),
         "epistemic": result.get("epistemic"),
         "cache_hit": result.get("cache_hit"),
         "model": model,
