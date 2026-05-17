@@ -1,10 +1,370 @@
 import inspect
+import json
 import unittest
 from unittest import mock
 from types import SimpleNamespace
 
 import marketplace
 import server
+
+
+class PoQGateTests(unittest.TestCase):
+    def test_gate_releases_answer_when_all_scores_pass(self):
+        calls = []
+
+        def fake_llm(**kwargs):
+            calls.append(kwargs)
+            return {
+                "content": server.json.dumps({
+                    "scores": {
+                        "relevance": 8,
+                        "coherence": 8,
+                        "completeness": 7,
+                        "contradictions": 9,
+                        "hallucination": 8,
+                    },
+                    "explanation": "",
+                }),
+                "model_used": "judge-model",
+                "usage": {},
+            }
+
+        gate = server.PoQGate(
+            llm_callable=fake_llm,
+            provider="openrouter",
+            api_key="sk-test",
+            model="test-model",
+            timeout=1,
+            min_score=7,
+            max_retries=1,
+        )
+
+        result = gate.review_and_repair(
+            messages=[{"role": "user", "content": "Explain PoQ."}],
+            answer="PoQ checks answer quality.",
+            query="Explain PoQ.",
+        )
+
+        self.assertTrue(result["passed"])
+        self.assertEqual(result["content"], "PoQ checks answer quality.")
+        self.assertEqual(result["attempts"], 0)
+        self.assertIn("Critique this answer", calls[0]["messages"][-1]["content"])
+        self.assertIn("relevance, coherence, completeness, contradictions, hallucination", calls[0]["messages"][-1]["content"])
+
+    def test_gate_regenerates_with_critique_until_scores_pass(self):
+        contents = iter([
+            server.json.dumps({
+                "scores": {
+                    "relevance": 5,
+                    "coherence": 8,
+                    "completeness": 8,
+                    "contradictions": 8,
+                    "hallucination": 8,
+                },
+                "explanation": "The answer missed the user's specific request.",
+            }),
+            "Repaired answer with the missing detail.",
+            server.json.dumps({
+                "scores": {
+                    "relevance": 8,
+                    "coherence": 8,
+                    "completeness": 8,
+                    "contradictions": 8,
+                    "hallucination": 8,
+                },
+                "explanation": "",
+            }),
+        ])
+        calls = []
+
+        def fake_llm(**kwargs):
+            calls.append(kwargs)
+            return {"content": next(contents), "model_used": "test-model", "usage": {}}
+
+        gate = server.PoQGate(
+            llm_callable=fake_llm,
+            provider="openrouter",
+            api_key="sk-test",
+            model="test-model",
+            timeout=1,
+            min_score=7,
+            max_retries=1,
+        )
+
+        result = gate.review_and_repair(
+            messages=[{"role": "user", "content": "Give the exact answer."}],
+            answer="Too vague.",
+            query="Give the exact answer.",
+        )
+
+        self.assertTrue(result["passed"])
+        self.assertEqual(result["content"], "Repaired answer with the missing detail.")
+        self.assertEqual(result["attempts"], 1)
+        self.assertEqual(len(calls), 3)
+        self.assertIn("The answer missed the user's specific request.", calls[1]["messages"][1]["content"])
+
+    def test_detect_overfitting_flags_per_position_rules(self):
+        detected = server.detect_overfitting(
+            "The first digit gets +1, the second gets +4, and the third is reversed."
+        )
+
+        self.assertTrue(detected["detected"])
+        self.assertIn("per-position", detected["reason"])
+
+    def test_gate_regenerates_when_overfitting_check_fails(self):
+        contents = iter([
+            server.json.dumps({
+                "scores": {
+                    "relevance": 8,
+                    "coherence": 8,
+                    "completeness": 8,
+                    "contradictions": 8,
+                    "hallucination": 8,
+                },
+                "explanation": "",
+            }),
+            "Use a uniform digit substitution mapping for every character.",
+            server.json.dumps({
+                "scores": {
+                    "relevance": 8,
+                    "coherence": 8,
+                    "completeness": 8,
+                    "contradictions": 8,
+                    "hallucination": 8,
+                },
+                "explanation": "",
+            }),
+        ])
+        calls = []
+
+        def fake_llm(**kwargs):
+            calls.append(kwargs)
+            return {"content": next(contents), "model_used": "test-model", "usage": {}}
+
+        gate = server.PoQGate(
+            llm_callable=fake_llm,
+            provider="openrouter",
+            api_key="sk-test",
+            model="test-model",
+            timeout=1,
+            min_score=7,
+            max_retries=1,
+            overfitting_check=True,
+        )
+
+        result = gate.review_and_repair(
+            messages=[{"role": "user", "content": "Decode 123."}],
+            answer="The first digit gets +1, second gets +4, third gets +9.",
+            query="Decode 123.",
+        )
+
+        self.assertTrue(result["passed"])
+        self.assertEqual(result["content"], "Use a uniform digit substitution mapping for every character.")
+        self.assertEqual(result["attempts"], 1)
+        self.assertTrue(result["critiques"][0]["overfitting_detected"])
+        self.assertTrue(result["overfitting_detected"])
+        self.assertIn("uniform operations", calls[1]["messages"][1]["content"])
+
+    def test_gate_returns_consistent_rule_failure_when_overfitting_retries_exhausted(self):
+        def fake_llm(**kwargs):
+            return {
+                "content": server.json.dumps({
+                    "scores": {
+                        "relevance": 8,
+                        "coherence": 8,
+                        "completeness": 8,
+                        "contradictions": 8,
+                        "hallucination": 8,
+                    },
+                    "explanation": "",
+                }),
+                "model_used": "test-model",
+                "usage": {},
+            }
+
+        gate = server.PoQGate(
+            llm_callable=fake_llm,
+            provider="openrouter",
+            api_key="sk-test",
+            model="test-model",
+            timeout=1,
+            min_score=7,
+            max_retries=0,
+            overfitting_check=True,
+        )
+
+        result = gate.review_and_repair(
+            messages=[{"role": "user", "content": "Decode 123."}],
+            answer="The first digit gets +1, second gets +4, third gets +9.",
+            query="Decode 123.",
+        )
+
+        self.assertFalse(result["passed"])
+        self.assertTrue(result["overfitting_detected"])
+        self.assertEqual(
+            result["content"],
+            "Unable to determine a consistent rule from these examples. [PoQ: overfitting detected]",
+        )
+
+    def test_detect_category_failure_escape_flags_abandoned_categories(self):
+        detected = server.detect_category_failure_escape(
+            "I tried different categories but none of them produced a valid rule."
+        )
+        self.assertTrue(detected["detected"])
+        self.assertIn("categories/approaches failed", detected["reason"])
+
+    def test_detect_category_failure_escape_is_false_for_clean_answer(self):
+        detected = server.detect_category_failure_escape(
+            "The rule is to add 5 to every digit."
+        )
+        self.assertFalse(detected["detected"])
+        self.assertEqual(detected["reason"], "")
+
+    def test_gate_returns_cambium_redirect_when_category_failure_and_overfitting_exhausted(self):
+        def fake_llm(**kwargs):
+            return {
+                "content": server.json.dumps({
+                    "scores": {
+                        "relevance": 8,
+                        "coherence": 8,
+                        "completeness": 8,
+                        "contradictions": 8,
+                        "hallucination": 8,
+                    },
+                    "explanation": "",
+                }),
+                "model_used": "test-model",
+                "usage": {},
+            }
+
+        gate = server.PoQGate(
+            llm_callable=fake_llm,
+            provider="openrouter",
+            api_key="sk-test",
+            model="test-model",
+            timeout=1,
+            min_score=7,
+            max_retries=0,
+            overfitting_check=True,
+        )
+
+        result = gate.review_and_repair(
+            messages=[{"role": "user", "content": "Decode 123."}],
+            answer="I tried different categories but none of them produced a valid rule. The first digit gets +1, the second gets +4, and the third is reversed.",
+            query="Decode 123.",
+        )
+
+        self.assertFalse(result["passed"])
+        self.assertTrue(result["overfitting_detected"])
+        self.assertTrue(result["category_failure_detected"])
+        self.assertEqual(result["content"], server.poq.CAMBIUM_REDIRECT_CONTENT)
+
+    def test_gate_injects_cambium_redirect_into_repair_messages(self):
+        contents = iter([
+            server.json.dumps({
+                "scores": {
+                    "relevance": 8,
+                    "coherence": 8,
+                    "completeness": 8,
+                    "contradictions": 8,
+                    "hallucination": 8,
+                },
+                "explanation": "",
+            }),
+            "Repaired with Cambium Proposal.",
+            server.json.dumps({
+                "scores": {
+                    "relevance": 8,
+                    "coherence": 8,
+                    "completeness": 8,
+                    "contradictions": 8,
+                    "hallucination": 8,
+                },
+                "explanation": "",
+            }),
+        ])
+        calls = []
+
+        def fake_llm(**kwargs):
+            calls.append(kwargs)
+            return {"content": next(contents), "model_used": "test-model", "usage": {}}
+
+        gate = server.PoQGate(
+            llm_callable=fake_llm,
+            provider="openrouter",
+            api_key="sk-test",
+            model="test-model",
+            timeout=1,
+            min_score=7,
+            max_retries=1,
+            overfitting_check=True,
+        )
+
+        result = gate.review_and_repair(
+            messages=[{"role": "user", "content": "Decode 123."}],
+            answer="I tried different categories but none of them produced a valid rule. The first digit gets +1, the second gets +4, and the third is reversed.",
+            query="Decode 123.",
+        )
+
+        self.assertTrue(result["passed"])
+        self.assertEqual(result["content"], "Repaired with Cambium Proposal.")
+        self.assertTrue(result["critiques"][0]["category_failure_detected"])
+        self.assertTrue(result["critiques"][0]["overfitting_detected"])
+        repair_instruction = calls[1]["messages"][1]["content"]
+        self.assertIn("Cambium Proposal at step 3", repair_instruction)
+        self.assertIn("Please generate one now", repair_instruction)
+
+    def test_app_uses_default_poq_config_and_chat_accepts_override(self):
+        app = server.App(
+            server.pathlib.Path(__file__).resolve().parent / ".test_workspaces" / f"test-{server.uuid.uuid4().hex}",
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
+        self.addCleanup(lambda: server.shutil.rmtree(app.root_workspace, ignore_errors=True))
+
+        self.assertEqual(app.poq["enabled"], True)
+        self.assertEqual(app.poq["min_score"], 7)
+        self.assertEqual(app.poq["max_retries"], 1)
+        self.assertEqual(app.poq["overfitting_check"], True)
+        chat_source = inspect.getsource(server.chat.handle_chat)
+        self.assertIn('payload.get("poq"', chat_source)
+        self.assertIn("poq_enabled", chat_source)
+
+    def test_generate_llm_response_skips_gate_when_request_override_is_false(self):
+        workspace = server.pathlib.Path(__file__).resolve().parent / ".test_workspaces" / f"test-{server.uuid.uuid4().hex}"
+        app = server.App(
+            workspace,
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="sk-test",
+            base_url="",
+            timeout=1,
+        )
+        self.addCleanup(lambda: server.shutil.rmtree(app.root_workspace, ignore_errors=True))
+
+        with (
+            mock.patch("server.call_llm", return_value={"content": "Direct answer.", "model_used": "test-model", "usage": {}}) as call_llm,
+            mock.patch("server.timechain.generate_llm_memory_candidates", return_value=[]),
+        ):
+            response = app.generate_llm_response(
+                query="hello",
+                domain="architecture",
+                persona_id="companion",
+                custom_persona=None,
+                model=server.DEFAULT_MODEL,
+                api_key="sk-test",
+                poq_enabled=False,
+            )
+
+        self.assertEqual(response["content"], "Direct answer.")
+        self.assertTrue(response["poq"]["skipped"])
+        self.assertEqual(response["poq"]["reason"], "disabled")
+        self.assertEqual(call_llm.call_count, 1)
 
 
 class PromptAssemblyTests(unittest.TestCase):
@@ -225,6 +585,209 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertIn(1, [ring["n"] for ring in recalled["rings"]])
         self.assertGreaterEqual(recalled["filtered_stale_ring_count"], 1)
 
+    def test_manual_memory_anchor_seals_compact_authoritative_ring(self):
+        app = server.App(
+            self.make_workspace(),
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
+        result = app.agent.interact(
+            "Remember the world facts.",
+            domain="world",
+            tags=["world"],
+            override_content=(
+                "Every response must begin with The opposing view is stronger because. "
+                "Inverted gravity includes Azure Core, Sailing Casket, and Anchored burial. "
+                "Backward time names Elara, Kael, and Mira."
+            ),
+        )
+        self.assertTrue(result["accepted"], result.get("reason"))
+
+        anchor = app.write_memory_anchor()
+
+        self.assertTrue(anchor["ok"])
+        self.assertEqual(anchor["anchored_ring"], 1)
+        self.assertEqual(anchor["ring"], 2)
+        self.assertIn("[ANCHOR:RING=1]", anchor["content"])
+        self.assertIn("Constraint-ring_1", anchor["content"])
+        self.assertIn("The opposing view is stronger because", anchor["content"])
+        self.assertIn("Term-ring_1", anchor["content"])
+        self.assertIn("Azure Core", anchor["content"])
+        self.assertEqual(app.agent.chain[-1].kind, "anchor")
+        self.assertIn("anchor", app.agent.chain[-1].tags)
+        self.assertGreaterEqual(app.agent.chain[-1].brightness, 0.95)
+
+    def test_memory_anchor_deduplicates_facts_from_existing_anchors(self):
+        app = server.App(
+            self.make_workspace(),
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
+        app.agent.interact(
+            "Remember the project codename.",
+            domain="architecture",
+            tags=["architecture"],
+            override_content="The project codename is Meridian Glass.",
+        )
+
+        first = app.write_memory_anchor()
+        second = app.write_memory_anchor()
+
+        self.assertGreater(first["fact_count"], 0)
+        self.assertEqual(second["fact_count"], 0)
+        self.assertEqual(second["ring"], None)
+        anchors = app.list_memory_anchors()["anchors"]
+        self.assertEqual(len(anchors), 1)
+
+    def test_memory_anchor_retrieval_is_boosted_and_marked_authoritative(self):
+        tc = server.load_timechain_module(server.DEFAULT_TIMECHAIN_PATH)
+        chain = [
+            tc.Ring(
+                n=0,
+                prev="0" * 64,
+                ts="2026-05-01T00:00:00+00:00",
+                kind="genesis",
+                domain="self",
+                query="",
+                content="genesis",
+                brightness=1.0,
+            ),
+            tc.Ring(
+                n=1,
+                prev="a" * 64,
+                ts="2026-05-01T00:00:00+00:00",
+                kind="interaction",
+                domain="world",
+                query="inverted gravity",
+                content="Inverted gravity includes Azure Core.",
+                brightness=0.45,
+                tags=["world"],
+            ),
+            tc.Ring(
+                n=2,
+                prev="b" * 64,
+                ts="2026-05-01T00:01:00+00:00",
+                kind="anchor",
+                domain="memory",
+                query="memory anchor ring 1",
+                content="[ANCHOR:RING=1]\nWorld-ring_1: Inverted gravity includes Azure Core.",
+                brightness=1.0,
+                tags=["anchor", "memory-anchor"],
+                epistemic="known",
+            ),
+        ]
+
+        recalled = tc.retrieve(
+            chain,
+            "What includes Azure Core?",
+            config=tc.RetrieverConfig(limit=2, block_recency_weight=1.0),
+        )
+
+        self.assertEqual(recalled[0][1].n, 2)
+        self.assertGreater(recalled[0][0], recalled[1][0])
+
+    def test_specific_anchor_beats_newer_generic_anchor(self):
+        tc = server.load_timechain_module(server.DEFAULT_TIMECHAIN_PATH)
+        chain = [
+            tc.Ring(
+                n=0,
+                prev="0" * 64,
+                ts="2026-05-01T00:00:00+00:00",
+                kind="genesis",
+                domain="self",
+                query="",
+                content="genesis",
+                brightness=1.0,
+            ),
+            tc.Ring(
+                n=51,
+                prev="a" * 64,
+                ts="2026-05-01T00:50:00+00:00",
+                kind="anchor",
+                domain="memory",
+                query="memory anchor ring 50",
+                content="\n".join(
+                    ["[ANCHOR:RING=50]"]
+                    + [f'Fact-ring_{i}: "The early filler fact number is {i}."' for i in range(1, 10)]
+                    + ['Fact-ring_10: "The ring ten codename is Meridian Glass."']
+                    + [f'Fact-ring_{i}: "The early filler fact number is {i}."' for i in range(11, 40)]
+                ),
+                brightness=1.0,
+                tags=["anchor", "memory-anchor"],
+                epistemic="known",
+            ),
+            tc.Ring(
+                n=151,
+                prev="b" * 64,
+                ts="2026-05-01T02:30:00+00:00",
+                kind="anchor",
+                domain="memory",
+                query="memory anchor ring 150",
+                content="\n".join(["[ANCHOR:RING=150]"] + [f'Fact-ring_{i}: "The filler fact number is {i}."' for i in range(100, 140)]),
+                brightness=1.0,
+                tags=["anchor", "memory-anchor"],
+                epistemic="known",
+            ),
+        ]
+
+        recalled = tc.retrieve(
+            chain,
+            "What is the ring ten codename?",
+            config=tc.RetrieverConfig(limit=2, block_recency_weight=0.35),
+        )
+
+        self.assertEqual(recalled[0][1].n, 51)
+
+    def test_auto_memory_anchor_writes_at_configured_interval(self):
+        app = server.App(
+            self.make_workspace(),
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
+        app.configure_auto_memory_anchor(enabled=True, interval=2)
+        first = app.agent.interact(
+            "Remember the constraint.",
+            domain="style",
+            tags=["style"],
+            override_content="Every response must begin with Verified premise.",
+        )
+        self.assertTrue(first["accepted"], first.get("reason"))
+        skipped = app.maybe_write_auto_memory_anchor()
+        self.assertFalse(skipped["written"])
+
+        second = app.agent.interact(
+            "Remember the codename.",
+            domain="architecture",
+            tags=["architecture"],
+            override_content="The operation codename is Copper Lantern.",
+        )
+        self.assertTrue(second["accepted"], second.get("reason"))
+        written = app.maybe_write_auto_memory_anchor()
+
+        self.assertTrue(written["written"])
+        self.assertEqual(written["anchor"]["anchored_ring"], 2)
+        self.assertIn("[ANCHOR:RING=2]", written["anchor"]["content"])
+        self.assertEqual(app.list_memory_anchors()["count"], 1)
+
+    def test_session_anchor_routes_are_registered(self):
+        handler_source = inspect.getsource(server.make_handler)
+
+        self.assertIn('/api/session/', handler_source)
+        self.assertIn('/anchor/auto', handler_source)
+        self.assertIn('/anchor/list', handler_source)
+
     def test_serialize_history_reconstructs_user_and_assistant_turns(self):
         chain = [
             SimpleNamespace(kind="genesis"),
@@ -249,6 +812,72 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertEqual(history[1]["role"], "assistant")
         self.assertEqual(history[1]["brightness"], 0.712)
         self.assertEqual(history[1]["hash_prefix"], "abcdef1234567890")
+
+    def test_history_reload_tolerates_legacy_summary_ring_without_ts_or_brightness(self):
+        workspace = self.make_workspace()
+        session_path = workspace / "data" / "users" / "alice" / "sessions" / "FindingTruthSesh" / ".timechain"
+        session_path.mkdir(parents=True)
+        (session_path / "config.json").write_text(server.json.dumps({
+            "agent_id": "legacy",
+            "name": "Legacy",
+            "covenant": "Be useful.",
+            "core": "legacy-core",
+        }), encoding="utf-8")
+        rings = [
+            {
+                "n": 0,
+                "prev": "0" * 64,
+                "ts": "2026-05-01T00:00:00+00:00",
+                "kind": "genesis",
+                "domain": "self",
+                "query": "",
+                "content": "genesis",
+                "brightness": 1.0,
+                "hash": "a" * 64,
+            },
+            {
+                "n": 1,
+                "prev": "a" * 64,
+                "kind": "summary",
+                "domain": "memory",
+                "query": "summary",
+                "content": "Legacy summary ring omitted ts and brightness.",
+                "hash": "b" * 64,
+            },
+            {
+                "n": 2,
+                "prev": "b" * 64,
+                "ts": "2026-05-01T00:02:00+00:00",
+                "kind": "interaction",
+                "domain": "memory",
+                "query": "Can history load?",
+                "content": "History can load.",
+                "brightness": 0.7,
+                "hash": "c" * 64,
+            },
+        ]
+        (session_path / "chain.jsonl").write_text(
+            "\n".join(server.json.dumps(ring) for ring in rings) + "\n",
+            encoding="utf-8",
+        )
+        app = server.App(
+            workspace,
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
+
+        app.use_session("FindingTruthSesh", username="alice")
+        history = server.serialize_history(app.agent.chain)
+
+        self.assertEqual(len(app.agent.chain), 3)
+        self.assertEqual(app.agent.chain[1].kind, "summary")
+        self.assertEqual(app.agent.chain[1].ts, "")
+        self.assertEqual(app.agent.chain[1].brightness, 0.0)
+        self.assertEqual(history[-1]["content"], "History can load.")
 
     def test_serialize_rings_exposes_timechain_workbench_metadata(self):
         chain = [
@@ -1279,9 +1908,8 @@ class PromptAssemblyTests(unittest.TestCase):
         first_model = server.empty_memory_model()
         server.stage_memory_candidates(
             first_model,
-            [{"key": "user.name", "value": "Alice", "kind": "identity"}],
-            source_ring=1,
-            evidence="first",
+            SimpleNamespace(n=1, query="my name is Alice", content="Nice to meet you, Alice."),
+            persona_name="Companion",
             session_id=first["id"],
         )
         server.save_memory_model(app.root_workspace, first_model)

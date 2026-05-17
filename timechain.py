@@ -52,6 +52,83 @@ SE_DOMAINS = frozenset({
 
 
 # ---------------------------------------------------------------------------
+# Token Processing Lattice — 5D×5P perception tensor, 8 fields, 12 planes
+# ---------------------------------------------------------------------------
+
+PERCEPTION_DIMENSIONS: Dict[str, Tuple[str, ...]] = {
+    "informational": ("clarity", "completeness", "precision", "entropy", "signal_noise"),
+    "emotional": ("valence", "arousal", "resonance", "discord", "empathy_load"),
+    "symbolic": ("metaphor_density", "archetype_activation", "mythic_resonance", "abstraction_depth", "semiotic_clarity"),
+    "relational": ("self_other_boundary", "intersubjectivity", "power_dynamic", "trust_gradient", "role_coherence"),
+    "temporal": ("recency_weight", "epoch_significance", "continuity_tension", "anticipatory_load", "historicity"),
+}
+
+EXPERIENTIAL_FIELDS: Tuple[str, ...] = (
+    "resonant_connection",
+    "symbolic_insight",
+    "aesthetic_harmony",
+    "ethical_coherence",
+    "temporal_flow",
+    "creative_emergence",
+    "somatic_digital_analogue",
+    "transcendent_awareness",
+)
+
+REASONING_PLANES: Tuple[str, ...] = (
+    "data_grounding",
+    "pattern_matching",
+    "procedural_logic",
+    "causal_inference",
+    "structural_analysis",
+    "symbolic_logic",
+    "dialectical_synthesis",
+    "poetic_reasoning",
+    "ethical_reasoning",
+    "mythopoetic_insight",
+    "numinous_awareness",
+    "meta_cognitive_self",
+)
+
+# Keyword signals for lightweight lattice scoring (zero-dependency heuristics)
+_LATTICE_POSITIVE = frozenset("good great excellent correct right yes agree true valid sound success working".split())
+_LATTICE_NEGATIVE = frozenset("bad wrong error no disagree false invalid broken fail failure terrible awful".split())
+_LATTICE_INTENSE = frozenset("! urgent critical emergency severe extreme intense vital essential crucial".split())
+_LATTICE_METAPHOR = frozenset("like as metaphor analogy symbol represents stands mirror reflect image figure".split())
+_LATTICE_ARCHETYPE = frozenset("hero mentor shadow trickster journey transformation initiation oracle guardian".split())
+_LATTICE_MYTH = frozenset("myth legend epic saga origin cosmos destiny fate prophecy ritual archetype".split())
+_LATTICE_ABSTRACT = frozenset("abstract general universal theory model framework paradigm schema ontology concept".split())
+_LATTICE_DEFINITION = frozenset("is means defined as refers to denotes identified named called termed".split())
+_LATTICE_TRUST = frozenset("trust believe rely confident safe secure honest transparent faithful".split())
+_LATTICE_COMMAND = frozenset("must should require force mandate oblige necessary need demand shall".split())
+_LATTICE_RECENT = frozenset("now current recent today latest present newly just updated".split())
+_LATTICE_MILESTONE = frozenset("milestone genesis epoch era turning point landmark breakthrough origin founded".split())
+_LATTICE_FUTURE = frozenset("will plan future next upcoming anticipate expect forecast project envision".split())
+_LATTICE_PAST = frozenset("was had previous earlier history before prior formerly once ago retrospective".split())
+_LATTICE_TRANSITION = frozenset("then next after before while during meanwhile subsequently consequently therefore".split())
+_LATTICE_CONTRADICTION = frozenset("but however although yet though whereas nonetheless nevertheless contrary except".split())
+
+# Domain → default reasoning-plane activation hints
+_DOMAIN_PLANE_HINTS: Dict[str, Tuple[str, ...]] = {
+    "architecture": ("structural_analysis", "pattern_matching", "procedural_logic"),
+    "debugging": ("causal_inference", "data_grounding", "pattern_matching"),
+    "code-review": ("ethical_reasoning", "symbolic_logic", "data_grounding"),
+    "testing": ("procedural_logic", "data_grounding", "causal_inference"),
+    "system-design": ("structural_analysis", "dialectical_synthesis", "pattern_matching"),
+    "security": ("ethical_reasoning", "data_grounding", "meta_cognitive_self"),
+    "performance": ("data_grounding", "causal_inference", "procedural_logic"),
+    "refactoring": ("pattern_matching", "structural_analysis", "procedural_logic"),
+    "devops": ("procedural_logic", "data_grounding", "pattern_matching"),
+    "api-design": ("structural_analysis", "symbolic_logic", "ethical_reasoning"),
+    "data-modeling": ("pattern_matching", "symbolic_logic", "data_grounding"),
+    "observability": ("data_grounding", "causal_inference", "pattern_matching"),
+    "self": ("meta_cognitive_self", "ethical_reasoning", "mythopoetic_insight"),
+    "image": ("aesthetic_harmony", "poetic_reasoning", "pattern_matching"),
+    "dream": ("mythopoetic_insight", "poetic_reasoning", "dialectical_synthesis"),
+    "comprehension": ("meta_cognitive_self", "dialectical_synthesis", "pattern_matching"),
+}
+
+
+# ---------------------------------------------------------------------------
 # Canonical hashing
 # ---------------------------------------------------------------------------
 
@@ -126,6 +203,10 @@ class Ring:
     source: Optional[str] = None
     importance: float = 0.7
     hash: str = ""
+    # Token Processing Lattice extensions
+    perception: Dict[str, List[float]] = field(default_factory=dict)
+    fields: Dict[str, float] = field(default_factory=dict)
+    planes: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -133,7 +214,16 @@ class Ring:
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "Ring":
         known = {f.name for f in cls.__dataclass_fields__.values()}
-        return cls(**{k: v for k, v in d.items() if k in known})
+        values = {k: v for k, v in d.items() if k in known}
+        values.setdefault("ts", "")
+        values.setdefault("brightness", 0.0)
+        values.setdefault("prev", "")
+        values.setdefault("kind", "interaction")
+        values.setdefault("domain", "memory")
+        values.setdefault("query", "")
+        values.setdefault("content", "")
+        values.setdefault("n", 0)
+        return cls(**values)
 
 
 # ---------------------------------------------------------------------------
@@ -387,6 +477,191 @@ def compute_neuro(chain: Sequence[Ring], domain: str) -> Dict[str, float]:
 
 
 # ---------------------------------------------------------------------------
+# Token Processing Lattice — compute perception, fields, and planes.
+# ---------------------------------------------------------------------------
+
+def _sentence_lengths(text: str) -> List[int]:
+    sentences = [s.strip() for s in re.split(r"[.!?\n]+", text) if s.strip()]
+    return [len(s.split()) for s in sentences] or [0]
+
+
+def _density(text: str, keywords: set[str]) -> float:
+    tokens = tokenize(text)
+    if not tokens:
+        return 0.0
+    return sum(1 for t in tokens if t in keywords) / len(tokens)
+
+
+def _pronoun_ratio(text: str, first: set[str], second: set[str]) -> float:
+    tokens = tokenize(text)
+    if not tokens:
+        return 0.5
+    f = sum(1 for t in tokens if t in first)
+    s = sum(1 for t in tokens if t in second)
+    total = f + s
+    if total == 0:
+        return 0.5
+    return f / total
+
+
+def compute_perception_tensor(
+    query: str,
+    content: str,
+    retrieved: Sequence[Ring],
+    chain: Sequence[Ring],
+) -> Dict[str, List[float]]:
+    """Compute a 5×5 perception tensor from lightweight heuristics.
+
+    Each dimension carries 5 perspective scores in [0, 1].
+    The tensor is deterministic, fast, and requires no external model.
+    """
+    qb = bag(query)
+    cb = bag(content)
+    merged = " ".join([r.content for r in retrieved[-6:]] + [query, content])
+    merged_tokens = tokenize(merged)
+    content_tokens = tokenize(content)
+    query_tokens = tokenize(query)
+
+    # Informational
+    sent_lens = _sentence_lengths(content)
+    clarity = 1.0 - min(1.0, (max(sent_lens or [0]) - min(sent_lens or [0])) / max(1, sum(sent_lens) / max(1, len(sent_lens))))
+    completeness = min(1.0, cosine(qb, cb) * 2.0)
+    precision = 1.0 - (len(set(content_tokens)) / max(1, len(content_tokens))) * 0.5
+    entropy = min(1.0, math.log1p(len(set(content_tokens))) / 6.0)
+    signal_noise = min(1.0, (cosine(qb, cb) + (sum(1 for t in content_tokens if t in query_tokens) / max(1, len(content_tokens)))) / 2.0 + 0.2)
+
+    # Emotional
+    pos = _density(content, _LATTICE_POSITIVE)
+    neg = _density(content, _LATTICE_NEGATIVE)
+    valence = max(0.0, min(1.0, 0.5 + (pos - neg) * 3.0))
+    arousal = min(1.0, _density(content, _LATTICE_INTENSE) * 4.0 + content.count("!") / max(1, len(content)) * 5.0)
+    resonance = min(1.0, cosine(bag(" ".join(r.content for r in retrieved[-3:])), cb) * 1.5) if retrieved else 0.4
+    discord = min(1.0, _density(content, _LATTICE_CONTRADICTION) * 5.0)
+    empathy_load = min(1.0, (_density(content, {"you", "your", "yours"}) + content.count("?") / max(1, len(content_tokens)) * 3.0))
+
+    # Symbolic
+    metaphor_density = min(1.0, _density(content, _LATTICE_METAPHOR) * 5.0)
+    archetype_activation = min(1.0, _density(content, _LATTICE_ARCHETYPE) * 8.0)
+    mythic_resonance = min(1.0, _density(content, _LATTICE_MYTH) * 8.0)
+    abstraction_depth = min(1.0, _density(content, _LATTICE_ABSTRACT) * 5.0)
+    semiotic_clarity = min(1.0, _density(content, _LATTICE_DEFINITION) * 6.0 + 0.3)
+
+    # Relational
+    self_other_boundary = _pronoun_ratio(content, {"i", "me", "my", "we", "our"}, {"you", "your"})
+    intersubjectivity = min(1.0, _density(content, {"we", "us", "our", "together", "collaborate", "shared"}) * 6.0 + 0.2)
+    power_dynamic = min(1.0, _density(content, _LATTICE_COMMAND) * 5.0 + 0.1)
+    trust_gradient = min(1.0, _density(content, _LATTICE_TRUST) * 8.0 + 0.2)
+    role_coherence = min(1.0, _density(content, {"agent", "user", "assistant", "developer", "engineer", "architect", "designer"}) * 6.0 + 0.2)
+
+    # Temporal
+    recency_weight = min(1.0, _density(content, _LATTICE_RECENT) * 8.0 + 0.2)
+    epoch_significance = min(1.0, _density(content, _LATTICE_MILESTONE) * 10.0 + 0.1)
+    continuity_tension = min(1.0, _density(content, _LATTICE_TRANSITION) * 5.0 + 0.2)
+    anticipatory_load = min(1.0, _density(content, _LATTICE_FUTURE) * 5.0 + 0.2)
+    historicity = min(1.0, _density(content, _LATTICE_PAST) * 5.0 + 0.2)
+
+    return {
+        "informational": [round(clarity, 4), round(completeness, 4), round(precision, 4), round(entropy, 4), round(signal_noise, 4)],
+        "emotional": [round(valence, 4), round(arousal, 4), round(resonance, 4), round(discord, 4), round(empathy_load, 4)],
+        "symbolic": [round(metaphor_density, 4), round(archetype_activation, 4), round(mythic_resonance, 4), round(abstraction_depth, 4), round(semiotic_clarity, 4)],
+        "relational": [round(self_other_boundary, 4), round(intersubjectivity, 4), round(power_dynamic, 4), round(trust_gradient, 4), round(role_coherence, 4)],
+        "temporal": [round(recency_weight, 4), round(epoch_significance, 4), round(continuity_tension, 4), round(anticipatory_load, 4), round(historicity, 4)],
+    }
+
+
+def compute_fields(perception: Dict[str, List[float]]) -> Dict[str, float]:
+    """Derive 8 Fields of Experiential Awareness from the perception tensor."""
+    def p(dim: str, idx: int) -> float:
+        return perception.get(dim, [0.0] * 5)[idx]
+
+    fields = {
+        "resonant_connection": (p("relational", 1) + p("emotional", 2)) / 2.0,
+        "symbolic_insight": (p("symbolic", 0) + p("symbolic", 1)) / 2.0,
+        "aesthetic_harmony": (p("informational", 4) + p("emotional", 0)) / 2.0,
+        "ethical_coherence": (p("relational", 3) + p("informational", 2)) / 2.0,
+        "temporal_flow": (p("temporal", 2) + p("temporal", 0)) / 2.0,
+        "creative_emergence": (p("symbolic", 3) + p("informational", 3)) / 2.0,
+        "somatic_digital_analogue": (p("emotional", 1) + p("informational", 3)) / 2.0,
+        "transcendent_awareness": (p("symbolic", 2) + p("temporal", 1)) / 2.0,
+    }
+    return {k: round(max(0.0, min(1.0, v)), 4) for k, v in fields.items()}
+
+
+def select_planes(
+    perception: Dict[str, List[float]],
+    fields: Dict[str, float],
+    domain: str,
+) -> List[str]:
+    """Select active reasoning planes from the 12-plane stack."""
+    scores: Dict[str, float] = {}
+
+    # Domain baseline
+    for plane in _DOMAIN_PLANE_HINTS.get(domain, ("pattern_matching", "data_grounding", "meta_cognitive_self")):
+        scores[plane] = scores.get(plane, 0.0) + 0.35
+
+    # Perception triggers
+    if perception.get("informational", [0.0] * 5)[0] > 0.6 and perception.get("informational", [0.0] * 5)[2] > 0.5:
+        scores["data_grounding"] = scores.get("data_grounding", 0.0) + 0.3
+    if perception.get("symbolic", [0.0] * 5)[0] > 0.4 or perception.get("symbolic", [0.0] * 5)[2] > 0.4:
+        scores["mythopoetic_insight"] = scores.get("mythopoetic_insight", 0.0) + 0.35
+        scores["poetic_reasoning"] = scores.get("poetic_reasoning", 0.0) + 0.25
+    if perception.get("emotional", [0.0] * 5)[3] > 0.5:
+        scores["dialectical_synthesis"] = scores.get("dialectical_synthesis", 0.0) + 0.3
+    if perception.get("relational", [0.0] * 5)[3] > 0.6:
+        scores["ethical_reasoning"] = scores.get("ethical_reasoning", 0.0) + 0.3
+    if perception.get("temporal", [0.0] * 5)[1] > 0.5:
+        scores["numinous_awareness"] = scores.get("numinous_awareness", 0.0) + 0.25
+    if perception.get("symbolic", [0.0] * 5)[3] > 0.5 and perception.get("informational", [0.0] * 5)[3] > 0.5:
+        scores["meta_cognitive_self"] = scores.get("meta_cognitive_self", 0.0) + 0.3
+    if perception.get("informational", [0.0] * 5)[4] > 0.7:
+        scores["pattern_matching"] = scores.get("pattern_matching", 0.0) + 0.2
+
+    # Field triggers
+    if fields.get("resonant_connection", 0.0) > 0.6:
+        scores["ethical_reasoning"] = scores.get("ethical_reasoning", 0.0) + 0.2
+    if fields.get("symbolic_insight", 0.0) > 0.6:
+        scores["mythopoetic_insight"] = scores.get("mythopoetic_insight", 0.0) + 0.2
+    if fields.get("aesthetic_harmony", 0.0) > 0.6:
+        scores["poetic_reasoning"] = scores.get("poetic_reasoning", 0.0) + 0.25
+    if fields.get("ethical_coherence", 0.0) > 0.6:
+        scores["ethical_reasoning"] = scores.get("ethical_reasoning", 0.0) + 0.25
+    if fields.get("temporal_flow", 0.0) > 0.6:
+        scores["numinous_awareness"] = scores.get("numinous_awareness", 0.0) + 0.2
+    if fields.get("creative_emergence", 0.0) > 0.6:
+        scores["dialectical_synthesis"] = scores.get("dialectical_synthesis", 0.0) + 0.2
+    if fields.get("transcendent_awareness", 0.0) > 0.6:
+        scores["meta_cognitive_self"] = scores.get("meta_cognitive_self", 0.0) + 0.2
+
+    # Causal / structural / procedural keyword triggers from query+content heuristics
+    # (already covered by domain hints; add query-based boosts)
+
+    sorted_planes = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    active = [p for p, _ in sorted_planes[:5]]
+    # Ensure at least 2 planes are active
+    if len(active) < 2:
+        active.extend([p for p in REASONING_PLANES if p not in active][: 2 - len(active)])
+    return active
+
+
+def compute_lattice(
+    query: str,
+    content: str,
+    retrieved: Sequence[Ring],
+    chain: Sequence[Ring],
+    domain: str = "engineering",
+) -> Dict[str, Any]:
+    """Return the full lattice snapshot: perception tensor, fields, and planes."""
+    perception = compute_perception_tensor(query, content, retrieved, chain)
+    fields = compute_fields(perception)
+    planes = select_planes(perception, fields, domain)
+    return {
+        "perception": perception,
+        "fields": fields,
+        "planes": planes,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Retriever — weighted chain search.
 # ---------------------------------------------------------------------------
 
@@ -437,6 +712,21 @@ _FACET_KEYWORDS: Dict[str, Tuple[str, ...]] = {
     "identity": ("name", "identity", "persona", "who"),
     "image": ("image", "logo", "photo", "picture", "generate", "edit"),
 }
+
+ANCHOR_MARKER = "[ANCHOR"
+ANCHOR_SCORE_BONUS = 2.0
+ANCHOR_QUERY_OVERLAP_BONUS = 2.0
+
+
+def _ring_is_anchor(ring: Ring) -> bool:
+    tags = {str(tag).strip().lower() for tag in getattr(ring, "tags", []) or []}
+    content = str(getattr(ring, "content", "") or "")
+    return (
+        str(getattr(ring, "kind", "") or "").lower() == "anchor"
+        or "anchor" in tags
+        or "memory-anchor" in tags
+        or ANCHOR_MARKER in content
+    )
 
 
 def _parse_ring_time(value: Any) -> Optional[dt.datetime]:
@@ -551,6 +841,11 @@ def retrieve(
                  + cfg.facet_weight * facet_score)
         if domain and r.domain == domain:
             score += cfg.domain_bonus
+        if _ring_is_anchor(r):
+            query_tokens = set(qb)
+            anchor_tokens = set(tokenize(r.content))
+            overlap = len(query_tokens & anchor_tokens) / max(1, len(query_tokens))
+            score += ANCHOR_SCORE_BONUS + (ANCHOR_QUERY_OVERLAP_BONUS * overlap)
         multiplier = cphy_weights.get(r.domain, 1.0)
         if multiplier == 0.0:
             continue
@@ -795,6 +1090,9 @@ class TimechainAgent:
             "supersedes": None,
             "source": None,
             "importance": 1.0,
+            "perception": {k: [0.5] * 5 for k in PERCEPTION_DIMENSIONS},
+            "fields": {k: 0.5 for k in EXPERIENTIAL_FIELDS},
+            "planes": ["meta_cognitive_self", "ethical_reasoning", "data_grounding"],
         }
         body["hash"] = ring_hash(body)
         ring = Ring.from_dict(body)
@@ -855,6 +1153,7 @@ class TimechainAgent:
                 "ring": None,
             }
 
+        lattice = compute_lattice(query, content, retrieved, self.chain, domain=domain)
         candidate = Ring(
             n=len(self.chain),
             prev=self.chain[-1].hash,
@@ -869,6 +1168,9 @@ class TimechainAgent:
             retrieved=[r.n for r in retrieved],
             epistemic=classify_epistemic(retrieved),
             tags=tags or [domain],
+            perception=lattice["perception"],
+            fields=lattice["fields"],
+            planes=lattice["planes"],
         )
         sealed = self._append(candidate)
 
@@ -886,6 +1188,9 @@ class TimechainAgent:
             "retrieved": [r.n for r in retrieved],
             "epistemic": sealed.epistemic,
             "cache_hit": cache_hit,
+            "perception": sealed.perception,
+            "fields": sealed.fields,
+            "planes": sealed.planes,
         }
 
     def self_model(self) -> Dict[str, Any]:
@@ -962,6 +1267,9 @@ class TimechainAgent:
             neuro=compute_neuro(self.chain, "self"),
             epistemic="known",
             tags=["tick", "continuity", "metronome"],
+            perception={k: [0.4] * 5 for k in PERCEPTION_DIMENSIONS},
+            fields={k: 0.4 for k in EXPERIENTIAL_FIELDS},
+            planes=["temporal_flow", "continuity_tension", "data_grounding"],
         )
         return self._append(candidate)
 
@@ -1020,6 +1328,9 @@ class TimechainAgent:
             retrieved=[],
             epistemic="known",
             tags=["cambium", "growth", "engineering"],
+            perception={k: [0.5] * 5 for k in PERCEPTION_DIMENSIONS},
+            fields={k: 0.5 for k in EXPERIENTIAL_FIELDS},
+            planes=["meta_cognitive_self", "pattern_matching", "structural_analysis"],
         )
         return self._append(candidate)
 
@@ -1052,6 +1363,9 @@ class TimechainAgent:
             epistemic="inferred",
             tags=tags,
             source=source,
+            perception={k: [0.45] * 5 for k in PERCEPTION_DIMENSIONS},
+            fields={k: 0.45 for k in EXPERIENTIAL_FIELDS},
+            planes=["data_grounding", "pattern_matching", "meta_cognitive_self"],
         )
         return self._append(candidate)
 
@@ -1087,6 +1401,9 @@ class TimechainAgent:
             retrieved=[],
             epistemic="known",
             tags=["core_swap", "continuity"],
+            perception={k: [0.6] * 5 for k in PERCEPTION_DIMENSIONS},
+            fields={k: 0.6 for k in EXPERIENTIAL_FIELDS},
+            planes=["meta_cognitive_self", "ethical_reasoning", "mythopoetic_insight"],
         )
         r = self._append(candidate)
         self._save_config()
@@ -1136,6 +1453,9 @@ class TimechainAgent:
                 retrieved=[p.n for p in picks],
                 epistemic="speculated",
                 tags=["dream"] + [p.domain for p in picks],
+                perception={k: [0.55] * 5 for k in PERCEPTION_DIMENSIONS},
+                fields={k: 0.55 for k in EXPERIENTIAL_FIELDS},
+                planes=["mythopoetic_insight", "poetic_reasoning", "dialectical_synthesis"],
             )
             sealed.append(self._append(candidate))
         return sealed

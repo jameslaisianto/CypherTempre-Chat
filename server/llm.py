@@ -433,6 +433,7 @@ def build_prompt_messages(
     model: str = "",
     temporal_context: str = "",
     shared_memory_context: str = "",
+    lattice: dict[str, Any] | None = None,
 ) -> list[dict[str, str]]:
     pause_note = ""
     for turn in reversed(recent_turns):
@@ -449,6 +450,22 @@ def build_prompt_messages(
         break
     temporal_line = f"{temporal_context}\n\n" if temporal_context else ""
     shared_block = f"{shared_memory_context}\n\n" if shared_memory_context else ""
+    lattice_block = ""
+    if lattice:
+        planes = ", ".join(lattice.get("planes", [])[:5])
+        top_fields = sorted(
+            (lattice.get("fields") or {}).items(),
+            key=lambda x: x[1], reverse=True,
+        )[:3]
+        fields_str = ", ".join(f"{k}={v:.2f}" for k, v in top_fields)
+        dim_summary = []
+        for dim, vals in (lattice.get("perception") or {}).items():
+            if vals:
+                avg = sum(vals) / len(vals)
+                dim_summary.append(f"{dim[:3]}:{avg:.2f}")
+        lattice_block = (
+            f"[Lattice: planes={planes} | fields={fields_str} | dims={'; '.join(dim_summary)}]\n\n"
+        )
     system_text = (
         f"{persona['system']}\n\n"
         "You are connected to a local CypherTempre Timechain. "
@@ -459,6 +476,7 @@ def build_prompt_messages(
         "If memory is weak or absent, say so briefly.\n\n"
         f"Engineering covenant: {covenant}\n\n"
         f"{current_time_context(now)}{pause_note}\n\n"
+        f"{lattice_block}"
         f"{temporal_line}"
         f"Durable memories:\n{durable_context}\n\n"
         f"Relevant recalled rings:\n{memory_context}\n\n"
@@ -529,6 +547,12 @@ def serialize_ring(ring: Any, *, content_limit: int = 700) -> dict[str, Any]:
             str(key): round(float(value), 3)
             for key, value in dict(getattr(ring, "scores", {}) or {}).items()
         },
+        "perception": dict(getattr(ring, "perception", {}) or {}),
+        "fields": {
+            str(key): round(float(value), 3)
+            for key, value in dict(getattr(ring, "fields", {}) or {}).items()
+        },
+        "planes": list(getattr(ring, "planes", []) or []),
     }
 
 def serialize_rings(chain: list[Any], limit: int = 24) -> list[dict[str, Any]]:
@@ -675,6 +699,7 @@ def build_messages(
     now: dt.datetime | None = None,
     model: str = "",
     temporal_context: str = "",
+    lattice: dict[str, Any] | None = None,
 ) -> list[dict[str, str]]:
     current_time = now or dt.datetime.now(dt.timezone.utc)
     if current_time.tzinfo is None:
@@ -697,6 +722,7 @@ def build_messages(
         model=model,
         temporal_context=temporal_context,
         shared_memory_context=shared_memory_context,
+        lattice=lattice,
     )
     if prompt_budget_chars > 0 and prompt_size(messages) > prompt_budget_chars and retrieved:
         memory_context = build_memory_context(
@@ -715,6 +741,7 @@ def build_messages(
             now=current_time,
             model=model,
             shared_memory_context=shared_memory_context,
+            lattice=lattice,
         )
     if prompt_budget_chars > 0 and prompt_size(messages) > prompt_budget_chars and retrieved:
         memory_context = f"{len(retrieved[:12])} retrieved rings omitted to preserve prompt budget."
@@ -729,6 +756,7 @@ def build_messages(
             now=current_time,
             model=model,
             shared_memory_context=shared_memory_context,
+            lattice=lattice,
         )
     while prompt_budget_chars > 0 and prompt_size(messages) > prompt_budget_chars and active_recent_turns:
         drop_count = 2 if len(active_recent_turns) >= 2 else 1
@@ -744,6 +772,7 @@ def build_messages(
             now=current_time,
             model=model,
             shared_memory_context=shared_memory_context,
+            lattice=lattice,
         )
     if prompt_budget_chars > 0 and prompt_size(messages) > prompt_budget_chars:
         overhead = prompt_size(messages) - len(persona.get("system", ""))
@@ -763,6 +792,7 @@ def build_messages(
             now=current_time,
             model=model,
             shared_memory_context=shared_memory_context,
+            lattice=lattice,
         )
         while prompt_budget_chars > 0 and prompt_size(messages) > prompt_budget_chars and persona_budget > 400:
             persona_budget = max(400, persona_budget - max(200, prompt_size(messages) - prompt_budget_chars + 80))
@@ -778,6 +808,7 @@ def build_messages(
                 now=current_time,
                 model=model,
                 shared_memory_context=shared_memory_context,
+                lattice=lattice,
             )
     return messages
 

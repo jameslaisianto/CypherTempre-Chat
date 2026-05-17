@@ -8,6 +8,7 @@ import uuid
 
 from server.config import *  # noqa: F401,F403
 from server.llm import *  # noqa: F401,F403
+from server.poq import *  # noqa: F401,F403
 from server.timechain import *  # noqa: F401,F403
 from server.timechain import _doc_path  # noqa: F401
 
@@ -15,5 +16,4 @@ from server.timechain import _doc_path  # noqa: F401
 # shadowing the server.marketplace submodule before server.server loads.
 del marketplace  # noqa: F821
 
-from server.server import HTML, build_parser, main, make_handler  # noqa: F401
-
+from server.server import HTML, build_parser, build_poq_config, main, make_handler  # noqa: F401

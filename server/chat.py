@@ -83,6 +83,7 @@ def handle_chat(handler: Any, app: Any) -> None:
         provider=str(payload.get("provider", "")).strip(),
         base_url=str(payload.get("baseUrl", "")).strip() or app.base_url,
         shared_hits=shared_hits,
+        poq_enabled=False if payload.get("poq") is False else None,
     )
     response = finalize_chat_response(
         app=app,
