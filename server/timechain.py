@@ -29,6 +29,7 @@ from server.config import (
     DEFAULT_POQ_MAX_RETRIES, DEFAULT_POQ_OVERFITTING_CHECK,
 )
 from server.poq import PoQGate
+from server.trainer import Trainer
 
 from server.llm import (
     recall_memory_facts,
@@ -60,6 +61,7 @@ from server.llm import (
     classify_domain,
     normalize_custom_persona,
     build_messages,
+    resolve_runtime_options,
     call_llm,
     call_openrouter,
     call_image_generation,
@@ -1079,6 +1081,7 @@ class App:
         self._image_agents: dict[str, Any] = {}
         self.workspace = self.workspace_for_session(self.active_session)
         self.agent = self.timechain.TimechainAgent(workspace=self.workspace)
+        self.trainer = Trainer()
 
     @property
     def sessions_root(self) -> pathlib.Path:
@@ -2410,9 +2413,15 @@ class App:
         lattice = self.timechain.compute_lattice(
             query, query, retrieved, self.agent.chain, domain=domain
         )
+        runtime_options = resolve_runtime_options(persona_id, persona)
+        scaffolded_query = (
+            self.trainer.build_query(self.active_session, query, domain_hint=domain)
+            if runtime_options.get("supports_cambium_training")
+            else query
+        )
         messages = build_messages(
             persona=persona,
-            query=query,
+            query=scaffolded_query,
             retrieved=retrieved,
             durable_memories=durable_hits,
             shared_hits=shared_hits,
@@ -2422,6 +2431,7 @@ class App:
             model=model or self.default_model,
             temporal_context=self.agent.get_temporal_context(),
             lattice=lattice,
+            runtime_options=runtime_options,
         )
         key = api_key or self.api_key
         provider = (provider or self.provider).strip().lower()
@@ -2503,6 +2513,7 @@ class App:
                     max_retries=int(self.poq.get("max_retries", DEFAULT_POQ_MAX_RETRIES)),
                     max_tokens=response_token_budget(query),
                     overfitting_check=bool(self.poq.get("overfitting_check", DEFAULT_POQ_OVERFITTING_CHECK)),
+                    cambium_enabled=bool(runtime_options.get("supports_cambium_training")),
                 ).review_and_repair(
                     messages=messages,
                     answer=str(llm.get("content", "")),
@@ -2587,6 +2598,13 @@ def finalize_chat_response(
             event=poq.get("cambium_event"),
             frame_declaration=poq.get("frame_declaration"),
         )
+        app.trainer.process_event(
+            session=app.active_session,
+            ring=None,
+            cam_event=poq.get("cambium_event"),
+            response_text=llm.get("content", ""),
+            frame_declaration=llm.get("frame_declaration"),
+        )
         return {
             "ok": True,
             "accepted": False,
@@ -2618,6 +2636,13 @@ def finalize_chat_response(
             event=llm.get("poq", {}).get("cambium_event"),
             frame_declaration=llm.get("poq", {}).get("frame_declaration"),
         )
+        app.trainer.process_event(
+            session=app.active_session,
+            ring=None,
+            cam_event=llm.get("poq", {}).get("cambium_event"),
+            response_text=llm.get("content", ""),
+            frame_declaration=llm.get("frame_declaration"),
+        )
         return {
             "ok": True,
             "accepted": False,
@@ -2639,6 +2664,13 @@ def finalize_chat_response(
         event=llm.get("poq", {}).get("cambium_event"),
         frame_declaration=llm.get("poq", {}).get("frame_declaration"),
         ring_n=ring.get("n"),
+    )
+    app.trainer.process_event(
+        session=app.active_session,
+        ring=ring.get("n"),
+        cam_event=llm.get("poq", {}).get("cambium_event"),
+        response_text=llm.get("content", ""),
+        frame_declaration=llm.get("frame_declaration"),
     )
     staged = app.queue_memory_candidates(
         SimpleNamespace(**ring),

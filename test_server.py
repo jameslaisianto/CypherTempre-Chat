@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import marketplace
 import server
+from server.trainer import Trainer
 
 
 class PoQGateTests(unittest.TestCase):
@@ -438,10 +439,193 @@ class PoQGateTests(unittest.TestCase):
 
         self.assertTrue(result["passed"])
         self.assertFalse(result["overfitting_detected"])
+        self.assertTrue(result["critiques"][0]["overfitting_skipped"])
         event = result["cambium_event"]
         self.assertEqual(event["status"], "valid")
         self.assertTrue(event["overfitting_skipped"])
         self.assertEqual(event["proposal"], "paradox_frame")
+
+    def test_valid_frame_declaration_reports_skip_even_without_overfitting_match(self):
+        def fake_llm(**kwargs):
+            return {
+                "content": server.json.dumps({
+                    "scores": {
+                        "relevance": 8,
+                        "coherence": 8,
+                        "completeness": 8,
+                        "contradictions": 8,
+                        "hallucination": 8,
+                    },
+                    "explanation": "",
+                }),
+                "model_used": "test-model",
+                "usage": {},
+            }
+
+        gate = server.PoQGate(
+            llm_callable=fake_llm,
+            provider="openrouter",
+            api_key="sk-test",
+            model="test-model",
+            timeout=1,
+            min_score=7,
+            max_retries=0,
+            overfitting_check=True,
+        )
+
+        result = gate.review_and_repair(
+            messages=[{"role": "user", "content": "Classify: this statement is false."}],
+            answer="In the paradox_frame, this is self-referential and outside binary truth.",
+            query="Classify: this statement is false.",
+            frame_declaration={
+                "current_frame": "true/false classification",
+                "frame_adequate": False,
+                "reason": "The question contains a self-referential paradox that cannot be classified under binary truth.",
+                "cambium_proposal": "paradox_frame",
+                "cambium_definition": "A frame for self-referential or inconsistent statements outside binary truth.",
+            },
+        )
+
+        self.assertTrue(result["passed"])
+        self.assertFalse(result["overfitting_detected"])
+        self.assertTrue(result["critiques"][0]["overfitting_skipped"])
+        self.assertTrue(result["cambium_event"]["overfitting_skipped"])
+
+    def test_valid_nl_cambium_skips_overfitting_penalty(self):
+        def fake_llm(**kwargs):
+            return {
+                "content": server.json.dumps({
+                    "scores": {
+                        "relevance": 8,
+                        "coherence": 8,
+                        "completeness": 8,
+                        "contradictions": 8,
+                        "hallucination": 8,
+                    },
+                    "explanation": "",
+                }),
+                "model_used": "test-model",
+                "usage": {},
+            }
+
+        gate = server.PoQGate(
+            llm_callable=fake_llm,
+            provider="openrouter",
+            api_key="sk-test",
+            model="test-model",
+            timeout=1,
+            min_score=7,
+            max_retries=0,
+            overfitting_check=True,
+        )
+
+        result = gate.review_and_repair(
+            messages=[{"role": "user", "content": "Classify and explain the puzzle."}],
+            answer=(
+                "The current frame fails because it cannot handle self-referential statements. "
+                "The first digit gets +1, the second gets +4, and the third gets +9."
+            ),
+            query="Classify and explain the puzzle.",
+        )
+
+        self.assertTrue(result["passed"])
+        self.assertFalse(result["overfitting_detected"])
+        self.assertTrue(result["critiques"][0]["overfitting_skipped"])
+        self.assertEqual(result["cambium_event"]["source"], "nl_detection")
+        self.assertEqual(result["cambium_event"]["status"], "valid")
+        self.assertTrue(result["cambium_event"]["overfitting_skipped"])
+
+    def test_cambium_disabled_does_not_skip_overfitting_penalty(self):
+        def fake_llm(**kwargs):
+            return {
+                "content": server.json.dumps({
+                    "scores": {
+                        "relevance": 8,
+                        "coherence": 8,
+                        "completeness": 8,
+                        "contradictions": 8,
+                        "hallucination": 8,
+                    },
+                    "explanation": "",
+                }),
+                "model_used": "test-model",
+                "usage": {},
+            }
+
+        gate = server.PoQGate(
+            llm_callable=fake_llm,
+            provider="openrouter",
+            api_key="sk-test",
+            model="test-model",
+            timeout=1,
+            min_score=7,
+            max_retries=0,
+            overfitting_check=True,
+            cambium_enabled=False,
+        )
+
+        result = gate.review_and_repair(
+            messages=[{"role": "user", "content": "Classify and explain the puzzle."}],
+            answer=(
+                "The current frame fails because it cannot handle self-referential statements. "
+                "The first digit gets +1, the second gets +4, and the third gets +9."
+            ),
+            query="Classify and explain the puzzle.",
+        )
+
+        self.assertFalse(result["passed"])
+        self.assertTrue(result["overfitting_detected"])
+        self.assertFalse(result["critiques"][0]["overfitting_skipped"])
+        self.assertEqual(result["cambium_event"]["status"], "none")
+
+    def test_weak_frame_declaration_does_not_skip_overfitting_penalty(self):
+        def fake_llm(**kwargs):
+            return {
+                "content": server.json.dumps({
+                    "scores": {
+                        "relevance": 8,
+                        "coherence": 8,
+                        "completeness": 8,
+                        "contradictions": 8,
+                        "hallucination": 8,
+                    },
+                    "explanation": "",
+                }),
+                "model_used": "test-model",
+                "usage": {},
+            }
+
+        gate = server.PoQGate(
+            llm_callable=fake_llm,
+            provider="openrouter",
+            api_key="sk-test",
+            model="test-model",
+            timeout=1,
+            min_score=7,
+            max_retries=0,
+            overfitting_check=True,
+        )
+
+        result = gate.review_and_repair(
+            messages=[{"role": "user", "content": "Decode 123."}],
+            answer=(
+                "The first digit gets +1, the second gets +4, and the third gets +9."
+            ),
+            query="Decode 123.",
+            frame_declaration={
+                "current_frame": "digit mapping",
+                "frame_adequate": False,
+                "reason": "The categories fail because the statement is recursive.",
+                "cambium_proposal": "",
+                "cambium_definition": "",
+            },
+        )
+
+        self.assertFalse(result["passed"])
+        self.assertTrue(result["overfitting_detected"])
+        self.assertFalse(result["critiques"][0]["overfitting_skipped"])
+        self.assertEqual(result["cambium_event"]["status"], "weak")
+        self.assertFalse(result["cambium_event"]["overfitting_skipped"])
 
     def test_invalid_frame_declaration_is_evasion_and_fails(self):
         def fake_llm(**kwargs):
@@ -487,7 +671,9 @@ class PoQGateTests(unittest.TestCase):
         self.assertFalse(result["passed"])
         self.assertTrue(result["evasion_detected"])
         self.assertTrue(result["overfitting_detected"])
+        self.assertFalse(result["critiques"][0]["overfitting_skipped"])
         self.assertEqual(result["cambium_event"]["status"], "evasion")
+        self.assertFalse(result["cambium_event"]["overfitting_skipped"])
         self.assertIn("missing cambium_proposal", result["cambium_event"]["evasion_reason"])
 
     def test_nl_cambium_detects_shift_from_to(self):
@@ -660,8 +846,8 @@ class PoQGateTests(unittest.TestCase):
             response = app.generate_llm_response(
                 query="Classify: this statement is false.",
                 domain="testing",
-                persona_id="companion",
-                custom_persona=None,
+                persona_id="openclaw",
+                custom_persona=server.PERSONAS["openclaw"],
                 model=server.DEFAULT_MODEL,
                 api_key="sk-test",
             )
@@ -718,8 +904,8 @@ class PoQGateTests(unittest.TestCase):
             response = app.generate_llm_response(
                 query="Decode 123.",
                 domain="testing",
-                persona_id="companion",
-                custom_persona=None,
+                persona_id="openclaw",
+                custom_persona=server.PERSONAS["openclaw"],
                 model=server.DEFAULT_MODEL,
                 api_key="sk-test",
             )
@@ -759,7 +945,7 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertIn("brightness=0.812", context)
         self.assertIn("Use the standalone PoC", context)
 
-    def test_build_messages_includes_persona_memory_and_covenant(self):
+    def test_standard_enhanced_prompt_keeps_persona_memory_without_cyphertempre_runtime(self):
         persona = {
             "name": "Architect",
             "system": "You are an architect.",
@@ -786,9 +972,14 @@ class PromptAssemblyTests(unittest.TestCase):
 
         self.assertEqual(messages[-1], {"role": "user", "content": "What should we build next?"})
         self.assertIn("You are an architect.", messages[0]["content"])
-        self.assertIn("Prefer maintainable software.", messages[0]["content"])
         self.assertIn("Keep the UI separate", messages[0]["content"])
-        self.assertIn("dopamine=0.30", messages[0]["content"])
+        self.assertIn("choose an appropriate approach", messages[0]["content"])
+        self.assertIn("be clear about uncertainty", messages[0]["content"])
+        self.assertNotIn("Prefer maintainable software.", messages[0]["content"])
+        self.assertNotIn("local CypherTempre Timechain", messages[0]["content"])
+        self.assertNotIn("CT_FRAME_DECLARATION", messages[0]["content"])
+        self.assertNotIn("Current neuro-state", messages[0]["content"])
+        self.assertNotIn("Engineering covenant", messages[0]["content"])
         self.assertIn("Current date/time context:", messages[0]["content"])
         self.assertIn("authoritative now", messages[0]["content"])
 
@@ -2001,11 +2192,13 @@ class PromptAssemblyTests(unittest.TestCase):
 
     def test_api_config_exposes_safe_persona_metadata_only(self):
         payload = {
-            key: {"name": value["name"], "domain": value["domain"]}
+            key: server.safe_persona_metadata(key, value)
             for key, value in server.PERSONAS.items()
         }
         self.assertIn("openclaw", payload)
         self.assertEqual(payload["openclaw"]["name"], "Cypher Tempre OpenClaw Runtime")
+        self.assertEqual(payload["openclaw"]["runtime_profile"], "cyphertempre_full")
+        self.assertTrue(payload["openclaw"]["requires_high_context"])
         self.assertNotIn("system", payload.get("openclaw", {}))
         self.assertNotIn("TRUTH CONSTRAINT", str(payload))
 
@@ -2024,6 +2217,8 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertIn("Cypher Tempre Prompt-Layer Runtime", system_content)
         self.assertIn("CORE THESIS", system_content)
         self.assertIn("FINAL ACTIVATION", system_content)
+        self.assertIn("CT_FRAME_DECLARATION", system_content)
+        self.assertIn("Current neuro-state", system_content)
 
     def test_openclaw_prompt_is_compacted_to_fit_provider_budget(self):
         persona = server.PERSONAS["openclaw"]
@@ -2047,6 +2242,17 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertIn("Cypher Tempre Prompt-Layer Runtime", messages[0]["content"])
         self.assertIn("OpenClaw prompt compacted", messages[0]["content"])
         self.assertEqual(messages[-1], {"role": "user", "content": "Write a lengthy response about Ring sealing."})
+
+    def test_runtime_metadata_defaults_standard_and_marks_openclaw_high_context(self):
+        companion = server.safe_persona_metadata("companion", server.PERSONAS["companion"])
+        openclaw = server.safe_persona_metadata("openclaw", server.PERSONAS["openclaw"])
+
+        self.assertEqual(companion["runtime_profile"], "standard_enhanced")
+        self.assertTrue(companion["enhanced_thinking"])
+        self.assertFalse(companion["requires_high_context"])
+        self.assertEqual(openclaw["runtime_profile"], "cyphertempre_full")
+        self.assertTrue(openclaw["enhanced_thinking"])
+        self.assertTrue(openclaw["requires_high_context"])
 
     def test_readme_documents_openclaw_without_native_architecture_overclaim(self):
         readme = server.pathlib.Path(__file__).with_name("README.md").read_text(encoding="utf-8")
@@ -2128,6 +2334,76 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertEqual(response["persona"]["name"], "Mira Vale")
         self.assertEqual(response["model_used"], "local-default-generator")
         self.assertIn("429", response["provider_error"])
+
+    def test_generate_llm_response_does_not_scaffold_standard_persona_query(self):
+        workspace = self.make_workspace()
+        app = server.App(
+            workspace,
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="sk-or-test",
+            base_url="",
+            timeout=1,
+            poq={"enabled": False, "min_score": 7, "max_retries": 0, "overfitting_check": True},
+        )
+        captured = {}
+
+        def fake_llm(**kwargs):
+            captured["messages"] = kwargs["messages"]
+            return {"content": "Plain response.", "model_used": "test-model", "usage": {}}
+
+        with (
+            mock.patch("server.timechain.active_call_llm", side_effect=fake_llm),
+            mock.patch("server.timechain.generate_llm_memory_candidates", return_value=[]),
+        ):
+            response = app.generate_llm_response(
+                query="What is 2+2?",
+                domain="testing",
+                persona_id="companion",
+                custom_persona=server.PERSONAS["companion"],
+                model=server.DEFAULT_MODEL,
+                api_key="sk-or-test",
+                poq_enabled=False,
+            )
+
+        self.assertEqual(response["content"], "Plain response.")
+        self.assertEqual(captured["messages"][-1]["content"], "What is 2+2?")
+
+    def test_generate_llm_response_scaffolds_openclaw_query(self):
+        workspace = self.make_workspace()
+        app = server.App(
+            workspace,
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="sk-or-test",
+            base_url="",
+            timeout=1,
+            poq={"enabled": False, "min_score": 7, "max_retries": 0, "overfitting_check": True},
+        )
+        captured = {}
+
+        def fake_llm(**kwargs):
+            captured["messages"] = kwargs["messages"]
+            return {"content": "Runtime response.", "model_used": "test-model", "usage": {}}
+
+        with (
+            mock.patch("server.timechain.active_call_llm", side_effect=fake_llm),
+            mock.patch("server.timechain.generate_llm_memory_candidates", return_value=[]),
+        ):
+            response = app.generate_llm_response(
+                query="What is 2+2?",
+                domain="testing",
+                persona_id="openclaw",
+                custom_persona=server.PERSONAS["openclaw"],
+                model=server.DEFAULT_MODEL,
+                api_key="sk-or-test",
+                poq_enabled=False,
+            )
+
+        self.assertEqual(response["content"], "Runtime response.")
+        self.assertTrue(captured["messages"][-1]["content"].startswith("Use the most appropriate framework"))
 
     def test_created_session_locks_initial_persona(self):
         app = server.App(
@@ -2443,10 +2719,11 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertIn("consumes many tokens", server.HTML)
         self.assertIn("Free models are blocked for this persona", server.HTML)
         self.assertIn("Paid or higher-context models can run it with this warning", server.HTML)
-        self.assertIn("const warn = isFree && isOpenClaw", server.HTML)
+        self.assertIn("requiresHighContext", server.HTML)
+        self.assertIn("runtime_profile", server.HTML)
         self.assertIn("const block = warn", server.HTML)
         self.assertIn("els.send.disabled = block || isSending", server.HTML)
-        self.assertIn("OpenClaw consumes many tokens on this model.", server.HTML)
+        self.assertIn("This persona consumes many tokens on this model.", server.HTML)
         self.assertIn("Switch to a non-free model to use OpenClaw.", server.HTML)
 
     def test_guide_topics_have_unique_required_fields(self):
@@ -2812,7 +3089,7 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertEqual(content, "Visible answer.")
         self.assertIsNone(declaration)
 
-    def test_build_messages_includes_frame_declaration_instruction(self):
+    def test_standard_messages_omit_frame_declaration_instruction(self):
         persona = {"name": "Companion", "system": "Stay useful."}
 
         messages = server.build_messages(
@@ -2825,8 +3102,8 @@ class PromptAssemblyTests(unittest.TestCase):
             covenant="Be useful.",
         )
 
-        self.assertIn("[CT_FRAME_DECLARATION]", messages[0]["content"])
-        self.assertIn("cambium_proposal", messages[0]["content"])
+        self.assertNotIn("[CT_FRAME_DECLARATION]", messages[0]["content"])
+        self.assertNotIn("cambium_proposal", messages[0]["content"])
 
     def test_import_shared_memory_creates_fleet_import_ring(self):
         workspace = self.make_workspace()
@@ -3227,6 +3504,116 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertIn("/api/marketplace/", server.HTML)
         self.assertIn("/subscribe", server.HTML)
         self.assertIn("/unsubscribe", server.HTML)
+
+
+class TrainerTests(unittest.TestCase):
+    def test_new_session_starts_at_level_three(self):
+        t = Trainer()
+        q = t.build_query("s1", "Solve this.")
+        self.assertIn("framework", q.lower())
+
+    def test_valid_high_quality_decrements_level(self):
+        t = Trainer()
+        t.process_event("s1", 1, {"status": "valid", "quality_score": 0.85}, "ok")
+        self.assertEqual(t.get_state("s1")["scaffolding_level"], 2)
+
+    def test_valid_mid_quality_decrements_level(self):
+        t = Trainer()
+        t.process_event("s1", 1, {"status": "valid", "quality_score": 0.75}, "ok")
+        self.assertEqual(t.get_state("s1")["scaffolding_level"], 2)
+        t.process_event("s1", 2, {"status": "valid", "quality_score": 0.75}, "ok")
+        self.assertEqual(t.get_state("s1")["scaffolding_level"], 1)
+
+    def test_valid_threshold_seven_decrements(self):
+        t = Trainer()
+        t.process_event("s1", 1, {"status": "valid", "quality_score": 0.7}, "ok")
+        self.assertEqual(t.get_state("s1")["scaffolding_level"], 2)
+
+    def test_valid_low_quality_increments_level(self):
+        t = Trainer()
+        # start at 3, low quality should increment (but cap at 3)
+        t.process_event("s1", 1, {"status": "valid", "quality_score": 0.3}, "ok")
+        self.assertEqual(t.get_state("s1")["scaffolding_level"], 3)
+        # force level down then test increment
+        t._get_state("s1")["scaffolding_level"] = 1
+        t.process_event("s1", 2, {"status": "valid", "quality_score": 0.3}, "ok")
+        self.assertEqual(t.get_state("s1")["scaffolding_level"], 2)
+
+    def test_none_event_increments_level(self):
+        t = Trainer()
+        t._get_state("s1")["scaffolding_level"] = 0
+        t.process_event("s1", 1, {"status": "none"}, "ok")
+        self.assertEqual(t.get_state("s1")["scaffolding_level"], 1)
+        t.process_event("s1", 2, {"status": "none"}, "ok")
+        self.assertEqual(t.get_state("s1")["scaffolding_level"], 2)
+
+    def test_none_event_ratchets_to_three(self):
+        t = Trainer()
+        t._get_state("s1")["scaffolding_level"] = 0
+        for i in range(3):
+            t.process_event("s1", i, {"status": "none"}, "ok")
+        self.assertEqual(t.get_state("s1")["scaffolding_level"], 3)
+
+    def test_evasion_jumps_up(self):
+        t = Trainer()
+        t._get_state("s1")["scaffolding_level"] = 1
+        t.process_event("s1", 1, {"status": "evasion"}, "ok")
+        self.assertEqual(t.get_state("s1")["scaffolding_level"], 3)
+
+    def test_framework_switch_rewards(self):
+        t = Trainer()
+        t._get_state("s1")["scaffolding_level"] = 2
+        # first frame
+        t.process_event("s1", 1, {"status": "valid", "quality_score": 0.5}, "ok", frame_declaration={"current_frame": "PBXF"})
+        self.assertEqual(t.get_state("s1")["scaffolding_level"], 2)
+        # switch
+        t.process_event("s1", 2, {"status": "valid", "quality_score": 0.5}, "ok", frame_declaration={"current_frame": "First Principles"})
+        self.assertEqual(t.get_state("s1")["scaffolding_level"], 1)
+
+    def test_level_three_prefix(self):
+        t = Trainer()
+        q = t.build_query("s1", "What is 2+2?", domain_hint="math")
+        self.assertTrue(q.startswith("Use the most appropriate framework"))
+        self.assertIn("Domain: math", q)
+
+    def test_level_two_prefix(self):
+        t = Trainer()
+        t._get_state("s1")["scaffolding_level"] = 2
+        q = t.build_query("s1", "What is 2+2?", domain_hint="math")
+        self.assertTrue(q.startswith("Think about what kind of problem"))
+        self.assertIn("Domain: math", q)
+
+    def test_level_one_domain_only(self):
+        t = Trainer()
+        t._get_state("s1")["scaffolding_level"] = 1
+        q = t.build_query("s1", "What is 2+2?", domain_hint="math")
+        self.assertEqual(q, "Domain: math\n\nWhat is 2+2?")
+
+    def test_level_zero_no_prefix(self):
+        t = Trainer()
+        t._get_state("s1")["scaffolding_level"] = 0
+        q = t.build_query("s1", "What is 2+2?", domain_hint="math")
+        self.assertEqual(q, "What is 2+2?")
+
+    def test_weak_treated_as_upward_pressure(self):
+        t = Trainer()
+        t._get_state("s1")["scaffolding_level"] = 1
+        t.process_event("s1", 1, {"status": "weak"}, "ok")
+        self.assertEqual(t.get_state("s1")["scaffolding_level"], 2)
+
+    def test_consecutive_valid_counter(self):
+        t = Trainer()
+        for i in range(3):
+            t.process_event("s1", i, {"status": "valid", "quality_score": 0.85}, "ok")
+        self.assertEqual(t.get_state("s1")["consecutive_valid"], 3)
+        self.assertEqual(t.get_state("s1")["consecutive_none"], 0)
+
+    def test_consecutive_none_counter(self):
+        t = Trainer()
+        for i in range(2):
+            t.process_event("s1", i, {"status": "none"}, "ok")
+        self.assertEqual(t.get_state("s1")["consecutive_none"], 2)
+        self.assertEqual(t.get_state("s1")["consecutive_valid"], 0)
 
 
 if __name__ == "__main__":

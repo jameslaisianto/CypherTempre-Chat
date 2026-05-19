@@ -38,6 +38,7 @@ from server.timechain import (
     load_local_env,
     sanitize_session_id,
 )
+from server.llm import safe_persona_metadata
 from server.llm import serialize_history
 
 # Compose the full HTML page from template and JS
@@ -70,6 +71,12 @@ ICON_SVG = (
     '<text x=\"50\" y=\"68\" font-size=\"52\" text-anchor=\"middle\" fill=\"#d6b36a\" font-family=\"ui-sans-serif,system-ui,sans-serif\">C</text>'
     '</svg>'
 )
+
+def with_runtime_metadata(personas: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    return {
+        key: {**value, **safe_persona_metadata(key, value)}
+        for key, value in (personas or {}).items()
+    }
 
 def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
@@ -118,13 +125,13 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                         "base_url": app.base_url or default_provider_url(app.provider),
                         "has_env_key": bool(app.api_key),
                         "personas": {
-                            key: {"name": value["name"], "domain": value["domain"]}
+                            key: safe_persona_metadata(key, value)
                             for key, value in PERSONAS.items()
                         },
-                        "custom_personas": custom_personas,
-                        "creator_personas": creator_personas,
-                        "public_personas": public_personas,
-                        "marketplace_personas": mp_personas,
+                        "custom_personas": with_runtime_metadata(custom_personas),
+                        "creator_personas": with_runtime_metadata(creator_personas),
+                        "public_personas": with_runtime_metadata(public_personas),
+                        "marketplace_personas": with_runtime_metadata(mp_personas),
                         "poq": app.poq,
                     })
                     return
@@ -152,6 +159,16 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                         return
                     app.use_session(self.query_param("session"), username=user["username"])
                     self.send_json({"ok": True, "model": app.self_model()})
+                    return
+                if path == "/api/trainer/state":
+                    try:
+                        user = self._auth_user()
+                    except PermissionError as exc:
+                        self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                        return
+                    app.use_session(self.query_param("session"), username=user["username"])
+                    state = app.trainer.get_state(app.active_session)
+                    self.send_json({"ok": True, **state})
                     return
                 if path == "/api/memory-model":
                     try:

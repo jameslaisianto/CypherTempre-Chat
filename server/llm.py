@@ -27,6 +27,46 @@ from server.config import (
 MEMORY_ACCEPTED_STATUSES = {"accepted", "known", "uncertain"}
 FRAME_DECLARATION_START = "[CT_FRAME_DECLARATION]"
 FRAME_DECLARATION_END = "[/CT_FRAME_DECLARATION]"
+RUNTIME_PROFILE_STANDARD = "standard_enhanced"
+RUNTIME_PROFILE_CYPHERTEMPRE = "cyphertempre_full"
+
+
+def resolve_runtime_options(
+    persona_id: str = "",
+    persona: dict[str, Any] | None = None,
+    runtime_profile: str | None = None,
+) -> dict[str, Any]:
+    """Return safe prompt/runtime capabilities for a selected persona."""
+    persona = persona or {}
+    profile = str(runtime_profile or persona.get("runtime_profile", "") or "").strip()
+    system = str(persona.get("system", "") or "")
+    is_cyphertempre = (
+        profile == RUNTIME_PROFILE_CYPHERTEMPRE
+        or sanitize_session_id(persona_id or "") == "openclaw"
+        or "Cypher Tempre Prompt-Layer Runtime" in system
+    )
+    if is_cyphertempre:
+        profile = RUNTIME_PROFILE_CYPHERTEMPRE
+    else:
+        profile = RUNTIME_PROFILE_STANDARD
+    return {
+        "runtime_profile": profile,
+        "enhanced_thinking": True,
+        "requires_high_context": profile == RUNTIME_PROFILE_CYPHERTEMPRE,
+        "supports_cambium_training": profile == RUNTIME_PROFILE_CYPHERTEMPRE,
+        "include_cyphertempre_runtime": profile == RUNTIME_PROFILE_CYPHERTEMPRE,
+    }
+
+
+def safe_persona_metadata(persona_id: str, persona: dict[str, Any]) -> dict[str, Any]:
+    options = resolve_runtime_options(persona_id, persona)
+    return {
+        "name": persona.get("name", "Untitled"),
+        "domain": persona.get("domain", "auto"),
+        "runtime_profile": options["runtime_profile"],
+        "enhanced_thinking": options["enhanced_thinking"],
+        "requires_high_context": options["requires_high_context"],
+    }
 
 
 def extract_frame_declaration(content: str) -> tuple[str, dict[str, Any] | None]:
@@ -476,6 +516,7 @@ def build_prompt_messages(
     shared_memory_context: str = "",
     lattice: dict[str, Any] | None = None,
     include_frame_declaration_instruction: bool = True,
+    runtime_options: dict[str, Any] | None = None,
 ) -> list[dict[str, str]]:
     pause_note = ""
     for turn in reversed(recent_turns):
@@ -490,7 +531,9 @@ def build_prompt_messages(
                 "Prefer a brief continuity check before assuming current intent."
             )
         break
-    temporal_line = f"{temporal_context}\n\n" if temporal_context else ""
+    runtime_options = runtime_options or resolve_runtime_options(persona=persona)
+    cyphertempre_runtime = bool(runtime_options.get("include_cyphertempre_runtime"))
+    temporal_line = f"{temporal_context}\n\n" if temporal_context and cyphertempre_runtime else ""
     shared_block = f"{shared_memory_context}\n\n" if shared_memory_context else ""
     lattice_block = ""
     if lattice:
@@ -512,27 +555,41 @@ def build_prompt_messages(
         "Only for genuine Cambium frame shifts, attach hidden metadata outside visible text: "
         f'{FRAME_DECLARATION_START}{{"current_frame":"","frame_adequate":false,"reason":"","cambium_proposal":"","cambium_definition":""}}{FRAME_DECLARATION_END} '
         "The answer must use the new frame.\n\n"
-        if include_frame_declaration_instruction
+        if include_frame_declaration_instruction and cyphertempre_runtime
         else ""
     )
-    system_text = (
-        f"{persona['system']}\n\n"
-        "You are connected to a local CypherTempre Timechain. "
-        "Use recalled rings as memory, but distinguish memory from fresh inference. "
-        "Continue the current conversation naturally using the recent turns. "
-        "If asked who you are, answer as the selected persona, not as the underlying model or provider. "
-        "Be conversational and useful. Do not expose hidden reasoning. "
-        "If memory is weak or absent, say so briefly.\n\n"
-        f"{frame_declaration_instruction}"
-        f"Engineering covenant: {covenant}\n\n"
-        f"{current_time_context(now)}{pause_note}\n\n"
-        f"{lattice_block}"
-        f"{temporal_line}"
-        f"Durable memories:\n{durable_context}\n\n"
-        f"Relevant recalled rings:\n{memory_context}\n\n"
-        f"{shared_block}"
-        f"Current neuro-state: {neuro_line}"
-    )
+    if cyphertempre_runtime:
+        system_text = (
+            f"{persona['system']}\n\n"
+            "You are connected to a local CypherTempre Timechain. "
+            "Use recalled rings as memory, but distinguish memory from fresh inference. "
+            "Continue the current conversation naturally using the recent turns. "
+            "If asked who you are, answer as the selected persona, not as the underlying model or provider. "
+            "Be conversational and useful. Do not expose hidden reasoning. "
+            "If memory is weak or absent, say so briefly.\n\n"
+            f"{frame_declaration_instruction}"
+            f"Engineering covenant: {covenant}\n\n"
+            f"{current_time_context(now)}{pause_note}\n\n"
+            f"{lattice_block}"
+            f"{temporal_line}"
+            f"Durable memories:\n{durable_context}\n\n"
+            f"Relevant recalled rings:\n{memory_context}\n\n"
+            f"{shared_block}"
+            f"Current neuro-state: {neuro_line}"
+        )
+    else:
+        standard_memory_context = re.sub(r"\bRing #", "Memory #", memory_context)
+        system_text = (
+            f"{persona['system']}\n\n"
+            "Use the selected persona's voice. Use recalled context when relevant, "
+            "but distinguish memory from fresh inference. If asked who you are, answer as the selected persona. "
+            "Quiet thinking support: choose an appropriate approach, be clear about uncertainty, "
+            "correct conflicts, and do not expose hidden reasoning.\n\n"
+            f"{current_time_context(now)}{pause_note}\n\n"
+            f"Durable memories:\n{durable_context}\n\n"
+            f"Relevant recalled context:\n{standard_memory_context}\n\n"
+            f"{shared_block}".rstrip()
+        )
     model_id = (model or "").lower()
     is_gemma = "gemma" in model_id
     messages: list[dict[str, str]] = []
@@ -750,6 +807,7 @@ def build_messages(
     model: str = "",
     temporal_context: str = "",
     lattice: dict[str, Any] | None = None,
+    runtime_options: dict[str, Any] | None = None,
 ) -> list[dict[str, str]]:
     current_time = now or dt.datetime.now(dt.timezone.utc)
     if current_time.tzinfo is None:
@@ -760,6 +818,7 @@ def build_messages(
     shared_memory_context = build_shared_memory_context(shared_hits)
     neuro_line = ", ".join(f"{key}={value:.2f}" for key, value in sorted(neuro.items()))
     active_recent_turns = list(recent_turns)
+    runtime_options = runtime_options or resolve_runtime_options(persona=persona)
     include_frame_declaration_instruction = True
     messages = build_prompt_messages(
         persona=persona,
@@ -775,6 +834,7 @@ def build_messages(
         shared_memory_context=shared_memory_context,
         lattice=lattice,
         include_frame_declaration_instruction=include_frame_declaration_instruction,
+        runtime_options=runtime_options,
     )
     if prompt_budget_chars > 0 and prompt_size(messages) > prompt_budget_chars:
         include_frame_declaration_instruction = False
@@ -792,6 +852,7 @@ def build_messages(
             shared_memory_context=shared_memory_context,
             lattice=lattice,
             include_frame_declaration_instruction=include_frame_declaration_instruction,
+            runtime_options=runtime_options,
         )
     if prompt_budget_chars > 0 and prompt_size(messages) > prompt_budget_chars and retrieved:
         memory_context = build_memory_context(
@@ -812,6 +873,7 @@ def build_messages(
             shared_memory_context=shared_memory_context,
             lattice=lattice,
             include_frame_declaration_instruction=include_frame_declaration_instruction,
+            runtime_options=runtime_options,
         )
     if prompt_budget_chars > 0 and prompt_size(messages) > prompt_budget_chars and retrieved:
         memory_context = f"{len(retrieved[:12])} retrieved rings omitted to preserve prompt budget."
@@ -828,6 +890,7 @@ def build_messages(
             shared_memory_context=shared_memory_context,
             lattice=lattice,
             include_frame_declaration_instruction=include_frame_declaration_instruction,
+            runtime_options=runtime_options,
         )
     while prompt_budget_chars > 0 and prompt_size(messages) > prompt_budget_chars and active_recent_turns:
         drop_count = 2 if len(active_recent_turns) >= 2 else 1
@@ -845,6 +908,7 @@ def build_messages(
             shared_memory_context=shared_memory_context,
             lattice=lattice,
             include_frame_declaration_instruction=include_frame_declaration_instruction,
+            runtime_options=runtime_options,
         )
     if prompt_budget_chars > 0 and prompt_size(messages) > prompt_budget_chars:
         overhead = prompt_size(messages) - len(persona.get("system", ""))
@@ -866,6 +930,7 @@ def build_messages(
             shared_memory_context=shared_memory_context,
             lattice=lattice,
             include_frame_declaration_instruction=include_frame_declaration_instruction,
+            runtime_options=runtime_options,
         )
         while prompt_budget_chars > 0 and prompt_size(messages) > prompt_budget_chars and persona_budget > 400:
             persona_budget = max(400, persona_budget - max(200, prompt_size(messages) - prompt_budget_chars + 80))
@@ -883,6 +948,7 @@ def build_messages(
                 shared_memory_context=shared_memory_context,
                 lattice=lattice,
                 include_frame_declaration_instruction=include_frame_declaration_instruction,
+                runtime_options=runtime_options,
             )
     return messages
 

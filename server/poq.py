@@ -184,6 +184,7 @@ class PoQGate:
         max_retries: int = 1,
         max_tokens: int = 1600,
         overfitting_check: bool = True,
+        cambium_enabled: bool = True,
     ) -> None:
         self.llm_callable = llm_callable
         self.provider = provider
@@ -195,6 +196,7 @@ class PoQGate:
         self.max_retries = max(0, int(max_retries))
         self.max_tokens = max(1, int(max_tokens or 1600))
         self.overfitting_check = bool(overfitting_check)
+        self.cambium_enabled = bool(cambium_enabled)
 
     def review_and_repair(
         self,
@@ -294,15 +296,29 @@ class PoQGate:
         explanation = parse_poq_explanation(raw)
         if low and not explanation:
             explanation = "One or more PoQ scores were below the configured threshold."
-        cambium_event = evaluate_cambium_frame_declaration(frame_declaration, answer, known_proposals=known_proposals)
-        overfitting = (
-            detect_overfitting(answer)
-            if self.overfitting_check
-            else {"detected": False, "reason": ""}
+        cambium_event = (
+            evaluate_cambium_frame_declaration(frame_declaration, answer, known_proposals=known_proposals)
+            if self.cambium_enabled
+            else {
+                "status": "none",
+                "proposal": "",
+                "reason": "",
+                "quality_score": 0.0,
+                "overfitting_skipped": False,
+                "evasion_reason": "",
+                "source": "",
+            }
         )
-        if cambium_event["status"] in {"valid", "weak"} and overfitting["detected"]:
+        overfitting_skipped = self.cambium_enabled and cambium_event["status"] == "valid"
+        if overfitting_skipped:
             cambium_event["overfitting_skipped"] = True
             overfitting = {"detected": False, "reason": ""}
+        else:
+            overfitting = (
+                detect_overfitting(answer)
+                if self.overfitting_check
+                else {"detected": False, "reason": ""}
+            )
         if overfitting["detected"]:
             explanation = _append_failure_reason(explanation, overfitting["reason"])
         category_failure = detect_category_failure_escape(answer)
@@ -317,7 +333,10 @@ class PoQGate:
                 explanation,
                 f"Cambium evasion detected: {cambium_event['evasion_reason']}",
             )
-        include_cambium = frame_declaration is not None or cambium_event.get("source") == "nl_detection"
+        include_cambium = (
+            not self.cambium_enabled
+            or (frame_declaration is not None or cambium_event.get("source") == "nl_detection")
+        )
         return {
             "passed": not low and not overfitting["detected"] and not evasion_detected,
             "scores": {key: scores.get(key, 0.0) for key in POQ_SCORE_KEYS},
@@ -325,6 +344,7 @@ class PoQGate:
             "raw": raw,
             "overfitting_detected": overfitting["detected"],
             "overfitting_reason": overfitting["reason"],
+            "overfitting_skipped": overfitting_skipped,
             "category_failure_detected": category_failure["detected"],
             "category_failure_reason": category_failure["reason"],
             "evasion_detected": evasion_detected,

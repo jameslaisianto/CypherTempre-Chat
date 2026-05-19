@@ -640,21 +640,23 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
 
     function validatePersonaModel() {
       const isFree = (els.model.value || '').trim().endsWith(':free');
-      const isOpenClaw = els.persona.value === 'openclaw';
-      const warn = isFree && isOpenClaw;
+      const persona = getActivePersona();
+      const requiresHighContext = !!persona?.requires_high_context || persona?.runtime_profile === 'cyphertempre_full';
+      const personaName = persona?.name || 'This persona';
+      const warn = isFree && requiresHighContext;
       const block = warn;
-      els.composerWarning.classList.toggle('active', isOpenClaw);
+      els.composerWarning.classList.toggle('active', requiresHighContext);
       const warningDetail = document.getElementById('composer-warning-detail');
       if (warningDetail) {
         warningDetail.textContent = block
           ? 'Free models are blocked for this persona. Switch to a non-free model to use OpenClaw.'
-          : 'Paid or higher-context models can run it with this warning. OpenClaw consumes many tokens on this model.';
+          : `Paid or higher-context models can run it with this warning. ${personaName === 'Cypher Tempre OpenClaw Runtime' ? 'This persona' : personaName} consumes many tokens on this model.`;
       }
       els.send.disabled = block || isSending;
       els.message.placeholder = block
         ? 'Switch to a non-free model to use OpenClaw.'
-        : isOpenClaw
-        ? 'Ask anything... OpenClaw consumes many tokens on this model.'
+        : requiresHighContext
+        ? 'Ask anything... This persona consumes many tokens on this model.'
         : 'Ask anything...';
     }
 
