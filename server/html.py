@@ -693,6 +693,107 @@ HTML_TEMPLATE = r"""<!doctype html>
       text-transform: uppercase;
     }
 
+    .settings-divider {
+      font-size: 11px;
+      font-weight: 700;
+      color: #888;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      margin: 16px 0 6px;
+      padding-top: 10px;
+      border-top: 1px solid rgba(255,255,255,0.06);
+    }
+
+    /* Provider sub-tabs (Chat / Image / Video) */
+    .provider-subtabs {
+      display: inline-flex;
+      background: #111;
+      border: 1px solid #222;
+      border-radius: 999px;
+      padding: 3px;
+      margin-bottom: 14px;
+      gap: 2px;
+    }
+
+    .provider-subtab {
+      padding: 6px 18px;
+      border-radius: 999px;
+      border: none;
+      background: transparent;
+      color: #888;
+      font-size: 12.5px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .15s ease;
+      white-space: nowrap;
+    }
+
+    .provider-subtab:hover {
+      color: #ddd;
+    }
+
+    .provider-subtab.active {
+      background: linear-gradient(135deg, #0ea5e9, #3b82f6);
+      color: #fff;
+      font-weight: 700;
+      box-shadow: 0 2px 8px rgba(14,165,233,0.35);
+    }
+
+    .provider-subsection {
+      display: block;
+    }
+
+    .provider-subsection.hidden {
+      display: none;
+    }
+
+    .provider-effective-summary {
+      margin-top: 18px;
+      padding: 14px 16px;
+      background: rgba(255,255,255,0.02);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 10px;
+    }
+
+    .summary-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: #888;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+
+    .summary-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+      padding: 4px 0;
+    }
+
+    .summary-label {
+      color: #777;
+      font-weight: 600;
+    }
+
+    .summary-value {
+      color: #ddd;
+      font-weight: 600;
+      text-align: right;
+      max-width: 65%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .summary-note {
+      margin-top: 10px;
+      font-size: 11px;
+      color: #666;
+      line-height: 1.4;
+    }
+
     .settings-status-panel {
       margin-top: 4px;
       padding: 14px 16px;
@@ -2689,7 +2790,7 @@ HTML_TEMPLATE = r"""<!doctype html>
               <!-- PROMINENT MODEL SELECTOR -->
               <div style="margin-bottom:14px; padding:10px; background:#0a0a0c; border:1px solid #333; border-radius:10px;">
                 <div style="font-size:10px; font-weight:700; color:#c0b3ff; letter-spacing:1.5px; margin-bottom:6px;">CHOOSE VIDEO MODEL</div>
-                <select id="videogen-model" style="width:100%; font-size:14px; padding:10px 14px; background:#111; border:2px solid #6366f1; color:#fff; border-radius:8px; font-weight:600;">
+                <select id="videogen-model" style="width:100%; font-size:14px; padding:8px 14px; background:#111; border:2px solid #6366f1; color:#fff; border-radius:8px; font-weight:600; box-sizing:border-box; height:auto; min-height:42px; line-height:1.4;">
                   <option value="demo-cinematic">Demo (built-in test clip) — No key needed</option>
                   <option value="kling-2.1-pro">Kling 2.1 Pro — Cinematic</option>
                   <option value="luma-ray2-1080">Luma Ray2 1080p</option>
@@ -2840,39 +2941,100 @@ HTML_TEMPLATE = r"""<!doctype html>
         </div>
 
         <section id="provider-settings-section" class="feature-card settings-form settings-section">
-          <div class="settings-row">
-            <div class="settings-field">
-              <label for="provider">Provider</label>
-              <select id="provider">
-                <option value="morpheus">Morpheus</option>
-                <option value="openrouter">OpenRouter</option>
-                <option value="kimi-code">Kimi Code</option>
-                <option value="kimi">Kimi Platform</option>
-                <option value="other">Other</option>
-              </select>
-              <div class="hint">Select your LLM provider</div>
+          <!-- Sub-tabs for Chat / Image / Video providers -->
+          <div class="provider-subtabs" role="tablist" aria-label="Provider type">
+            <button type="button" class="provider-subtab active" data-subtab="chat" role="tab" aria-selected="true">Chat</button>
+            <button type="button" class="provider-subtab" data-subtab="image" role="tab" aria-selected="false">Image</button>
+            <button type="button" class="provider-subtab" data-subtab="video" role="tab" aria-selected="false">Video</button>
+          </div>
+
+          <!-- Chat / LLM Provider -->
+          <div id="provider-sub-chat" class="provider-subsection">
+            <div class="settings-row">
+              <div class="settings-field">
+                <label for="provider">Provider</label>
+                <select id="provider">
+                  <option value="morpheus">Morpheus</option>
+                  <option value="openrouter">OpenRouter</option>
+                  <option value="kimi-code">Kimi Code</option>
+                  <option value="kimi">Kimi Platform</option>
+                  <option value="other">Other</option>
+                </select>
+                <div class="hint">Select your LLM provider</div>
+              </div>
+              <div class="settings-field">
+                <label for="model">Model</label>
+                <input id="model" value="venice-uncensored">
+                <div class="hint" id="model-hint">Morpheus default: venice-uncensored.</div>
+              </div>
             </div>
+
+            <div class="settings-field" id="base-url-field">
+              <label for="base-url">Endpoint</label>
+              <input id="base-url" type="text" autocomplete="off" placeholder="https://api.example.com/v1/chat/completions">
+              <div class="hint">OpenAI-compatible /v1 base URL or full /chat/completions endpoint</div>
+            </div>
+
             <div class="settings-field">
-              <label for="model">Model</label>
-              <input id="model" value="venice-uncensored">
-              <div class="hint" id="model-hint">Morpheus default: venice-uncensored.</div>
+              <label for="api-key">API key</label>
+              <div class="inline-field">
+                <input id="api-key" type="password" autocomplete="off" placeholder="sk-...">
+                <button id="test-provider" class="secondary" type="button">Test</button>
+                <button id="clear-provider-override" class="secondary" type="button">Use .env</button>
+              </div>
+              <div class="hint">Stored in this browser only. You can also set API_KEY in .env.local.</div>
             </div>
           </div>
 
-          <div class="settings-field" id="base-url-field">
-            <label for="base-url">Endpoint</label>
-            <input id="base-url" type="text" autocomplete="off" placeholder="https://api.example.com/v1/chat/completions">
-            <div class="hint">OpenAI-compatible /v1 base URL or full /chat/completions endpoint</div>
+          <!-- Image Generation Provider -->
+          <div id="provider-sub-image" class="provider-subsection hidden">
+            <div class="settings-row">
+              <div class="settings-field">
+                <label for="image-provider">Provider</label>
+                <select id="image-provider">
+                  <option value="openrouter">OpenRouter</option>
+                  <option value="morpheus">Morpheus</option>
+                  <option value="other">Other</option>
+                </select>
+                <div class="hint">Provider for ImageGen Studio</div>
+              </div>
+              <div class="settings-field">
+                <label for="image-model">Model</label>
+                <select id="image-model"></select>
+                <div class="hint" id="image-model-hint"></div>
+              </div>
+            </div>
+            <div class="settings-field">
+              <label for="image-api-key">API Key (optional override)</label>
+              <input id="image-api-key" type="password" autocomplete="off" placeholder="Leave empty to use main key">
+              <div class="hint">Separate key for image generation. Falls back to main API key if empty.</div>
+            </div>
           </div>
 
-          <div class="settings-field">
-            <label for="api-key">API key</label>
-            <div class="inline-field">
-              <input id="api-key" type="password" autocomplete="off" placeholder="sk-...">
-              <button id="test-provider" class="secondary" type="button">Test</button>
-              <button id="clear-provider-override" class="secondary" type="button">Use .env</button>
+          <!-- Video Generation Provider -->
+          <div id="provider-sub-video" class="provider-subsection hidden">
+            <div class="settings-row">
+              <div class="settings-field">
+                <label for="video-provider">Provider</label>
+                <select id="video-provider">
+                  <option value="openrouter">OpenRouter</option>
+                  <option value="morpheus">Morpheus</option>
+                  <option value="demo">Demo (built-in)</option>
+                  <option value="other">Other</option>
+                </select>
+                <div class="hint">Provider for VidGen Studio</div>
+              </div>
+              <div class="settings-field">
+                <label for="video-model">Model</label>
+                <select id="video-model"></select>
+                <div class="hint" id="video-model-hint"></div>
+              </div>
             </div>
-            <div class="hint">Stored in this browser only. You can also set API_KEY in .env.local.</div>
+            <div class="settings-field">
+              <label for="video-api-key">API Key (optional override)</label>
+              <input id="video-api-key" type="password" autocomplete="off" placeholder="Leave empty to use main key">
+              <div class="hint">Separate key for video generation. Falls back to main API key if empty.</div>
+            </div>
           </div>
 
           <div class="settings-status-panel" id="settings-status">
@@ -2881,6 +3043,24 @@ HTML_TEMPLATE = r"""<!doctype html>
               <span class="status-label" id="status-label">Checking configuration...</span>
             </div>
             <div class="status-detail" id="status-detail"></div>
+          </div>
+
+          <!-- Effective Providers Summary -->
+          <div class="provider-effective-summary">
+            <div class="summary-title">Effective Configuration</div>
+            <div class="summary-row">
+              <span class="summary-label">Chat</span>
+              <span class="summary-value" id="effective-chat"></span>
+            </div>
+            <div class="summary-row">
+              <span class="summary-label">Image</span>
+              <span class="summary-value" id="effective-image"></span>
+            </div>
+            <div class="summary-row">
+              <span class="summary-label">Video</span>
+              <span class="summary-value" id="effective-video"></span>
+            </div>
+            <div class="summary-note">Image and Video fall back to the main Chat provider + key when not configured separately.</div>
           </div>
         </section>
 

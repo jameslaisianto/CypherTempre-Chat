@@ -66,6 +66,14 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       settingsStatus: document.getElementById('settings-status'),
       provider: document.getElementById('provider'),
       modelHint: document.getElementById('model-hint'),
+
+      // Separate providers for creative modalities
+      imageProvider: document.getElementById('image-provider'),
+      imageModel: document.getElementById('image-model'),
+      imageApiKey: document.getElementById('image-api-key'),
+      videoProvider: document.getElementById('video-provider'),
+      videoModel: document.getElementById('video-model'),
+      videoApiKey: document.getElementById('video-api-key'),
       statusDot: document.getElementById('status-dot'),
       statusLabel: document.getElementById('status-label'),
       statusDetail: document.getElementById('status-detail'),
@@ -239,6 +247,48 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       'kimi-code': 'https://api.kimi.com/coding/v1/chat/completions',
       kimi: 'https://api.moonshot.ai/v1/chat/completions',
       other: ''
+    };
+
+    // Recommended default models for the new Image / Video provider sections
+    const imageProviderDefaults = {
+      openrouter: 'black-forest-labs/flux.2-pro',
+      morpheus: 'grok-imagine-image',
+      other: ''
+    };
+
+    const videoProviderDefaults = {
+      openrouter: 'black-forest-labs/flux-video-pro',
+      morpheus: 'grok-video-2026',
+      demo: 'demo-cinematic',
+      other: ''
+    };
+
+    // Curated model lists for Image and Video providers (used to populate the selects)
+    const imageModelsByProvider = {
+      openrouter: [
+        'black-forest-labs/flux.2-pro',
+        'google/gemini-2.5-flash-image-preview',
+        'sourceful/riverflow-v2-pro'
+      ],
+      morpheus: [
+        'grok-imagine-image',
+        'nano-banana-2',
+        'lustify-v8'
+      ],
+      other: []
+    };
+
+    const videoModelsByProvider = {
+      openrouter: [
+        'black-forest-labs/flux-video-pro'
+      ],
+      morpheus: [
+        'grok-video-2026'
+      ],
+      demo: [
+        'demo-cinematic'
+      ],
+      other: []
     };
 
     function esc(value) {
@@ -464,6 +514,24 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       } else {
         localStorage.removeItem('ct_api_key');
       }
+
+      // Image Generation specific
+      if (els.imageProvider) localStorage.setItem('ct_image_provider', els.imageProvider.value);
+      if (els.imageModel) localStorage.setItem('ct_image_model', els.imageModel.value.trim());
+      if (els.imageApiKey) {
+        const ik = els.imageApiKey.value.trim();
+        if (ik) localStorage.setItem('ct_image_api_key', ik);
+        else localStorage.removeItem('ct_image_api_key');
+      }
+
+      // Video Generation specific
+      if (els.videoProvider) localStorage.setItem('ct_video_provider', els.videoProvider.value);
+      if (els.videoModel) localStorage.setItem('ct_video_model', els.videoModel.value.trim());
+      if (els.videoApiKey) {
+        const vk = els.videoApiKey.value.trim();
+        if (vk) localStorage.setItem('ct_video_api_key', vk);
+        else localStorage.removeItem('ct_video_api_key');
+      }
     }
 
     function loadCustomPersonas() {
@@ -574,6 +642,34 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       els.model.value = config.default_model || localStorage.getItem('ct_model') || 'venice-uncensored';
       els.apiKey.value = '';
       els.persona.value = localStorage.getItem('ct_persona') || 'companion';
+
+      // Restore Image Generation settings
+      if (els.imageProvider) {
+        els.imageProvider.value = localStorage.getItem('ct_image_provider') || 'openrouter';
+      }
+      if (els.imageModel) {
+        const storedImageModel = localStorage.getItem('ct_image_model');
+        if (storedImageModel) {
+          els.imageModel.value = storedImageModel;
+        } else if (els.imageProvider) {
+          els.imageModel.value = imageProviderDefaults[els.imageProvider.value] || 'black-forest-labs/flux.2-pro';
+        }
+      }
+      if (els.imageApiKey) els.imageApiKey.value = '';
+
+      // Restore Video Generation settings
+      if (els.videoProvider) {
+        els.videoProvider.value = localStorage.getItem('ct_video_provider') || 'openrouter';
+      }
+      if (els.videoModel) {
+        const storedVideoModel = localStorage.getItem('ct_video_model');
+        if (storedVideoModel) {
+          els.videoModel.value = storedVideoModel;
+        } else if (els.videoProvider) {
+          els.videoModel.value = videoProviderDefaults[els.videoProvider.value] || 'black-forest-labs/flux-video-pro';
+        }
+      }
+      if (els.videoApiKey) els.videoApiKey.value = '';
       if (!personas[els.persona.value] && !customPersonas[els.persona.value] && !creatorPersonas[els.persona.value] && !publicPersonas[els.persona.value] && !marketplacePersonas[els.persona.value]) els.persona.value = 'companion';
       els.domain.value = localStorage.getItem('ct_domain') || 'auto';
       updateProviderHint();
@@ -624,6 +720,78 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       if (!els.baseUrl.value.trim() && providerEndpoints[provider]) els.baseUrl.value = providerEndpoints[provider];
     }
 
+    function updateImageModelOptions() {
+      if (!els.imageProvider || !els.imageModel) return;
+      const prov = els.imageProvider.value;
+      const list = imageModelsByProvider[prov] || [];
+      const current = els.imageModel.value;
+
+      els.imageModel.innerHTML = '';
+
+      if (list.length === 0) {
+        const opt = document.createElement('option');
+        opt.value = current || '';
+        opt.textContent = current || 'Enter custom model';
+        els.imageModel.appendChild(opt);
+        if (els.imageModelHint) els.imageModelHint.textContent = 'Enter the exact model name your provider expects.';
+        return;
+      }
+
+      list.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m;
+        opt.textContent = m;
+        els.imageModel.appendChild(opt);
+      });
+
+      // Restore previous selection if it exists in the list, otherwise pick the default
+      if (current && list.includes(current)) {
+        els.imageModel.value = current;
+      } else {
+        els.imageModel.value = imageProviderDefaults[prov] || list[0];
+      }
+
+      if (els.imageModelHint) {
+        els.imageModelHint.textContent = prov === 'other' ? 'Enter the exact model name your provider expects.' : 'Recommended models for this provider.';
+      }
+    }
+
+    function updateVideoModelOptions() {
+      if (!els.videoProvider || !els.videoModel) return;
+      const prov = els.videoProvider.value;
+      const list = videoModelsByProvider[prov] || [];
+      const current = els.videoModel.value;
+
+      els.videoModel.innerHTML = '';
+
+      if (list.length === 0) {
+        const opt = document.createElement('option');
+        opt.value = current || '';
+        opt.textContent = current || 'Enter custom model';
+        els.videoModel.appendChild(opt);
+        if (els.videoModelHint) els.videoModelHint.textContent = 'Enter the exact model name your provider expects.';
+        return;
+      }
+
+      list.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m;
+        opt.textContent = m;
+        els.videoModel.appendChild(opt);
+      });
+
+      if (current && list.includes(current)) {
+        els.videoModel.value = current;
+      } else {
+        els.videoModel.value = videoProviderDefaults[prov] || list[0];
+      }
+
+      if (els.videoModelHint) {
+        els.videoModelHint.textContent = prov === 'demo' ? 'Built-in demo clip. No API key required.' :
+          (prov === 'other' ? 'Enter the exact model name your provider expects.' : 'Recommended models for this provider.');
+      }
+    }
+
     function updateSetup(hasEnvKey = false) {
       const hasBrowserKey = Boolean(els.apiKey.value.trim());
       const configured = hasEnvKey || hasBrowserKey;
@@ -644,6 +812,12 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       localStorage.removeItem('ct_model');
       localStorage.removeItem('ct_base_url');
       localStorage.removeItem('ct_api_key');
+      localStorage.removeItem('ct_image_provider');
+      localStorage.removeItem('ct_image_model');
+      localStorage.removeItem('ct_image_api_key');
+      localStorage.removeItem('ct_video_provider');
+      localStorage.removeItem('ct_video_model');
+      localStorage.removeItem('ct_video_api_key');
       api('/api/config').then(config => applyLocalConfig(config));
     }
 
@@ -1421,9 +1595,76 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     });
     if (els.clearProviderOverride) els.clearProviderOverride.addEventListener('click', clearProviderOverride);
     els.domain.addEventListener('change', saveLocalConfig);
-    els.navChat.addEventListener('click', () => setMainView('chat'));
-    els.navGuide.addEventListener('click', () => setMainView('guide'));
-    els.navSettings.addEventListener('click', () => setMainView('settings'));
+
+    // New modality-specific provider fields
+    const refreshProviderSummary = () => updateEffectiveProviderSummary();
+
+    if (els.imageProvider) {
+      els.imageProvider.addEventListener('change', () => {
+        updateImageModelOptions();
+        saveLocalConfig();
+        refreshProviderSummary();
+      });
+    }
+    if (els.imageModel) {
+      els.imageModel.addEventListener('change', () => {
+        saveLocalConfig();
+        refreshProviderSummary();
+      });
+    }
+    if (els.imageApiKey) els.imageApiKey.addEventListener('input', () => {
+      saveLocalConfig();
+      refreshProviderSummary();
+    });
+
+    if (els.videoProvider) {
+      els.videoProvider.addEventListener('change', () => {
+        updateVideoModelOptions();
+        saveLocalConfig();
+        refreshProviderSummary();
+      });
+    }
+    if (els.videoModel) {
+      els.videoModel.addEventListener('change', () => {
+        saveLocalConfig();
+        refreshProviderSummary();
+      });
+    }
+    if (els.videoApiKey) els.videoApiKey.addEventListener('input', () => {
+      saveLocalConfig();
+      refreshProviderSummary();
+    });
+
+    // Also refresh summary when main chat provider changes
+    if (els.provider) els.provider.addEventListener('change', refreshProviderSummary);
+    if (els.model) els.model.addEventListener('input', refreshProviderSummary);
+
+    // Auto-suggest good default models when user changes the Image/Video provider
+    if (els.imageProvider && els.imageModel) {
+      els.imageProvider.addEventListener('change', () => {
+        const current = els.imageModel.value.trim();
+        const suggested = imageProviderDefaults[els.imageProvider.value];
+        if (suggested && !current) {
+          els.imageModel.value = suggested;
+          saveLocalConfig();
+        }
+      });
+    }
+
+    if (els.videoProvider && els.videoModel) {
+      els.videoProvider.addEventListener('change', () => {
+        const current = els.videoModel.value.trim();
+        const suggested = videoProviderDefaults[els.videoProvider.value];
+        if (suggested && !current) {
+          els.videoModel.value = suggested;
+          saveLocalConfig();
+        }
+      });
+    }
+
+    if (els.navChat) els.navChat.addEventListener('click', () => setMainView('chat'));
+    if (els.navGuide) els.navGuide.addEventListener('click', () => setMainView('guide'));
+    if (els.navSettings) els.navSettings.addEventListener('click', () => setMainView('settings'));
     els.settingsProviderTab.addEventListener('click', () => setSettingsSection('provider'));
     els.settingsPersonaTab.addEventListener('click', () => setSettingsSection('persona'));
     els.settingsManageTab.addEventListener('click', () => setSettingsSection('manage'));
@@ -1586,24 +1827,28 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       const marketplace = view === 'marketplace';
       const imagegen = view === 'imagegen';
       const videogen = view === 'videogen';
-      els.chatView.classList.toggle('hidden', guide || settings || marketplace || imagegen || videogen);
-      els.guideView.classList.toggle('active', guide);
-      els.settingsView.classList.toggle('active', settings);
-      els.marketplaceView.classList.toggle('active', marketplace);
+
+      if (els.chatView) els.chatView.classList.toggle('hidden', guide || settings || marketplace || imagegen || videogen);
+      if (els.guideView) els.guideView.classList.toggle('active', guide);
+      if (els.settingsView) els.settingsView.classList.toggle('active', settings);
+      if (els.marketplaceView) els.marketplaceView.classList.toggle('active', marketplace);
       if (els.imagegenView) els.imagegenView.classList.toggle('hidden', !imagegen);
       if (els.videogenView) els.videogenView.classList.toggle('hidden', !videogen);
-      els.navChat.classList.toggle('active', !guide && !settings && !marketplace && !imagegen && !videogen);
-      els.navGuide.classList.toggle('active', guide);
-      els.navSettings.classList.toggle('active', settings);
-      els.navMarketplace.classList.toggle('active', marketplace);
+
+      if (els.navChat) els.navChat.classList.toggle('active', !guide && !settings && !marketplace && !imagegen && !videogen);
+      if (els.navGuide) els.navGuide.classList.toggle('active', guide);
+      if (els.navSettings) els.navSettings.classList.toggle('active', settings);
+      if (els.navMarketplace) els.navMarketplace.classList.toggle('active', marketplace);
       if (els.navImagegen) els.navImagegen.classList.toggle('active', imagegen);
       if (els.navVideogen) els.navVideogen.classList.toggle('active', videogen);
+
       if (els.mobChat) els.mobChat.classList.toggle('active', !guide && !settings && !marketplace && !imagegen);
       if (els.mobGuide) els.mobGuide.classList.toggle('active', guide);
       if (els.mobSettings) els.mobSettings.classList.toggle('active', settings);
       if (els.mobMarketplace) els.mobMarketplace.classList.toggle('active', marketplace);
       if (els.mobImagegen) els.mobImagegen.classList.toggle('active', imagegen);
       if (els.mobVideogen) els.mobVideogen.classList.toggle('active', videogen);
+
       localStorage.setItem('ct_view', view);
       if (marketplace) loadMarketplace();
       if (imagegen) loadImagegen();
@@ -1748,6 +1993,71 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       els.settingsCreatorTab.classList.toggle('active', active === 'creator');
       localStorage.setItem('ct_settings_section', active);
       if (active === 'creator') loadCreatorPersonas();
+      if (active === 'provider') {
+        // Restore last used provider sub-tab (chat/image/video)
+        const lastSub = localStorage.getItem('ct_provider_subtab') || 'chat';
+        setProviderSubtab(lastSub);
+        updateEffectiveProviderSummary();
+      }
+    }
+
+    // Switch between Chat / Image / Video provider sub-views
+    function setProviderSubtab(subtab) {
+      const valid = ['chat', 'image', 'video'];
+      if (!valid.includes(subtab)) subtab = 'chat';
+
+      const sections = {
+        chat: document.getElementById('provider-sub-chat'),
+        image: document.getElementById('provider-sub-image'),
+        video: document.getElementById('provider-sub-video')
+      };
+
+      Object.keys(sections).forEach(key => {
+        const el = sections[key];
+        if (el) el.classList.toggle('hidden', key !== subtab);
+      });
+
+      // Update active state on sub-tab buttons
+      document.querySelectorAll('.provider-subtab').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.subtab === subtab);
+        btn.setAttribute('aria-selected', btn.dataset.subtab === subtab);
+      });
+
+      localStorage.setItem('ct_provider_subtab', subtab);
+
+      // Refresh model options when switching to Image or Video
+      if (subtab === 'image') updateImageModelOptions();
+      if (subtab === 'video') updateVideoModelOptions();
+    }
+
+    // Compute and display the effective provider configuration (with fallbacks)
+    function updateEffectiveProviderSummary() {
+      const chatProv = els.provider?.value || localStorage.getItem('ct_provider') || 'morpheus';
+      const chatModel = els.model?.value?.trim() || localStorage.getItem('ct_model') || 'venice-uncensored';
+
+      const imageProv = els.imageProvider?.value || localStorage.getItem('ct_image_provider') || chatProv;
+      const imageModel = els.imageModel?.value?.trim() || localStorage.getItem('ct_image_model') || imageProviderDefaults[imageProv] || '—';
+
+      const videoProv = els.videoProvider?.value || localStorage.getItem('ct_video_provider') || chatProv;
+      const videoModel = els.videoModel?.value?.trim() || localStorage.getItem('ct_video_model') || videoProviderDefaults[videoProv] || '—';
+
+      const chatEl = document.getElementById('effective-chat');
+      const imageEl = document.getElementById('effective-image');
+      const videoEl = document.getElementById('effective-video');
+
+      if (chatEl) chatEl.textContent = `${chatProv} · ${chatModel}`;
+      if (imageEl) {
+        const isFallback = imageProv === chatProv && !localStorage.getItem('ct_image_provider');
+        imageEl.textContent = isFallback 
+          ? `${imageProv} · ${imageModel} (using Chat)` 
+          : `${imageProv} · ${imageModel}`;
+      }
+      if (videoEl) {
+        const isFallback = videoProv === chatProv && !localStorage.getItem('ct_video_provider');
+        videoEl.textContent = isFallback 
+          ? `${videoProv} · ${videoModel} (using Chat)` 
+          : `${videoProv} · ${videoModel}`;
+      }
     }
     async function loadCreatorPersonas() {
       if (!els.creatorList || !currentUser) return;
@@ -1958,6 +2268,14 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       });
     });
     if (els.settingsCreatorTab) els.settingsCreatorTab.addEventListener('click', () => setSettingsSection('creator'));
+
+    // Wire provider sub-tabs (Chat / Image / Video)
+    document.querySelectorAll('.provider-subtab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const sub = btn.dataset.subtab;
+        setProviderSubtab(sub);
+      });
+    });
     if (els.creatorSave) els.creatorSave.addEventListener('click', saveCreatorPersona);
     if (els.creatorSourceSession) els.creatorSourceSession.addEventListener('change', () => autoFillCreatorFromSession(els.creatorSourceSession.value));
     if (els.creatorPriceModel) els.creatorPriceModel.addEventListener('change', updateCreatorPriceControls);
@@ -2132,8 +2450,8 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
             prompt,
             model: els.imagegenModel?.value,
             aspect_ratio: els.imagegenAspect?.value,
-            apiKey: localStorage.getItem('ct_api_key') || '',
-            provider: localStorage.getItem('ct_provider') || 'morpheus',
+            apiKey: localStorage.getItem('ct_image_api_key') || localStorage.getItem('ct_api_key') || '',
+            provider: localStorage.getItem('ct_image_provider') || localStorage.getItem('ct_provider') || 'openrouter',
           })
         });
         els.imagegenStatus.textContent = '';
@@ -2184,8 +2502,8 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
             image: imageData,
             model: els.imagegenEditModel?.value || els.imagegenModel?.value,
             aspect_ratio: els.imagegenAspect?.value,
-            apiKey: localStorage.getItem('ct_api_key') || '',
-            provider: localStorage.getItem('ct_provider') || 'morpheus',
+            apiKey: localStorage.getItem('ct_image_api_key') || localStorage.getItem('ct_api_key') || '',
+            provider: localStorage.getItem('ct_image_provider') || localStorage.getItem('ct_provider') || 'openrouter',
           })
         });
         els.imagegenEditResult.innerHTML = `
@@ -2226,8 +2544,8 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
             prompt,
             model: els.imagegenModel?.value,
             aspect_ratio: els.imagegenAspect?.value,
-            apiKey: localStorage.getItem('ct_api_key') || '',
-            provider: localStorage.getItem('ct_provider') || 'morpheus',
+            apiKey: localStorage.getItem('ct_image_api_key') || localStorage.getItem('ct_api_key') || '',
+            provider: localStorage.getItem('ct_image_provider') || localStorage.getItem('ct_provider') || 'openrouter',
           })
         });
         els.imagegenRedefineResult.innerHTML = `
@@ -2497,8 +2815,8 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
             aspect_ratio: els.videogenAspect?.value || '16:9',
             duration,
             motion_preset: els.videogenMotion?.value || 'Static',
-            apiKey: localStorage.getItem('ct_api_key') || '',
-            provider: prov,
+            apiKey: localStorage.getItem('ct_video_api_key') || localStorage.getItem('ct_api_key') || '',
+            provider: localStorage.getItem('ct_video_provider') || prov,
           })
         });
         els.videogenStatus.textContent = '';
@@ -2637,6 +2955,10 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       return api('/api/config')
         .then(config => {
           applyLocalConfig(config);
+          // Populate Image/Video model selects with curated options based on chosen providers
+          updateImageModelOptions();
+          updateVideoModelOptions();
+          updateEffectiveProviderSummary();
           return syncCustomPersonasToServer(config).then(() => {
             setMainView(localStorage.getItem('ct_view') || 'chat');
             setSettingsSection(localStorage.getItem('ct_settings_section') || 'provider');
