@@ -66,6 +66,37 @@ IMAGE_PROVIDERS: dict[str, dict[str, Any]] = {
     },
 }
 
+VIDEO_PROVIDERS: dict[str, dict[str, Any]] = {
+    "openrouter": {
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "needs_referer": True,
+        "needs_title": True,
+        "label": "OpenRouter Video",
+        "default_model": "black-forest-labs/flux-video-pro",
+    },
+    "morpheus": {
+        "url": "https://api.mor.org/api/v1/chat/completions",
+        "needs_referer": False,
+        "needs_title": False,
+        "label": "Morpheus",
+        "default_model": "grok-video-2026",
+    },
+    "demo": {
+        "url": "",
+        "needs_referer": False,
+        "needs_title": False,
+        "label": "Demo (built-in test clip)",
+        "default_model": "demo-cinematic",
+    },
+    "other": {
+        "url": "",
+        "needs_referer": False,
+        "needs_title": False,
+        "label": "Other Video Provider",
+        "default_model": "",
+    },
+}
+
 DEFAULT_TIMECHAIN_PATH = pathlib.Path(__file__).resolve().parent.parent / "timechain.py"
 DEFAULT_ENV_PATH = pathlib.Path(__file__).resolve().parent.parent / ".env.local"
 ACTIVE_CONTEXT_DAYS = 90

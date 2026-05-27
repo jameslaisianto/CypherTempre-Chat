@@ -325,6 +325,20 @@ Open **ImageGen** from the left rail or bottom nav.
 
 Image generation currently uses the OpenRouter-compatible image endpoint configured by the UI model selector or server defaults. Each saved image operation also seals an image-domain Timechain ring in the user's gallery workspace, separate from chat session memory.
 
+## VidGen Studio
+
+Open **VidGen** from the left rail or bottom nav.
+
+- **Text → Film:** cinematic text-to-video with duration, aspect, resolution, and rich motion-language controls.
+- **Image → Motion:** upload a still + motion prompt to bring photographs to life.
+- **Remix / Extend:** select any previous reel and branch a new creative direction or continuation.
+- **Cinematic Lexicon chips:** one-tap film language (anamorphic flare, slow push-in, crane up, etc.).
+- **Film-viewer player:** custom 2026-styled player with perforation overlays and full controls.
+- **Reel Wall + Cut History:** hover-to-play gallery + ancestor filmstrip lineage (fully Timechained).
+- **Demo mode:** built-in test clip lets you explore the entire beautiful UI instantly.
+
+All video operations create private per-user reels under `data/users/<username>/videogen/`, seal `video_*` rings in a dedicated video Timechain, and preserve full supersession lineage. The UI was designed as a premium 2026 cinematic tool — glassmorphism, holographic violet-cyan accents, film-grain details, and director-grade micro-interactions.
+
 ## Persona Marketplace
 
 Browse and subscribe to personas published by creators.

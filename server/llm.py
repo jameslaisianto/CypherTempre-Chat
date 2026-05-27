@@ -16,7 +16,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from server.config import (
-    DEFAULT_MODEL, DEFAULT_PROVIDER, PROVIDERS, IMAGE_PROVIDERS, PERSONAS, DOMAIN_KEYWORDS,
+    DEFAULT_MODEL, DEFAULT_PROVIDER, PROVIDERS, IMAGE_PROVIDERS, VIDEO_PROVIDERS, PERSONAS, DOMAIN_KEYWORDS,
     RECALLED_RING_SNIPPET_CHARS, TRIMMED_RECALLED_RING_SNIPPET_CHARS,
     PROMPT_BUDGET_CHARS, MIN_COMPACTED_PERSONA_CHARS,
     DEFAULT_RESPONSE_TOKENS, LONG_RESPONSE_TOKENS,
@@ -1126,3 +1126,129 @@ def call_image_generation(
         if content.startswith("data:image"):
             results.append(content.split(",", 1)[1] if "," in content else content)
     return results
+
+
+def call_video_generation(
+    *,
+    provider: str,
+    api_key: str,
+    model: str,
+    messages: list[dict[str, Any]],
+    timeout: float,
+    base_url: str = "",
+    aspect_ratio: str = "16:9",
+    duration: str = "8s",
+    motion_preset: str = "",
+) -> dict[str, Any]:
+    """Generate short video clips via a provider that supports video output.
+
+    Returns a dict with optional:
+      - "b64": base64 mp4 bytes (without prefix)
+      - "url": direct https URL to mp4 (preferred for larger clips)
+      - "data_url": full data:video/mp4;base64,... when small
+      - "poster": optional first-frame image url/b64
+      - "duration": echoed back
+    """
+    if api_key in {"YOUR_API_KEY", "YOUR_MORPHEUS_API_KEY", "YOUR_OPENROUTER_API_KEY", "sk-or-your-key-here"}:
+        raise RuntimeError("API key is still the example placeholder.")
+
+    # Demo / placeholder mode so the full 2026 UI can be exercised without a real key.
+    if provider == "demo" or model.startswith("demo-"):
+        # Return a small public test clip for instant beautiful demo playback.
+        # (Google sample, short, reliable, a few MB)
+        demo_url = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4"
+        return {
+            "url": demo_url,
+            "duration": duration,
+            "model": model or "demo-cinematic",
+            "poster": "",
+        }
+
+    config = VIDEO_PROVIDERS.get(provider, VIDEO_PROVIDERS.get("openrouter", {}))
+
+    url = (base_url or config.get("url", "")).rstrip("/")
+    if not url:
+        raise RuntimeError(f"No URL configured for video provider: {provider}")
+
+    # Many 2026 video endpoints still use the chat/completions shape with modalities or
+    # a dedicated /video/generations path. We try the chat style first (most compatible).
+    payload: dict[str, Any] = {
+        "model": model or config.get("default_model", ""),
+        "messages": messages,
+        "modalities": ["video"],
+    }
+    # Pass extra video params if the provider supports them in the request.
+    if aspect_ratio:
+        payload["aspect_ratio"] = aspect_ratio
+    if duration:
+        payload["duration"] = duration
+    if motion_preset:
+        payload["motion_preset"] = motion_preset
+
+    headers: dict[str, str] = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    if config.get("needs_referer"):
+        headers["HTTP-Referer"] = "http://127.0.0.1:8765"
+    if config.get("needs_title"):
+        headers["X-Title"] = "CypherTempre CineTempre Studio"
+
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        try:
+            parsed = json.loads(detail)
+            message = parsed.get("error", {}).get("message") or parsed.get("message") or detail
+        except Exception:
+            message = detail
+        raise RuntimeError(f"{config.get('label', provider)} HTTP {exc.code}: {message}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"{config.get('label', provider)} request failed: {exc.reason}") from exc
+
+    choices = body.get("choices") or []
+    if not choices:
+        # Some dedicated video endpoints return { "video": { "url": ... } } at top level
+        video = body.get("video") or body.get("data") or {}
+        if video.get("url"):
+            return {"url": video["url"], "duration": duration, "model": model}
+        raise RuntimeError(f"{config.get('label', provider)} returned no choices or video.")
+
+    message = choices[0].get("message") or {}
+    videos = message.get("videos") or message.get("video") or []
+    result: dict[str, Any] = {"duration": duration, "model": model or ""}
+
+    if videos:
+        v0 = videos[0] if isinstance(videos, list) else videos
+        if isinstance(v0, dict):
+            result["url"] = v0.get("url") or v0.get("video_url") or ""
+            b = v0.get("b64") or v0.get("b64_json") or ""
+            if b:
+                result["b64"] = b
+                result["data_url"] = f"data:video/mp4;base64,{b}"
+        elif isinstance(v0, str):
+            result["url"] = v0
+
+    # Fallback: sometimes the provider puts a video markdown or url in content
+    if not result.get("url") and not result.get("b64"):
+        content = (message.get("content") or "").strip()
+        if content.startswith("http") and (".mp4" in content or "video" in content.lower()):
+            result["url"] = content.split()[0]
+        elif content.startswith("data:video"):
+            b64part = content.split(",", 1)[1] if "," in content else ""
+            if b64part:
+                result["b64"] = b64part
+                result["data_url"] = content
+
+    if not result.get("url") and not result.get("b64"):
+        raise RuntimeError(f"{config.get('label', provider)} did not return a usable video URL or data.")
+
+    return result

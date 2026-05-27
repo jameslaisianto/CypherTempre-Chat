@@ -17,7 +17,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 import marketplace
-from server import auth, chat, imagegen
+from server import auth, chat, imagegen, videogen
 from server import marketplace as marketplace_routes
 
 from server.config import (
@@ -464,6 +464,65 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 if path == "/api/imagegen/delete":
                     self.handle_imagegen_delete()
                     return
+
+                if path == "/api/videogen/gallery":
+                    try:
+                        user = self._auth_user()
+                    except PermissionError as exc:
+                        self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                        return
+                    index = app.load_videogen_index(user["username"])
+                    self.send_json({"ok": True, "videos": index.get("videos", [])})
+                    return
+
+                if path == "/api/videogen/lineage":
+                    try:
+                        user = self._auth_user()
+                    except PermissionError as exc:
+                        self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                        return
+                    video_id = self.query_param("video_id")
+                    data = app.video_lineage(user["username"], video_id or "")
+                    self.send_json(data)
+                    return
+
+                if path.startswith("/api/videogen/video/"):
+                    try:
+                        user = self._auth_user()
+                    except PermissionError as exc:
+                        self.send_error(HTTPStatus.UNAUTHORIZED)
+                        return
+                    video_id = path[len("/api/videogen/video/"):]
+                    if not video_id or "/" in video_id or ".." in video_id:
+                        self.send_error(HTTPStatus.NOT_FOUND, "Not found")
+                        return
+                    vid_path = app.videogen_video_path(user["username"], video_id)
+                    if not vid_path.exists():
+                        self.send_error(HTTPStatus.NOT_FOUND, "Not found")
+                        return
+                    # Serve with proper video mime and caching
+                    data = vid_path.read_bytes()
+                    self.send_response(HTTPStatus.OK)
+                    self.send_header("Content-Type", "video/mp4")
+                    self.send_header("Content-Length", str(len(data)))
+                    self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+                    self.send_header("Accept-Ranges", "bytes")
+                    self.end_headers()
+                    self.wfile.write(data)
+                    return
+
+                if path == "/api/videogen/generate":
+                    self.handle_videogen_generate()
+                    return
+                if path == "/api/videogen/img2vid":
+                    self.handle_videogen_img2vid()
+                    return
+                if path == "/api/videogen/remix":
+                    self.handle_videogen_remix()
+                    return
+                if path == "/api/videogen/delete":
+                    self.handle_videogen_delete()
+                    return
                 self.send_error(HTTPStatus.NOT_FOUND, "Not found")
             except Exception as exc:
                 self.send_exception(exc)
@@ -479,6 +538,18 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
 
         def handle_imagegen_delete(self) -> None:
             imagegen.handle_imagegen_delete(self, app)
+
+        def handle_videogen_generate(self) -> None:
+            videogen.handle_videogen_generate(self, app)
+
+        def handle_videogen_img2vid(self) -> None:
+            videogen.handle_videogen_img2vid(self, app)
+
+        def handle_videogen_remix(self) -> None:
+            videogen.handle_videogen_remix(self, app)
+
+        def handle_videogen_delete(self) -> None:
+            videogen.handle_videogen_delete(self, app)
 
         def handle_chat(self) -> None:
             chat.handle_chat(self, app)

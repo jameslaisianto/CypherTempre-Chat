@@ -15,6 +15,7 @@ import pathlib
 import re
 import shutil
 import sys
+import urllib.request
 import uuid
 from types import SimpleNamespace
 from typing import Any
@@ -1079,6 +1080,7 @@ class App:
         self.active_session = "default"
         self.user_active_sessions: dict[str, str] = {}
         self._image_agents: dict[str, Any] = {}
+        self._video_agents: dict[str, Any] = {}
         self.workspace = self.workspace_for_session(self.active_session)
         self.agent = self.timechain.TimechainAgent(workspace=self.workspace)
         self.trainer = Trainer()
@@ -1099,6 +1101,12 @@ class App:
 
     def user_gallery_root(self, username: str) -> pathlib.Path:
         path = self.root_workspace / "data" / "users" / username / "gallery"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def user_videogen_root(self, username: str) -> pathlib.Path:
+        """Per-user video gallery root (parallel to image gallery)."""
+        path = self.root_workspace / "data" / "users" / username / "videogen"
         path.mkdir(parents=True, exist_ok=True)
         return path
 
@@ -1348,6 +1356,286 @@ class App:
             return False
         self.save_gallery_index(username, index)
         path = self.gallery_image_path(username, image_id)
+        if path.exists():
+            path.unlink()
+        return True
+
+    # =====================================================================
+    # VideoGen Studio (CineTempre) — parallel to ImageGen gallery + lineage
+    # =====================================================================
+
+    def video_timechain_agent(self, username: str) -> Any:
+        """Return a TimechainAgent for the user's videogen workspace.
+
+        Keeps motion clips and their lineage in an independent chain
+        (domain="video") so chat/image history stays clean.
+        """
+        agent = self._video_agents.get(username)
+        if agent is not None:
+            return agent
+        workspace = self.user_videogen_root(username)
+        agent = self.timechain.TimechainAgent(
+            name="CineTempre",
+            values=self.timechain.ENGINEERING_COVENANT,
+            core="videogen-core",
+            workspace=workspace,
+        )
+        self._video_agents[username] = agent
+        return agent
+
+    def _seal_video_ring(
+        self,
+        username: str,
+        *,
+        kind: str,
+        prompt: str,
+        model: str,
+        provider: str,
+        aspect_ratio: str,
+        duration: str,
+        motion_preset: str,
+        video_id: str,
+        source_id: str = "",
+    ) -> int:
+        """Seal a video ring (video_generate, video_img2vid, video_remix, etc.)."""
+        agent = self.video_timechain_agent(username)
+        content = json.dumps({
+            "video_id": video_id,
+            "prompt": prompt,
+            "model": model,
+            "provider": provider,
+            "aspect_ratio": aspect_ratio,
+            "duration": duration,
+            "motion_preset": motion_preset,
+            "source_id": source_id,
+        }, ensure_ascii=False)
+
+        supersedes: int | None = None
+        if kind in ("video_remix", "video_extend") and source_id:
+            supersedes = self._resolve_video_ring_n(username, source_id)
+
+        scores, brightness = agent.poq.evaluate(
+            query=prompt,
+            content=content,
+            covenant=agent.values,
+            retrieved=[],
+            chain=agent.chain,
+        )
+        if scores["covenant"] < agent.poq.config.covenant_hard_floor:
+            return 0
+
+        neuro = self.timechain.compute_neuro(agent.chain, "video")
+        candidate = self.timechain.Ring(
+            n=len(agent.chain),
+            prev=agent.chain[-1].hash,
+            ts=dt.datetime.now(dt.timezone.utc).isoformat(),
+            kind=kind,
+            domain="video",
+            query=prompt,
+            content=content,
+            brightness=max(brightness, 0.5),
+            scores=scores,
+            neuro=neuro,
+            retrieved=[],
+            epistemic="known",
+            tags=[kind, "video", motion_preset],
+            supersedes=supersedes,
+            perception={k: [0.45] * 5 for k in self.timechain.PERCEPTION_DIMENSIONS},
+            fields={k: 0.45 for k in self.timechain.EXPERIENTIAL_FIELDS},
+            planes=["aesthetic_harmony", "temporal_flow", "cinematic_reasoning"],
+        )
+        sealed = agent._append(candidate)
+        return sealed.n
+
+    def _resolve_video_ring_n(self, username: str, video_id: str) -> int:
+        index = self.load_videogen_index(username)
+        for entry in index.get("videos", []):
+            if entry.get("id") == video_id:
+                return entry.get("ring_n", 0)
+        return 0
+
+    def video_lineage(self, username: str, video_id: str) -> dict[str, Any]:
+        """Return ancestry + children for a video clip (mirrors image_lineage)."""
+        index = self.load_videogen_index(username)
+        videos = {e["id"]: e for e in index.get("videos", [])}
+        entry = videos.get(video_id)
+        if not entry:
+            return {"ok": False, "error": "Video not found", "chain": [], "children": []}
+
+        agent = self.video_timechain_agent(username)
+
+        ancestors: list[dict[str, Any]] = []
+        seen: set[int] = set()
+        current_id = video_id
+        while current_id:
+            ent = videos.get(current_id)
+            if not ent:
+                break
+            rn = ent.get("ring_n", 0)
+            if rn <= 0 or rn in seen:
+                break
+            seen.add(rn)
+            ring_dict = None
+            for r in agent.chain:
+                if r.n == rn:
+                    ring_dict = r.to_dict()
+                    break
+            ancestors.append({
+                "video_id": ent["id"],
+                "ring_n": rn,
+                "supersedes_ring": ent.get("supersedes_ring", 0),
+                "mode": ent.get("mode", ""),
+                "prompt": ent.get("prompt", ""),
+                "created_at": ent.get("created_at", ""),
+                "source_id": ent.get("source_id", ""),
+                "duration": ent.get("duration", ""),
+                "ring": ring_dict,
+            })
+            current_id = ent.get("source_id", "")
+
+        children: list[dict[str, Any]] = []
+        for e in index.get("videos", []):
+            if e.get("source_id") == video_id:
+                children.append({
+                    "video_id": e["id"],
+                    "ring_n": e.get("ring_n", 0),
+                    "supersedes_ring": e.get("supersedes_ring", 0),
+                    "mode": e.get("mode", ""),
+                    "prompt": e.get("prompt", ""),
+                    "created_at": e.get("created_at", ""),
+                    "duration": e.get("duration", ""),
+                })
+
+        return {
+            "ok": True,
+            "video_id": video_id,
+            "chain": ancestors,
+            "children": children,
+        }
+
+    def user_videogen_index_path(self, username: str) -> pathlib.Path:
+        return self.user_videogen_root(username) / "index.json"
+
+    def load_videogen_index(self, username: str) -> dict[str, Any]:
+        path = self.user_videogen_index_path(username)
+        if not path.exists():
+            return {"videos": []}
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict) or "videos" not in data:
+                return {"videos": []}
+            return data
+        except (json.JSONDecodeError, OSError):
+            return {"videos": []}
+
+    def save_videogen_index(self, username: str, index: dict[str, Any]) -> None:
+        path = self.user_videogen_index_path(username)
+        path.write_text(json.dumps(index, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    def videogen_video_path(self, username: str, video_id: str) -> pathlib.Path:
+        return self.user_videogen_root(username) / f"{video_id}.mp4"
+
+    def add_gallery_video(
+        self,
+        username: str,
+        *,
+        video_id: str,
+        prompt: str,
+        mode: str,
+        model: str,
+        provider: str,
+        aspect_ratio: str,
+        duration: str,
+        motion_preset: str = "",
+        source_id: str = "",
+        b64_data: str = "",
+        video_url: str = "",
+    ) -> dict[str, Any]:
+        """Persist a generated video clip + seal a video-domain ring.
+
+        Accepts either b64_data (small clips) or video_url (preferred for larger).
+        If video_url is provided, the caller is responsible for downloading.
+        """
+        path = self.videogen_video_path(username, video_id)
+
+        wrote_local = False
+        source_url = video_url if video_url else ""
+
+        if b64_data:
+            try:
+                raw = base64.b64decode(b64_data)
+                path.write_bytes(raw)
+                wrote_local = True
+            except Exception as exc:
+                raise RuntimeError(f"Invalid base64 video data: {exc}") from exc
+        elif video_url and provider != "demo":
+            # Download only for real providers
+            try:
+                req = urllib.request.Request(video_url, headers={"User-Agent": "CypherTempre/1.0"})
+                with urllib.request.urlopen(req, timeout=120) as resp:
+                    raw = resp.read()
+                    if len(raw) > 80 * 1024 * 1024:
+                        raise RuntimeError("Video too large for local storage (PoC limit ~80MB)")
+                    path.write_bytes(raw)
+                    wrote_local = True
+            except Exception as exc:
+                raise RuntimeError(f"Failed to download video: {exc}") from exc
+        # For demo we intentionally do NOT download — we will serve the external URL directly from the browser
+
+        if not wrote_local and not b64_data and not video_url:
+            raise RuntimeError("No video content provided")
+
+        kind_map = {
+            "generate": "video_generate",
+            "img2vid": "video_img2vid",
+            "remix": "video_remix",
+            "extend": "video_extend",
+        }
+        ring_kind = kind_map.get(mode, "video_generate")
+        supersedes_ring = self._resolve_video_ring_n(username, source_id) if source_id else 0
+
+        ring_n = self._seal_video_ring(
+            username,
+            kind=ring_kind,
+            prompt=prompt,
+            model=model,
+            provider=provider,
+            aspect_ratio=aspect_ratio,
+            duration=duration,
+            motion_preset=motion_preset,
+            video_id=video_id,
+            source_id=source_id,
+        )
+
+        entry = {
+            "id": video_id,
+            "prompt": prompt,
+            "mode": mode,
+            "model": model,
+            "provider": provider,
+            "aspect_ratio": aspect_ratio,
+            "duration": duration,
+            "motion_preset": motion_preset,
+            "created_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+            "filename": f"{video_id}.mp4",
+            "source_id": source_id,
+            "ring_n": ring_n,
+            "supersedes_ring": supersedes_ring,
+            "source_url": source_url if not wrote_local else "",
+        }
+        index = self.load_videogen_index(username)
+        index["videos"].insert(0, entry)
+        self.save_videogen_index(username, index)
+        return entry
+
+    def delete_gallery_video(self, username: str, video_id: str) -> bool:
+        index = self.load_videogen_index(username)
+        original_len = len(index["videos"])
+        index["videos"] = [v for v in index["videos"] if v.get("id") != video_id]
+        if len(index["videos"]) == original_len:
+            return False
+        self.save_videogen_index(username, index)
+        path = self.videogen_video_path(username, video_id)
         if path.exists():
             path.unlink()
         return True

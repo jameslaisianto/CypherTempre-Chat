@@ -1747,68 +1747,145 @@ HTML_TEMPLATE = r"""<!doctype html>
       .status-card { margin: 8px 10px 10px; padding: 10px; font-size: 12px; }
     }
 
-    /* ImageGen Studio */
+    /* =====================================================
+       ImageGen Studio — Elevated 2026 Artistic Treatment
+       Premium creative photography / digital art workspace
+       ===================================================== */
     .imagegen { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
-    .imagegen-shell { display: grid; grid-template-columns: 1fr 300px; gap: 20px; height: 100%; overflow: hidden; padding: 24px; }
-    .imagegen-workspace { display: flex; flex-direction: column; gap: 16px; overflow: hidden; min-width: 0; }
-    .imagegen-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-shrink: 0; }
-    .imagegen-header h2 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.3px; }
-    .imagegen-header p { margin: 0; font-size: 13px; color: var(--muted); }
-    .imagegen-modes { display: inline-flex; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 4px; gap: 2px; flex-shrink: 0; }
-    .imagegen-modes button { padding: 8px 16px; border-radius: 8px; border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 13px; font-weight: 500; transition: all .2s; }
-    .imagegen-modes button:hover { color: var(--text); }
-    .imagegen-modes button.active { background: var(--accent); color: #fff; }
-    .imagegen-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px; display: flex; flex-direction: column; gap: 14px; overflow: auto; }
+    .imagegen-shell { display: grid; grid-template-columns: 1fr 320px; gap: 24px; height: 100%; overflow: hidden; padding: 24px 28px; }
+    .imagegen-workspace { display: flex; flex-direction: column; gap: 18px; overflow: hidden; min-width: 0; }
+    
+    .imagegen-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-shrink: 0; }
+    .imagegen-header h2 { margin: 0; font-size: 23px; font-weight: 600; letter-spacing: -0.4px; }
+    .imagegen-header p { margin: 4px 0 0; font-size: 13px; color: #888; max-width: 48ch; }
+
+    .imagegen-modes { display: inline-flex; background: #111; border: 1px solid #222; border-radius: 999px; padding: 4px; gap: 3px; flex-shrink: 0; }
+    .imagegen-modes button { 
+      padding: 8px 18px; border-radius: 999px; border: none; background: transparent; 
+      color: #888; font-size: 12.5px; font-weight: 600; cursor: pointer; 
+      transition: all .18s cubic-bezier(0.23,1,0.32,1); display: flex; align-items: center; gap: 6px;
+    }
+    .imagegen-modes button:hover { color: #ddd; }
+    .imagegen-modes button.active { 
+      background: linear-gradient(135deg, #0ea5e9, #3b82f6); 
+      color: #fff; font-weight: 700; box-shadow: 0 4px 16px rgba(14,165,233,0.35);
+    }
+
+    .imagegen-card { 
+      background: rgba(18,18,22,0.92); border: 1px solid rgba(255,255,255,0.06); 
+      border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 16px; 
+      backdrop-filter: blur(20px); 
+    }
+
     .imagegen-panel { display: flex; flex-direction: column; gap: 14px; }
     .imagegen-panel.hidden { display: none; }
+
     .imagegen-prompt-wrap { position: relative; }
-    .imagegen-prompt-wrap textarea { width: 100%; min-height: 100px; resize: vertical; border-radius: 12px; border: 1px solid var(--border); background: var(--bg); color: var(--text); padding: 14px; font-size: 14px; line-height: 1.5; }
-    .imagegen-prompt-wrap textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(16,172,235,0.12); }
+    .imagegen-prompt-wrap textarea { 
+      width: 100%; min-height: 108px; resize: vertical; border-radius: 12px; 
+      border: 1px solid #222; background: #0a0a0c; color: #f1f1f5; 
+      padding: 16px; font-size: 14.5px; line-height: 1.5; 
+    }
+    .imagegen-prompt-wrap textarea:focus { 
+      outline: none; border-color: #0ea5e9; box-shadow: 0 0 0 3px rgba(14,165,233,0.15); 
+    }
+
+    /* Inspiration chips */
+    .imagegen-inspiration { display: flex; flex-wrap: wrap; gap: 6px; }
+    .imagegen-inspiration button {
+      font-size: 11px; padding: 5px 12px; border-radius: 999px; border: 1px solid #222;
+      background: rgba(255,255,255,0.03); color: #aaa; cursor: pointer; transition: all .12s;
+    }
+    .imagegen-inspiration button:hover { border-color: #0ea5e9; color: #fff; background: rgba(14,165,233,0.12); }
+
     .imagegen-controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-    .imagegen-controls select { flex: 1; min-width: 160px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 13px; cursor: pointer; }
-    .imagegen-controls button.primary { min-width: 120px; padding: 10px 20px; border-radius: 10px; border: none; background: linear-gradient(135deg, var(--accent), #0ea5e9); color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; transition: transform .15s, box-shadow .15s; }
-    .imagegen-controls button.primary:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(16,172,235,0.35); }
-    .imagegen-controls button.primary:active { transform: translateY(0); }
-    .imagegen-status { font-size: 13px; color: var(--muted); min-height: 18px; display: flex; align-items: center; gap: 8px; }
-    .imagegen-spinner { width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: imagegen-spin 0.8s linear infinite; }
+    .imagegen-controls select { 
+      flex: 1; min-width: 170px; padding: 10px 14px; border-radius: 10px; 
+      border: 1px solid #222; background: #111; color: #eee; font-size: 13px; cursor: pointer;
+    }
+    .imagegen-controls button.primary { 
+      min-width: 130px; padding: 11px 22px; border-radius: 10px; border: none; 
+      background: linear-gradient(135deg, #0ea5e9, #3b82f6); color: #fff; 
+      font-size: 14px; font-weight: 700; cursor: pointer; 
+      transition: transform .15s cubic-bezier(0.23,1,0.32,1), box-shadow .2s; 
+      box-shadow: 0 4px 14px rgba(14,165,233,0.3);
+    }
+    .imagegen-controls button.primary:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(14,165,233,0.4); }
+
+    .imagegen-status { font-size: 13px; color: #888; min-height: 18px; display: flex; align-items: center; gap: 8px; }
+    .imagegen-spinner { width: 16px; height: 16px; border: 2px solid #222; border-top-color: #0ea5e9; border-radius: 50%; animation: imagegen-spin 0.7s linear infinite; }
     @keyframes imagegen-spin { to { transform: rotate(360deg); } }
+
     .imagegen-result { display: flex; flex-direction: column; gap: 12px; }
-    .imagegen-result-card { background: var(--bg); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+    .imagegen-result-card { 
+      background: #0a0a0c; border: 1px solid #222; border-radius: 14px; overflow: hidden; 
+      box-shadow: 0 10px 30px -10px rgba(0,0,0,0.6);
+    }
     .imagegen-result-card img { display: block; width: 100%; height: auto; }
-    .imagegen-result-meta { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; font-size: 12px; color: var(--muted); background: var(--surface); border-top: 1px solid var(--border); }
-    .imagegen-result-meta .badge { background: rgba(16,172,235,0.12); color: var(--accent); padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; }
-    .imagegen-lineage { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 12px; color: var(--muted); padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+    .imagegen-result-meta { 
+      display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; 
+      font-size: 12px; color: #888; background: #111; border-top: 1px solid #222; 
+    }
+    .imagegen-result-meta .badge { 
+      background: rgba(14,165,233,0.15); color: #67d4ff; padding: 3px 10px; 
+      border-radius: 20px; font-size: 11px; font-weight: 600; 
+    }
+
+    .imagegen-lineage { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; color: #777; padding: 10px 12px; border: 1px solid #222; border-radius: 10px; background: #111; }
     .imagegen-lineage.hidden { display: none; }
-    .imagegen-lineage .crumb { color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 999px; padding: 3px 9px; }
-    .imagegen-lineage .arrow { opacity: 0.55; }
-    .imagegen-dropzone { border: 2px dashed var(--border); border-radius: 14px; padding: 40px 24px; text-align: center; color: var(--muted); cursor: pointer; transition: all .2s; background: var(--bg); }
-    .imagegen-dropzone:hover { border-color: var(--accent); background: rgba(16,172,235,0.06); }
-    .imagegen-dropzone svg { width: 36px; height: 36px; stroke-width: 1.5; margin-bottom: 10px; opacity: 0.6; }
-    .imagegen-dropzone p { margin: 0; font-size: 13px; }
-    .imagegen-dropzone .hint { font-size: 11px; margin-top: 6px; opacity: 0.7; }
-    .imagegen-dropzone input { display: none; }
-    .imagegen-preview { max-width: 100%; max-height: 260px; border-radius: 12px; border: 1px solid var(--border); object-fit: contain; background: var(--bg); }
-    .imagegen-preview.hidden { display: none; }
-    .imagegen-sidebar { display: flex; flex-direction: column; gap: 12px; overflow: hidden; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px; }
+    .imagegen-lineage .crumb { color: #ddd; background: #0a0a0c; border: 1px solid #222; border-radius: 999px; padding: 3px 10px; }
+
+    .imagegen-dropzone { 
+      border: 2px dashed #333; border-radius: 16px; padding: 42px 24px; text-align: center; 
+      color: #777; cursor: pointer; transition: all .2s; background: #0a0a0c; 
+    }
+    .imagegen-dropzone:hover { border-color: #0ea5e9; background: rgba(14,165,233,0.06); }
+    .imagegen-dropzone svg { width: 36px; height: 36px; stroke-width: 1.6; margin-bottom: 12px; opacity: 0.7; }
+    .imagegen-dropzone p { margin: 0; font-size: 14px; }
+    .imagegen-dropzone .hint { font-size: 11.5px; margin-top: 6px; opacity: 0.6; }
+
+    .imagegen-preview { max-width: 100%; max-height: 280px; border-radius: 12px; border: 1px solid #222; object-fit: contain; background: #0a0a0c; }
+
+    .imagegen-sidebar { 
+      background: rgba(18,18,22,0.9); border: 1px solid rgba(255,255,255,0.06); 
+      border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 14px; 
+      overflow: hidden; backdrop-filter: blur(18px); 
+    }
     .imagegen-sidebar-head { display: flex; align-items: center; justify-content: space-between; }
-    .imagegen-sidebar-head h3 { margin: 0; font-size: 14px; font-weight: 600; }
-    .imagegen-sidebar-head .count { font-size: 12px; color: var(--muted); background: var(--bg); padding: 2px 8px; border-radius: 10px; }
-    .imagegen-gallery-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; overflow: auto; }
-    .imagegen-gallery-grid .empty { color: var(--muted); font-size: 12px; text-align: center; padding: 24px 8px; }
-    .imagegen-gallery-grid .empty svg { width: 32px; height: 32px; stroke-width: 1.5; margin-bottom: 8px; opacity: 0.5; }
-    .imagegen-gallery-grid .thumb { position: relative; aspect-ratio: 1; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); cursor: pointer; background: var(--bg); transition: transform .15s, box-shadow .15s; }
-    .imagegen-gallery-grid .thumb:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,0,0,0.25); }
+    .imagegen-sidebar-head h3 { margin: 0; font-size: 14px; font-weight: 600; color: #ddd; }
+    .imagegen-sidebar-head .count { font-size: 11px; color: #666; background: #111; padding: 2px 9px; border-radius: 999px; }
+
+    .imagegen-gallery-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; overflow: auto; padding-right: 4px; }
+    .imagegen-gallery-grid .empty { grid-column: 1/-1; text-align: center; padding: 32px 12px; color: #555; font-size: 13px; }
+    .imagegen-gallery-grid .thumb { 
+      position: relative; aspect-ratio: 1; border-radius: 12px; overflow: hidden; 
+      border: 1px solid #222; cursor: pointer; background: #111; 
+      transition: transform .2s cubic-bezier(0.23,1,0.32,1), box-shadow .2s; 
+    }
+    .imagegen-gallery-grid .thumb:hover { transform: translateY(-3px); box-shadow: 0 16px 32px -12px rgba(0,0,0,0.6); }
     .imagegen-gallery-grid .thumb img { width: 100%; height: 100%; object-fit: cover; }
-    .imagegen-gallery-grid .thumb .ring { position: absolute; left: 6px; bottom: 6px; min-width: 24px; padding: 2px 7px; border-radius: 999px; background: rgba(0,0,0,0.62); color: #fff; font-size: 11px; font-weight: 600; backdrop-filter: blur(4px); }
-    .imagegen-gallery-grid .thumb .del { position: absolute; top: 6px; right: 6px; width: 26px; height: 26px; border-radius: 8px; background: rgba(0,0,0,0.55); color: #fff; border: none; display: none; align-items: center; justify-content: center; font-size: 14px; cursor: pointer; backdrop-filter: blur(4px); transition: background .2s; }
-    .imagegen-gallery-grid .thumb .del:hover { background: rgba(180,40,40,0.85); }
+    .imagegen-gallery-grid .thumb .ring { 
+      position: absolute; left: 8px; bottom: 8px; font-size: 10px; padding: 2px 8px; 
+      border-radius: 999px; background: rgba(0,0,0,0.7); color: #ddd; font-weight: 600; 
+      backdrop-filter: blur(4px);
+    }
+    .imagegen-gallery-grid .thumb .del { 
+      position: absolute; top: 8px; right: 8px; width: 26px; height: 26px; border-radius: 8px; 
+      background: rgba(0,0,0,0.6); color: #fff; border: none; display: none; align-items: center; 
+      justify-content: center; font-size: 15px; cursor: pointer; transition: background .15s;
+    }
+    .imagegen-gallery-grid .thumb .del:hover { background: #c33; }
     .imagegen-gallery-grid .thumb:hover .del { display: flex; }
-    .imagegen-mini-gallery { display: flex; gap: 10px; overflow-x: auto; padding: 6px 0; }
-    .imagegen-mini-gallery .thumb { width: 88px; height: 88px; flex-shrink: 0; border-radius: 10px; overflow: hidden; border: 2px solid transparent; cursor: pointer; background: var(--bg); transition: transform .15s; }
-    .imagegen-mini-gallery .thumb:hover { transform: translateY(-2px); }
-    .imagegen-mini-gallery .thumb img { width: 100%; height: 100%; object-fit: cover; }
-    .imagegen-mini-gallery .thumb.active { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(16,172,235,0.18); }
-    .imagegen-error { color: var(--red); font-size: 13px; padding: 10px 14px; background: rgba(180,40,40,0.08); border-radius: 10px; border: 1px solid rgba(180,40,40,0.15); }
+
+    .imagegen-mini-gallery { display: flex; gap: 8px; overflow-x: auto; padding: 4px 0; }
+    .imagegen-mini-gallery .thumb { 
+      width: 78px; height: 78px; flex-shrink: 0; border-radius: 10px; overflow: hidden; 
+      border: 2px solid transparent; cursor: pointer; background: #111; transition: all .15s; 
+    }
+    .imagegen-mini-gallery .thumb:hover { transform: translateY(-1px); }
+    .imagegen-mini-gallery .thumb.active { border-color: #0ea5e9; box-shadow: 0 0 0 3px rgba(14,165,233,0.2); }
+
+    .imagegen-error { color: #f66; font-size: 13px; padding: 10px 14px; background: rgba(180,40,40,0.1); border-radius: 10px; border: 1px solid rgba(180,40,40,0.2); }
     @media (max-width: 1120px) {
       .imagegen-shell { grid-template-columns: 1fr 260px; gap: 16px; padding: 20px; }
     }
@@ -1823,6 +1900,90 @@ HTML_TEMPLATE = r"""<!doctype html>
       .imagegen-gallery-grid { grid-template-columns: repeat(3, 1fr); gap: 8px; }
       .imagegen-card { padding: 14px; }
       .imagegen-controls button.primary { width: 100%; }
+    }
+
+    /* =====================================================
+       CineTempre Studio — 2026 Director's Cut (VideoGen)
+       Futuristic, filmic, holographic, premium creative tool
+       ===================================================== */
+    .videogen { display: flex; flex-direction: column; height: 100%; overflow: hidden; background: #050505; }
+    .videogen-shell { display: grid; grid-template-columns: 1fr 320px; gap: 22px; height: 100%; overflow: hidden; padding: 22px 26px; }
+    .videogen-workspace { display: flex; flex-direction: column; gap: 14px; min-width: 0; overflow: hidden; }
+    .videogen-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-shrink: 0; }
+    .videogen-header h2 { margin: 0; font-size: 23px; font-weight: 600; letter-spacing: -0.4px; background: linear-gradient(90deg, #fff, #c0b3ff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .videogen-header p { margin: 3px 0 0; font-size: 12.5px; color: #8a8a8a; max-width: 46ch; }
+    .cine-badge { display: inline-block; font-size: 9px; font-weight: 700; letter-spacing: 1.5px; padding: 2px 9px; border-radius: 999px; background: rgba(99,102,241,0.15); color: #a5b4fc; border: 1px solid rgba(99,102,241,0.3); margin-bottom: 6px; }
+
+    .videogen-modes { display: inline-flex; background: #111; border: 1px solid #222; border-radius: 999px; padding: 3px; gap: 2px; flex-shrink: 0; }
+    .videogen-modes button { padding: 7px 15px; border-radius: 999px; border: none; background: transparent; color: #888; font-size: 12px; font-weight: 600; cursor: pointer; transition: all .18s cubic-bezier(0.23,1,0.32,1); white-space: nowrap; }
+    .videogen-modes button:hover { color: #ddd; }
+    .videogen-modes button.active { background: linear-gradient(135deg, #6366f1, #22d3ee); color: #111; font-weight: 700; box-shadow: 0 4px 14px rgba(99,102,241,0.35); }
+
+    .videogen-panel { display: flex; flex-direction: column; gap: 14px; overflow: hidden; }
+    .videogen-panel.hidden { display: none; }
+
+    .cine-director-card { background: rgba(18,18,22,0.92); border: 1px solid rgba(255,255,255,0.06); border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 14px; backdrop-filter: blur(20px); }
+    .cine-director-card .lexicon-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .cine-director-card .lexicon-chips button { font-size: 10px; padding: 4px 10px; border-radius: 999px; border: 1px solid rgba(163,163,172,0.25); background: rgba(255,255,255,0.03); color: #c0c0c8; cursor: pointer; transition: all .12s; }
+    .cine-director-card .lexicon-chips button:hover { border-color: #6366f1; color: #fff; background: rgba(99,102,241,0.12); }
+
+    .videogen-prompt-wrap textarea { width: 100%; min-height: 92px; resize: vertical; border-radius: 12px; border: 1px solid #222; background: #0a0a0c; color: #f1f1f5; padding: 13px 14px; font-size: 13.5px; line-height: 1.45; }
+    .videogen-prompt-wrap textarea:focus { outline: none; border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.15); }
+
+    .cine-controls-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 10px; }
+    .cine-control { display: flex; flex-direction: column; gap: 4px; }
+    .cine-control label { font-size: 10px; font-weight: 600; color: #777; letter-spacing: .4px; }
+    .cine-control select, .cine-control input[type="range"] { background: #111; border: 1px solid #222; color: #eee; border-radius: 8px; padding: 7px 9px; font-size: 12.5px; }
+    .cine-control .segmented { display: flex; background: #111; border: 1px solid #222; border-radius: 8px; padding: 2px; }
+    .cine-control .segmented button { flex: 1; font-size: 11px; padding: 5px 0; border: none; background: transparent; color: #888; border-radius: 6px; cursor: pointer; }
+    .cine-control .segmented button.active { background: #222; color: #fff; font-weight: 600; }
+
+    .cine-render-btn { margin-top: 4px; padding: 14px 22px; font-size: 15px; font-weight: 700; letter-spacing: .6px; border: none; border-radius: 12px; background: linear-gradient(135deg, #6366f1, #22d3ee); color: #111; cursor: pointer; transition: transform .15s cubic-bezier(0.23,1,0.32,1), box-shadow .2s; position: relative; overflow: hidden; }
+    .cine-render-btn:hover { transform: translateY(-1px); box-shadow: 0 10px 30px -8px rgba(99,102,241,0.5); }
+    .cine-render-btn:active { transform: scale(0.985); }
+    .cine-render-btn .reel { display: inline-block; width: 15px; height: 15px; border: 2px solid #111; border-radius: 50%; margin-right: 8px; vertical-align: -2px; animation: cine-reel-spin 1.6s linear infinite paused; }
+    .cine-render-btn.loading .reel { animation-play-state: running; }
+    @keyframes cine-reel-spin { to { transform: rotate(360deg); } }
+
+    .cine-status { font-size: 12px; color: #8a8a8a; min-height: 18px; display: flex; align-items: center; gap: 8px; }
+    .cine-spinner { width: 15px; height: 15px; border: 2px solid #222; border-top-color: #6366f1; border-radius: 50%; animation: cine-spin .75s linear infinite; }
+    @keyframes cine-spin { to { transform: rotate(360deg); } }
+
+    .cine-player-wrap { background: #0a0a0c; border: 1px solid #222; border-radius: 16px; overflow: hidden; position: relative; }
+    .cine-player-wrap video { display: block; width: 100%; max-height: 420px; background: #000; }
+    .cine-player-perforation { position: absolute; top: 0; bottom: 0; width: 11px; background: repeating-linear-gradient(180deg, transparent, transparent 6px, rgba(255,255,255,0.07) 6px, rgba(255,255,255,0.07) 11px); pointer-events: none; z-index: 2; }
+    .cine-player-perforation.left { left: 0; }
+    .cine-player-perforation.right { right: 0; }
+
+    .cine-cut-history { display: flex; gap: 8px; overflow-x: auto; padding: 8px 2px; background: #0a0a0c; border: 1px solid #222; border-radius: 10px; }
+    .cine-cut-history .film-cell { flex: 0 0 78px; height: 52px; border-radius: 6px; overflow: hidden; border: 1px solid #333; position: relative; cursor: pointer; background: #111; }
+    .cine-cut-history .film-cell img, .cine-cut-history .film-cell video { width: 100%; height: 100%; object-fit: cover; }
+    .cine-cut-history .film-cell .label { position: absolute; bottom: 2px; right: 3px; font-size: 9px; background: rgba(0,0,0,0.7); padding: 0 4px; border-radius: 3px; color: #ccc; }
+
+    .videogen-reel-sidebar { background: rgba(18,18,22,0.9); border: 1px solid rgba(255,255,255,0.06); border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 12px; overflow: hidden; backdrop-filter: blur(18px); }
+    .reel-head { display: flex; align-items: center; justify-content: space-between; }
+    .reel-head h3 { margin: 0; font-size: 13px; font-weight: 600; color: #ddd; }
+    .reel-head .count { font-size: 11px; color: #666; background: #111; padding: 1px 8px; border-radius: 999px; }
+
+    .reel-wall { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; overflow: auto; padding-right: 2px; }
+    .reel-wall .empty { grid-column: 1 / -1; text-align: center; padding: 30px 10px; color: #555; font-size: 12px; }
+    .reel-wall .reel-card { position: relative; aspect-ratio: 16/9; background: #111; border-radius: 10px; overflow: hidden; border: 1px solid #222; cursor: pointer; transition: transform .15s cubic-bezier(0.23,1,0.32,1), box-shadow .15s; }
+    .reel-wall .reel-card:hover { transform: translateY(-2px); box-shadow: 0 14px 28px -12px rgba(0,0,0,0.6); }
+    .reel-wall .reel-card video { width: 100%; height: 100%; object-fit: cover; background: #000; }
+    .reel-wall .reel-card .meta { position: absolute; bottom: 0; left: 0; right: 0; padding: 6px 8px; background: linear-gradient(transparent, rgba(0,0,0,0.85)); font-size: 10px; display: flex; justify-content: space-between; color: #ddd; }
+    .reel-wall .reel-card .del { position: absolute; top: 5px; right: 5px; width: 22px; height: 22px; border-radius: 6px; background: rgba(0,0,0,0.6); color: #fff; border: none; display: none; align-items: center; justify-content: center; font-size: 13px; cursor: pointer; }
+    .reel-wall .reel-card:hover .del { display: flex; }
+    .reel-wall .reel-card .del:hover { background: #b22; }
+
+    .cine-error { color: #f66; font-size: 12px; padding: 8px 12px; background: rgba(180,40,40,0.1); border-radius: 8px; border: 1px solid rgba(180,40,40,0.2); }
+
+    @media (max-width: 1024px) {
+      .videogen-shell { grid-template-columns: 1fr 280px; gap: 16px; padding: 16px; }
+    }
+    @media (max-width: 780px) {
+      .videogen-shell { grid-template-columns: 1fr; grid-template-rows: 1fr auto; padding: 12px; }
+      .videogen-reel-sidebar { max-height: 210px; }
+      .reel-wall { grid-template-columns: repeat(4, 1fr); }
     }
     </style>
 </head>
@@ -1874,6 +2035,10 @@ HTML_TEMPLATE = r"""<!doctype html>
           <button id="nav-imagegen" type="button">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
             ImageGen
+          </button>
+          <button id="nav-videogen" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"></rect><path d="M22 12l-5 3V9l5 3z"></path></svg>
+            VidGen
           </button>
           <button id="nav-settings" type="button">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 5 15.4a1.65 1.65 0 0 0-1.51 1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 5 10.6a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 5.4a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82 1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
@@ -2206,10 +2371,12 @@ HTML_TEMPLATE = r"""<!doctype html>
           <div class="imagegen-header">
             <div>
               <h2>ImageGen Studio</h2>
-              <p>Generate, edit, and redefine images with your configured provider.</p>
+              <p>High-fidelity AI photography &amp; digital art synthesis.</p>
             </div>
             <div class="imagegen-modes">
-              <button id="imagegen-mode-generate" class="active" type="button">Generate</button>
+              <button id="imagegen-mode-generate" class="active" type="button">
+                <span>Generate</span>
+              </button>
               <button id="imagegen-mode-edit" type="button">Edit</button>
               <button id="imagegen-mode-redefine" type="button">Redefine</button>
             </div>
@@ -2217,8 +2384,16 @@ HTML_TEMPLATE = r"""<!doctype html>
 
           <div id="imagegen-panel-generate" class="imagegen-panel">
             <div class="imagegen-card">
+              <div class="imagegen-inspiration" id="imagegen-inspiration">
+                <button data-chip="ethereal lighting">ethereal lighting</button>
+                <button data-chip="hyperreal detail">hyperreal detail</button>
+                <button data-chip="cinematic color grade">cinematic grade</button>
+                <button data-chip="moody atmosphere">moody atmosphere</button>
+                <button data-chip="fine art photography">fine art</button>
+                <button data-chip="dramatic rim light">dramatic rim light</button>
+              </div>
               <div class="imagegen-prompt-wrap">
-                <textarea id="imagegen-prompt" placeholder="Describe the image you want to create in detail..."></textarea>
+                <textarea id="imagegen-prompt" placeholder="Describe the image you want to create in exquisite detail..."></textarea>
               </div>
               <div class="imagegen-controls">
                 <select id="imagegen-model">
@@ -2281,10 +2456,168 @@ HTML_TEMPLATE = r"""<!doctype html>
 
         <aside class="imagegen-sidebar">
           <div class="imagegen-sidebar-head">
-            <h3>Gallery</h3>
+            <h3>Archive</h3>
             <span class="count" id="imagegen-gallery-count">0</span>
           </div>
           <div id="imagegen-gallery-grid" class="imagegen-gallery-grid"></div>
+        </aside>
+      </div>
+    </main>
+
+    <!-- ===================== 2026 CINE TEMPRE STUDIO (VideoGen) ===================== -->
+    <main id="videogen-view" class="videogen hidden">
+      <div class="videogen-shell">
+        <div class="videogen-workspace">
+          <div class="videogen-header">
+            <div>
+              <div class="cine-badge">2026</div>
+              <h2>VidGen Studio</h2>
+              <p>Temporal motion synthesis. Every frame carries its own lineage.</p>
+            </div>
+            <div class="videogen-modes">
+              <button id="videogen-mode-text2video" class="active" type="button">Text → Film</button>
+              <button id="videogen-mode-img2vid" type="button">Image → Motion</button>
+              <button id="videogen-mode-remix" type="button">Remix / Extend</button>
+            </div>
+          </div>
+
+          <!-- TEXT → FILM -->
+          <div id="videogen-panel-text2video" class="videogen-panel">
+            <div class="cine-director-card">
+              <!-- PROMINENT MODEL SELECTOR -->
+              <div style="margin-bottom:14px; padding:10px; background:#0a0a0c; border:1px solid #333; border-radius:10px;">
+                <div style="font-size:10px; font-weight:700; color:#c0b3ff; letter-spacing:1.5px; margin-bottom:6px;">CHOOSE VIDEO MODEL</div>
+                <select id="videogen-model" style="width:100%; font-size:14px; padding:10px 14px; background:#111; border:2px solid #6366f1; color:#fff; border-radius:8px; font-weight:600;">
+                  <option value="demo-cinematic">Demo (built-in test clip) — No key needed</option>
+                  <option value="kling-2.1-pro">Kling 2.1 Pro — Cinematic</option>
+                  <option value="luma-ray2-1080">Luma Ray2 1080p</option>
+                  <option value="runway-gen4-turbo">Runway Gen-4 Turbo</option>
+                  <option value="black-forest-labs/flux-video-pro">FLUX Video Pro</option>
+                  <option value="grok-video-2026">Grok Video — Director Mode</option>
+                </select>
+              </div>
+
+              <div class="lexicon-chips" id="videogen-lexicon">
+                <button data-chip="slow push-in">slow push-in</button>
+                <button data-chip="anamorphic flare">anamorphic flare</button>
+                <button data-chip="golden hour">golden hour</button>
+                <button data-chip="volumetric god rays">god rays</button>
+                <button data-chip="handheld 8mm">handheld 8mm</button>
+                <button data-chip="dutch angle">dutch angle</button>
+                <button data-chip="tracking shot">tracking shot</button>
+                <button data-chip="crane up">crane up</button>
+              </div>
+              <div class="videogen-prompt-wrap">
+                <textarea id="videogen-prompt" placeholder="A lone courier sprints across a rain-slicked overpass at 3 a.m., slow push-in, anamorphic flares, melancholy cyber-noir tone..."></textarea>
+              </div>
+              <div class="cine-controls-grid">
+                <div class="cine-control">
+                  <label>DURATION</label>
+                  <div class="segmented" id="videogen-duration">
+                    <button data-val="5s">5s</button>
+                    <button data-val="8s" class="active">8s</button>
+                    <button data-val="12s">12s</button>
+                    <button data-val="20s">20s</button>
+                  </div>
+                </div>
+                <div class="cine-control">
+                  <label>ASPECT</label>
+                  <select id="videogen-aspect">
+                    <option value="2.39:1">2.39:1 Scope</option>
+                    <option value="16:9" selected>16:9 Widescreen</option>
+                    <option value="9:16">9:16 Vertical Reel</option>
+                    <option value="4:3">4:3 Academy</option>
+                    <option value="1:1">1:1 Square</option>
+                  </select>
+                </div>
+                <div class="cine-control">
+                  <label>RESOLUTION</label>
+                  <select id="videogen-res">
+                    <option value="720p">720p</option>
+                    <option value="1080p" selected>1080p</option>
+                    <option value="4k">4K (slow)</option>
+                  </select>
+                </div>
+                <div class="cine-control">
+                  <label>MOTION LANGUAGE</label>
+                  <select id="videogen-motion">
+                    <option>Static</option>
+                    <option>Dolly In</option>
+                    <option>Orbit 180</option>
+                    <option>Crane Up</option>
+                    <option>Tracking Shot</option>
+                    <option>Handheld Shake</option>
+                    <option>Parallax Reveal</option>
+                  </select>
+                </div>
+              </div>
+              <button id="videogen-render-btn" class="cine-render-btn" type="button"><span class="reel"></span>RENDER CLIP</button>
+              <div id="videogen-status" class="cine-status"></div>
+              <div id="videogen-result" class="cine-player-wrap"></div>
+              <div id="videogen-lineage" class="cine-cut-history"></div>
+            </div>
+          </div>
+
+          <!-- IMAGE → MOTION -->
+          <div id="videogen-panel-img2vid" class="videogen-panel hidden">
+            <div class="cine-director-card">
+              <div class="imagegen-dropzone" id="videogen-img-drop" style="padding:28px 18px;">
+                <input type="file" id="videogen-img-file" accept="image/*">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                <p style="margin:8px 0 0;font-size:12.5px;">Drop a still or click to upload — we will give it life</p>
+              </div>
+              <img id="videogen-img-preview" class="imagegen-preview hidden" alt="Reference still" style="max-height:180px;">
+              <div class="videogen-prompt-wrap">
+                <textarea id="videogen-img-prompt" placeholder="Slow cinematic push across the subject, gentle wind in hair, golden hour rim light..."></textarea>
+              </div>
+              <div style="margin: 8px 0 12px;">
+                <label style="font-size:10px; font-weight:700; color:#c0b3ff; letter-spacing:1px;">VIDEO MODEL</label>
+                <select id="videogen-img-model" style="width:100%; font-size:13px; padding:8px; background:#111; border:1px solid #6366f1; color:#fff; border-radius:6px;">
+                  <option value="demo-cinematic">Demo (test clip)</option>
+                  <option value="kling-2.1-pro">Kling 2.1 Pro</option>
+                  <option value="luma-ray2-1080">Luma Ray2</option>
+                </select>
+              </div>
+              <div class="cine-controls-grid">
+                <div class="cine-control">
+                  <label>DURATION</label>
+                  <div class="segmented" id="videogen-img-duration">
+                    <button data-val="6s">6s</button>
+                    <button data-val="10s" class="active">10s</button>
+                    <button data-val="16s">16s</button>
+                  </div>
+                </div>
+                <div class="cine-control">
+                  <label>MOTION</label>
+                  <select id="videogen-img-motion">
+                    <option>Dolly In</option><option>Orbit</option><option>Crane Reveal</option><option>Parallax</option>
+                  </select>
+                </div>
+              </div>
+              <button id="videogen-img-btn" class="cine-render-btn" type="button"><span class="reel"></span>ANIMATE STILL</button>
+              <div id="videogen-img-result" class="cine-player-wrap"></div>
+            </div>
+          </div>
+
+          <!-- REMIX / EXTEND -->
+          <div id="videogen-panel-remix" class="videogen-panel hidden">
+            <div class="cine-director-card">
+              <div id="videogen-remix-gallery" class="imagegen-mini-gallery" style="padding-bottom:4px;"></div>
+              <div class="videogen-prompt-wrap">
+                <textarea id="videogen-remix-prompt" placeholder="Continue the shot into a dramatic wide reveal, same color grade, add subtle lens breathing..."></textarea>
+              </div>
+              <button id="videogen-remix-btn" class="cine-render-btn" type="button">BRANCH NEW CUT</button>
+              <div id="videogen-remix-result" class="cine-player-wrap"></div>
+            </div>
+          </div>
+        </div>
+
+        <aside class="videogen-reel-sidebar">
+          <div class="reel-head">
+            <h3>Your Clips</h3>
+            <span class="count" id="videogen-count">0</span>
+          </div>
+          <div id="videogen-gallery" class="reel-wall"></div>
         </aside>
       </div>
     </main>
@@ -2589,6 +2922,7 @@ HTML_TEMPLATE = r"""<!doctype html>
       <button id="mob-guide" type="button">Guide</button>
       <button id="mob-marketplace" type="button">Market</button>
       <button id="mob-imagegen" type="button">ImageGen</button>
+      <button id="mob-videogen" type="button">VidGen</button>
       <button id="mob-settings" type="button">Settings</button>
     </nav>
   </div>

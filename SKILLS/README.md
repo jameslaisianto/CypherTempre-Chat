@@ -89,6 +89,18 @@ data/users/<username>/gallery/.timechain/chain.jsonl
 
 Image rings use `image_generate`, `image_edit`, or `image_redefine` kinds with `domain="image"`. Redefine operations preserve the source image id and superseded source ring so lineage can be inspected without mixing image history into the chat-session chain.
 
+## VidGen Studio
+
+VidGen Studio is the cinematic video workspace. It supports text-to-video, image-to-motion, remix/extend of prior reels, a rich filmic "Director's Console" with motion presets and lexicon chips, hover-play gallery, and full cut-lineage filmstrips. All operations are private to the user and seal `video_generate`, `video_img2vid`, `video_remix` rings (domain="video") in:
+
+```text
+data/users/<username>/videogen/
+data/users/<username>/videogen/index.json
+data/users/<username>/videogen/.timechain/chain.jsonl
+```
+
+The UI follows 2026 premium creative-tool aesthetics (glassmorphism, holographic accents, custom film-perforation players) while staying fully inside the existing CypherTempre SPA and Timechain discipline.
+
 ## Chain Verification
 
 Verification replays the hash chain to confirm that each ring still points to the previous ring and that no sealed memory was changed outside the normal append path.

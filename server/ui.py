@@ -172,6 +172,40 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       imagegenGalleryGrid: document.getElementById('imagegen-gallery-grid'),
       imagegenGalleryCount: document.getElementById('imagegen-gallery-count'),
       imagegenEditModel: document.getElementById('imagegen-edit-model'),
+
+      // CineTempre VideoGen (2026 Director's Cut)
+      navVideogen: document.getElementById('nav-videogen'),
+      mobVideogen: document.getElementById('mob-videogen'),
+      videogenView: document.getElementById('videogen-view'),
+      videogenModeText: document.getElementById('videogen-mode-text2video'),
+      videogenModeImg: document.getElementById('videogen-mode-img2vid'),
+      videogenModeRemix: document.getElementById('videogen-mode-remix'),
+      videogenPanelText: document.getElementById('videogen-panel-text2video'),
+      videogenPanelImg: document.getElementById('videogen-panel-img2vid'),
+      videogenPanelRemix: document.getElementById('videogen-panel-remix'),
+      videogenPrompt: document.getElementById('videogen-prompt'),
+      videogenAspect: document.getElementById('videogen-aspect'),
+      videogenRes: document.getElementById('videogen-res'),
+      videogenMotion: document.getElementById('videogen-motion'),
+      videogenRenderBtn: document.getElementById('videogen-render-btn'),
+      videogenStatus: document.getElementById('videogen-status'),
+      videogenResult: document.getElementById('videogen-result'),
+      videogenLineage: document.getElementById('videogen-lineage'),
+      videogenLexicon: document.getElementById('videogen-lexicon'),
+      videogenImgDrop: document.getElementById('videogen-img-drop'),
+      videogenImgFile: document.getElementById('videogen-img-file'),
+      videogenImgPreview: document.getElementById('videogen-img-preview'),
+      videogenImgPrompt: document.getElementById('videogen-img-prompt'),
+      videogenImgBtn: document.getElementById('videogen-img-btn'),
+      videogenImgResult: document.getElementById('videogen-img-result'),
+      videogenRemixGallery: document.getElementById('videogen-remix-gallery'),
+      videogenRemixPrompt: document.getElementById('videogen-remix-prompt'),
+      videogenRemixBtn: document.getElementById('videogen-remix-btn'),
+      videogenRemixResult: document.getElementById('videogen-remix-result'),
+      videogenGallery: document.getElementById('videogen-gallery'),
+      videogenCount: document.getElementById('videogen-count'),
+      videogenModel: document.getElementById('videogen-model'),
+      videogenImgModel: document.getElementById('videogen-img-model'),
       settingsCreatorTab: document.getElementById('settings-creator-tab'),
       creatorSettingsSection: document.getElementById('creator-settings-section'),
       creatorName: document.getElementById('creator-name'),
@@ -1551,24 +1585,29 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       const settings = view === 'settings';
       const marketplace = view === 'marketplace';
       const imagegen = view === 'imagegen';
-      els.chatView.classList.toggle('hidden', guide || settings || marketplace || imagegen);
+      const videogen = view === 'videogen';
+      els.chatView.classList.toggle('hidden', guide || settings || marketplace || imagegen || videogen);
       els.guideView.classList.toggle('active', guide);
       els.settingsView.classList.toggle('active', settings);
       els.marketplaceView.classList.toggle('active', marketplace);
       if (els.imagegenView) els.imagegenView.classList.toggle('hidden', !imagegen);
-      els.navChat.classList.toggle('active', !guide && !settings && !marketplace && !imagegen);
+      if (els.videogenView) els.videogenView.classList.toggle('hidden', !videogen);
+      els.navChat.classList.toggle('active', !guide && !settings && !marketplace && !imagegen && !videogen);
       els.navGuide.classList.toggle('active', guide);
       els.navSettings.classList.toggle('active', settings);
       els.navMarketplace.classList.toggle('active', marketplace);
       if (els.navImagegen) els.navImagegen.classList.toggle('active', imagegen);
+      if (els.navVideogen) els.navVideogen.classList.toggle('active', videogen);
       if (els.mobChat) els.mobChat.classList.toggle('active', !guide && !settings && !marketplace && !imagegen);
       if (els.mobGuide) els.mobGuide.classList.toggle('active', guide);
       if (els.mobSettings) els.mobSettings.classList.toggle('active', settings);
       if (els.mobMarketplace) els.mobMarketplace.classList.toggle('active', marketplace);
       if (els.mobImagegen) els.mobImagegen.classList.toggle('active', imagegen);
+      if (els.mobVideogen) els.mobVideogen.classList.toggle('active', videogen);
       localStorage.setItem('ct_view', view);
       if (marketplace) loadMarketplace();
       if (imagegen) loadImagegen();
+      if (videogen) loadVideogen();
     }
     async function loadMarketplace() {
       if (!els.marketplaceGrid) return;
@@ -1905,6 +1944,8 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     if (els.mobMarketplace) els.mobMarketplace.addEventListener('click', () => setMainView('marketplace'));
     if (els.navImagegen) els.navImagegen.addEventListener('click', () => setMainView('imagegen'));
     if (els.mobImagegen) els.mobImagegen.addEventListener('click', () => setMainView('imagegen'));
+    if (els.navVideogen) els.navVideogen.addEventListener('click', () => setMainView('videogen'));
+    if (els.mobVideogen) els.mobVideogen.addEventListener('click', () => setMainView('videogen'));
     if (els.detailClose) els.detailClose.addEventListener('click', closeDetail);
     if (els.detailSubscribe) els.detailSubscribe.addEventListener('click', doSubscribe);
     if (els.detailUnsubscribe) els.detailUnsubscribe.addEventListener('click', doUnsubscribe);
@@ -2031,7 +2072,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
         els.imagegenGalleryGrid.innerHTML = `
           <div class="empty">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
-            <div>No images yet</div>
+            <div>No images in the archive yet</div>
           </div>`;
         return;
       }
@@ -2223,6 +2264,21 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     if (els.imagegenModeGenerate) els.imagegenModeGenerate.addEventListener('click', () => setImagegenMode('generate'));
     if (els.imagegenModeEdit) els.imagegenModeEdit.addEventListener('click', () => setImagegenMode('edit'));
     if (els.imagegenModeRedefine) els.imagegenModeRedefine.addEventListener('click', () => setImagegenMode('redefine'));
+
+    // ImageGen inspiration chips (creative prompt helpers)
+    const imgInspo = document.getElementById('imagegen-inspiration');
+    if (imgInspo) {
+      imgInspo.querySelectorAll('button').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const ta = els.imagegenPrompt;
+          if (!ta) return;
+          const chip = btn.dataset.chip || btn.textContent;
+          if (ta.value.trim()) ta.value += ', ' + chip;
+          else ta.value = chip;
+          ta.focus();
+        });
+      });
+    }
     if (els.imagegenGenerateBtn) els.imagegenGenerateBtn.addEventListener('click', imagegenGenerate);
     if (els.imagegenEditBtn) els.imagegenEditBtn.addEventListener('click', imagegenEdit);
     if (els.imagegenRedefineBtn) els.imagegenRedefineBtn.addEventListener('click', imagegenRedefine);
@@ -2256,6 +2312,319 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
           els.imagegenEditPreview.classList.remove('hidden');
         };
         reader.readAsDataURL(file);
+      });
+    }
+
+    // ===================================================================
+    // CINE TEMPRE STUDIO — 2026 VideoGen (creative, filmic, director-grade)
+    // ===================================================================
+    let videogenActiveMode = 'text2video';
+    let videogenSelectedId = '';
+    let videogenBusy = false;
+
+    function setVideogenMode(mode) {
+      videogenActiveMode = mode;
+      els.videogenModeText?.classList.toggle('active', mode === 'text2video');
+      els.videogenModeImg?.classList.toggle('active', mode === 'img2vid');
+      els.videogenModeRemix?.classList.toggle('active', mode === 'remix');
+      els.videogenPanelText?.classList.toggle('hidden', mode !== 'text2video');
+      els.videogenPanelImg?.classList.toggle('hidden', mode !== 'img2vid');
+      els.videogenPanelRemix?.classList.toggle('hidden', mode !== 'remix');
+      if (mode === 'remix') renderVideogenRemixGallery();
+    }
+
+    function attachLexiconChips() {
+      if (!els.videogenLexicon) return;
+      els.videogenLexicon.querySelectorAll('button').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const ta = els.videogenPrompt;
+          if (!ta) return;
+          const chip = btn.dataset.chip || btn.textContent;
+          if (ta.value.trim()) ta.value += ', ' + chip;
+          else ta.value = chip;
+          ta.focus();
+        });
+      });
+    }
+
+    function setupSegmented(id) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.querySelectorAll('button').forEach(b => {
+        b.addEventListener('click', () => {
+          el.querySelectorAll('button').forEach(x => x.classList.remove('active'));
+          b.classList.add('active');
+        });
+      });
+    }
+
+    async function loadVideogen() {
+      if (!els.videogenGallery) return;
+      els.videogenGallery.innerHTML = '';
+      if (els.videogenCount) els.videogenCount.textContent = '0';
+      try {
+        const data = await api('/api/videogen/gallery');
+        renderVideogenGallery(data.videos || []);
+      } catch (e) {
+        if (els.videogenGallery) els.videogenGallery.innerHTML = `<div class="empty" style="color:#c33;">${esc(e.message)}</div>`;
+      }
+    }
+
+    function renderVideogenGallery(videos) {
+      if (!els.videogenGallery) return;
+      if (els.videogenCount) els.videogenCount.textContent = videos.length;
+      if (!videos.length) {
+        els.videogenGallery.innerHTML = `<div class="empty"><div>No clips yet — render your first one</div></div>`;
+        return;
+      }
+      els.videogenGallery.innerHTML = videos.map(v => {
+        // For demo items, use a rock-solid public small MP4 so it never 404s
+        let videoSrc;
+        if (v.provider === 'demo' || (v.model && v.model.startsWith('demo'))) {
+          videoSrc = 'https://test-streams.github.io/streams/vod/mp4/bbb_720p_10s.mp4';
+        } else {
+          videoSrc = v.source_url || `/api/videogen/video/${esc(v.id)}`;
+        }
+        return `
+        <div class="reel-card" data-id="${esc(v.id)}" title="${esc(v.prompt)}">
+          <video muted preload="metadata" playsinline poster="">
+            <source src="${esc(videoSrc)}" type="video/mp4">
+          </video>
+          <div class="meta">
+            <span>${esc(v.duration || '')}</span>
+            <span>v${v.ring_n || 1}</span>
+          </div>
+          <button class="del" data-id="${esc(v.id)}" title="Delete">×</button>
+        </div>`;
+      }).join('');
+
+      els.videogenGallery.querySelectorAll('.reel-card').forEach(card => {
+        const vid = card.querySelector('video');
+        if (vid) {
+          card.addEventListener('mouseenter', () => { vid.currentTime = 0; vid.play().catch(()=>{}); });
+          card.addEventListener('mouseleave', () => { vid.pause(); });
+        }
+        card.addEventListener('click', e => {
+          if (e.target.classList.contains('del')) {
+            e.stopPropagation();
+            deleteVideogenClip(card.dataset.id);
+            return;
+          }
+          videogenSelectedId = card.dataset.id;
+          loadVideogenLineage(card.dataset.id);
+          // Prefer the actual src used in the gallery card (may be external source_url for demo)
+          const actualSrc = card.querySelector('video source')?.src || '';
+          loadVideogenIntoPlayer(card.dataset.id, actualSrc);
+        });
+      });
+    }
+
+    function renderVideogenRemixGallery() {
+      if (!els.videogenRemixGallery) return;
+      const cards = els.videogenGallery?.querySelectorAll('.reel-card') || [];
+      if (!cards.length) {
+        els.videogenRemixGallery.innerHTML = '<div style="color:#666;font-size:11px;padding:4px;">Generate some clips first.</div>';
+        videogenSelectedId = '';
+        return;
+      }
+      els.videogenRemixGallery.innerHTML = Array.from(cards).map(c => {
+        const id = c.dataset.id;
+        const src = c.querySelector('video')?.querySelector('source')?.src || '';
+        return `<div class="thumb ${id===videogenSelectedId?'active':''}" data-id="${esc(id)}" style="width:92px;height:52px;"><video muted style="width:100%;height:100%;object-fit:cover;"><source src="${esc(src)}"></video></div>`;
+      }).join('');
+      els.videogenRemixGallery.querySelectorAll('.thumb').forEach(t => {
+        t.addEventListener('click', () => {
+          videogenSelectedId = t.dataset.id;
+          renderVideogenRemixGallery();
+        });
+      });
+    }
+
+    async function loadVideogenLineage(id) {
+      if (!els.videogenLineage) return;
+      if (!id) { els.videogenLineage.innerHTML = ''; return; }
+      try {
+        const d = await api(`/api/videogen/lineage?video_id=${encodeURIComponent(id)}`);
+        if (!d.ok) return;
+        els.videogenLineage.innerHTML = d.chain.map((item, i) => {
+          const arrow = i ? '→' : '';
+          return `<div class="film-cell" data-id="${esc(item.video_id)}" title="${esc(item.prompt)}"><video muted><source src="/api/videogen/video/${esc(item.video_id)}"></video><div class="label">${esc(item.mode||'clip')}</div></div>`;
+        }).join('');
+        els.videogenLineage.querySelectorAll('.film-cell').forEach(cell => {
+          cell.addEventListener('click', () => loadVideogenIntoPlayer(cell.dataset.id));
+        });
+      } catch {}
+    }
+
+    function loadVideogenIntoPlayer(videoId, preferredSrc = '') {
+      if (!els.videogenResult) return;
+      let src = preferredSrc || `/api/videogen/video/${esc(videoId)}`;
+
+      // If this is a demo clip (we can detect by checking if we have a card with demo), force stable URL
+      // Simpler: if no preferredSrc and it's likely demo, use stable one
+      if (!preferredSrc) {
+        // Will be improved later; for now the gallery cards already use stable for demo
+      }
+
+      els.videogenResult.innerHTML = `
+        <div class="cine-player-perforation left"></div>
+        <video controls playsinline style="max-height:420px;width:100%;background:#000;">
+          <source src="${esc(src)}" type="video/mp4">
+        </video>
+        <div class="cine-player-perforation right"></div>
+      `;
+      loadVideogenLineage(videoId);
+    }
+
+    async function videogenRenderText2Video() {
+      if (videogenBusy) return;
+      const prompt = els.videogenPrompt?.value?.trim();
+      if (!prompt) { els.videogenStatus.innerHTML = '<span class="cine-error">Enter a scene description</span>'; return; }
+      videogenBusy = true;
+      els.videogenRenderBtn?.classList.add('loading');
+      els.videogenStatus.innerHTML = '<div class="cine-spinner"></div><span>Exposing temporal layer… locking motion vectors</span>';
+      els.videogenResult.innerHTML = '';
+      try {
+        const durEl = document.querySelector('#videogen-duration .active');
+        const duration = durEl ? durEl.dataset.val : '8s';
+        const model = els.videogenModel?.value || 'demo-cinematic';
+        const prov = model.startsWith('demo') ? 'demo' : (localStorage.getItem('ct_provider') || 'openrouter');
+        const data = await api('/api/videogen/generate', {
+          method: 'POST',
+          body: JSON.stringify({
+            prompt,
+            model,
+            aspect_ratio: els.videogenAspect?.value || '16:9',
+            duration,
+            motion_preset: els.videogenMotion?.value || 'Static',
+            apiKey: localStorage.getItem('ct_api_key') || '',
+            provider: prov,
+          })
+        });
+        els.videogenStatus.textContent = '';
+        els.videogenResult.innerHTML = `
+          <div class="cine-player-perforation left"></div>
+          <video controls playsinline style="max-height:420px;width:100%;background:#000;">
+            <source src="${data.video_url || data.data_url || `/api/videogen/video/${data.video.id}`}" type="video/mp4">
+          </video>
+          <div class="cine-player-perforation right"></div>`;
+        loadVideogenLineage(data.video.id);
+        loadVideogen();
+      } catch (e) {
+        els.videogenStatus.innerHTML = `<span class="cine-error">${esc(e.message)}</span>`;
+      } finally {
+        videogenBusy = false;
+        els.videogenRenderBtn?.classList.remove('loading');
+      }
+    }
+
+    async function videogenRenderImg2Vid() {
+      if (videogenBusy) return;
+      const prompt = els.videogenImgPrompt?.value?.trim();
+      const fileInput = els.videogenImgFile;
+      if (!prompt) { els.videogenImgResult.innerHTML = '<div class="cine-error">Describe the motion</div>'; return; }
+      if (!fileInput?.files?.length && !els.videogenImgPreview?.src?.startsWith('data:')) {
+        els.videogenImgResult.innerHTML = '<div class="cine-error">Upload a reference still</div>'; return;
+      }
+      videogenBusy = true;
+      els.videogenImgResult.innerHTML = '<div class="cine-status"><div class="cine-spinner"></div><span>Animating still into motion…</span></div>';
+      let imageData = els.videogenImgPreview?.src || '';
+      if (fileInput.files[0]) {
+        imageData = await new Promise(r => { const rd = new FileReader(); rd.onload = () => r(rd.result); rd.readAsDataURL(fileInput.files[0]); });
+      }
+      try {
+        const durEl = document.querySelector('#videogen-img-duration .active');
+        const duration = durEl ? durEl.dataset.val : '10s';
+        const model = els.videogenImgModel?.value || 'demo-cinematic';
+        const data = await api('/api/videogen/img2vid', {
+          method: 'POST',
+          body: JSON.stringify({
+            prompt, image: imageData,
+            model,
+            aspect_ratio: '16:9',
+            duration,
+            motion_preset: els.videogenImgMotion?.value || 'Dolly In',
+            apiKey: localStorage.getItem('ct_api_key') || '',
+            provider: model.startsWith('demo') ? 'demo' : (localStorage.getItem('ct_provider') || 'openrouter'),
+          })
+        });
+        els.videogenImgResult.innerHTML = `
+          <div class="cine-player-perforation left"></div>
+          <video controls playsinline style="max-height:380px;width:100%;">
+            <source src="${data.video_url || data.data_url || `/api/videogen/video/${data.video.id}`}">
+          </video>
+          <div class="cine-player-perforation right"></div>`;
+        loadVideogen();
+      } catch (e) {
+        els.videogenImgResult.innerHTML = `<div class="cine-error">${esc(e.message)}</div>`;
+      } finally { videogenBusy = false; }
+    }
+
+    async function videogenRenderRemix() {
+      if (videogenBusy || !videogenSelectedId) {
+        els.videogenRemixResult.innerHTML = '<div class="cine-error">Select a source reel from the strip above</div>';
+        return;
+      }
+      const prompt = els.videogenRemixPrompt?.value?.trim();
+      if (!prompt) { els.videogenRemixResult.innerHTML = '<div class="cine-error">Describe the new direction</div>'; return; }
+      videogenBusy = true;
+      els.videogenRemixResult.innerHTML = '<div class="cine-status"><div class="cine-spinner"></div><span>Branching new cut…</span></div>';
+      try {
+        const model = els.videogenModel?.value || 'demo-cinematic';
+        const data = await api('/api/videogen/remix', {
+          method: 'POST',
+          body: JSON.stringify({
+            source_id: videogenSelectedId,
+            prompt,
+            model,
+            aspect_ratio: '16:9',
+            duration: '8s',
+            motion_preset: 'Remix',
+            apiKey: localStorage.getItem('ct_api_key') || '',
+            provider: model.startsWith('demo') ? 'demo' : (localStorage.getItem('ct_provider') || 'openrouter'),
+          })
+        });
+        els.videogenRemixResult.innerHTML = `
+          <div class="cine-player-perforation left"></div>
+          <video controls playsinline style="max-height:380px;width:100%;">
+            <source src="${data.video_url || data.data_url || `/api/videogen/video/${data.video.id}`}">
+          </video>
+          <div class="cine-player-perforation right"></div>`;
+        loadVideogenLineage(data.video.id);
+        loadVideogen();
+      } catch (e) {
+        els.videogenRemixResult.innerHTML = `<div class="cine-error">${esc(e.message)}</div>`;
+      } finally { videogenBusy = false; }
+    }
+
+    async function deleteVideogenClip(id) {
+      if (!id) return;
+      try {
+        await api('/api/videogen/delete', { method: 'POST', body: JSON.stringify({ video_id: id }) });
+        loadVideogen();
+        if (videogenSelectedId === id) videogenSelectedId = '';
+      } catch (e) { alert('Delete failed: ' + e.message); }
+    }
+
+    // Wire CineTempre controls
+    if (els.videogenModeText) els.videogenModeText.addEventListener('click', () => setVideogenMode('text2video'));
+    if (els.videogenModeImg) els.videogenModeImg.addEventListener('click', () => setVideogenMode('img2vid'));
+    if (els.videogenModeRemix) els.videogenModeRemix.addEventListener('click', () => setVideogenMode('remix'));
+    if (els.videogenRenderBtn) els.videogenRenderBtn.addEventListener('click', videogenRenderText2Video);
+    if (els.videogenImgBtn) els.videogenImgBtn.addEventListener('click', videogenRenderImg2Vid);
+    if (els.videogenRemixBtn) els.videogenRemixBtn.addEventListener('click', videogenRenderRemix);
+
+    attachLexiconChips();
+    setupSegmented('videogen-duration');
+    setupSegmented('videogen-img-duration');
+
+    if (els.videogenImgDrop) {
+      els.videogenImgDrop.addEventListener('click', () => els.videogenImgFile?.click());
+      els.videogenImgFile?.addEventListener('change', e => {
+        const f = e.target.files[0]; if (!f) return;
+        const r = new FileReader();
+        r.onload = () => { els.videogenImgPreview.src = r.result; els.videogenImgPreview.classList.remove('hidden'); };
+        r.readAsDataURL(f);
       });
     }
 
