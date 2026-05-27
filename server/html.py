@@ -177,16 +177,80 @@ HTML_TEMPLATE = r"""<!doctype html>
       transition: background-color 0.3s;
     }
 
+    /* ============================================================
+       LEFT RAIL — The Cognitive Spine (2026 Multimodal Redesign)
+       Layered, living, premium temporal interface
+       ============================================================ */
     .rail {
-      border-right: 1px solid var(--line);
+      border-right: 1px solid rgba(255,255,255,0.05);
       grid-template-rows: auto minmax(0, 1fr) auto;
-      background: linear-gradient(180deg, #0f0f0f 0%, #111111 100%);
+      /* Deep, rich, multi-layered glass with subtle holographic depth */
+      background: 
+        linear-gradient(180deg, 
+          rgba(13,13,16,0.94) 0%, 
+          rgba(15,15,18,0.97) 28%,
+          rgba(11,11,14,0.98) 72%,
+          rgba(10,10,13,0.99) 100%);
       position: relative;
       z-index: 2;
+      box-shadow: 
+        inset -1px 0 0 rgba(255,255,255,0.04),
+        inset 0 1px 0 rgba(255,255,255,0.02),
+        6px 0 40px -12px rgba(0,0,0,0.65);
+      backdrop-filter: blur(24px) saturate(1.25);
     }
 
     .light .rail {
-      background: linear-gradient(180deg, #f0f0ee 0%, #f7f7f5 100%);
+      background: 
+        linear-gradient(180deg, 
+          rgba(242,242,240,0.94) 0%, 
+          rgba(248,248,246,0.97) 100%);
+      box-shadow: 
+        inset -1px 0 0 rgba(0,0,0,0.05),
+        6px 0 40px -12px rgba(0,0,0,0.08);
+    }
+
+    /* Primary "Spine" — elegant vertical continuity element */
+    .rail::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      background: linear-gradient(
+        to bottom,
+        transparent 5%,
+        rgba(14,165,233,0.22) 14%,
+        rgba(99,102,241,0.18) 32%,
+        rgba(14,165,233,0.14) 58%,
+        rgba(99,102,241,0.19) 76%,
+        rgba(14,165,233,0.12) 88%,
+        transparent 95%
+      );
+      pointer-events: none;
+      z-index: 1;
+      opacity: 0.9;
+    }
+
+    /* Very subtle holographic rim light on the right edge of the rail */
+    .rail::after {
+      content: '';
+      position: absolute;
+      right: 0;
+      top: 0;
+      bottom: 0;
+      width: 1px;
+      background: linear-gradient(
+        to bottom,
+        transparent 10%,
+        rgba(103,212,255,0.08) 25%,
+        rgba(165,180,252,0.07) 55%,
+        rgba(103,212,255,0.09) 80%,
+        transparent 90%
+      );
+      pointer-events: none;
+      z-index: 2;
     }
 
     .inspector {
@@ -194,34 +258,64 @@ HTML_TEMPLATE = r"""<!doctype html>
     }
 
     .brand {
-      padding: 22px 18px;
-      border-bottom: 1px solid var(--line-soft);
-      background: linear-gradient(180deg, rgba(16, 172, 235, 0.06), transparent);
+      padding: 26px 20px 20px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      position: relative;
+      z-index: 2;
+      background: 
+        linear-gradient(180deg, 
+          rgba(14,165,233,0.028) 0%, 
+          rgba(99,102,241,0.018) 52%, 
+          transparent 100%);
     }
 
     .brand-row {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 10px;
+      gap: 12px;
     }
 
     .brand h1 {
       margin: 0;
-      font-size: 24px;
-      letter-spacing: -0.02em;
-      line-height: 1.1;
-      font-weight: 750;
-      background: linear-gradient(180deg, #ededed, #a3a3a3);
+      font-size: 21px;
+      letter-spacing: -0.035em;
+      line-height: 0.95;
+      font-weight: 900;
+      background: linear-gradient(135deg, #f8f8fc 0%, #e0e0e8 42%, #c8c8d4 100%);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       background-clip: text;
+      position: relative;
+      font-feature-settings: "tnum";
+      text-shadow: 0 2px 12px rgba(0,0,0,0.2);
     }
 
     .brand p {
-      margin: 8px 0 0;
-      color: var(--muted);
-      font-size: 13px;
+      margin: 5px 0 0;
+      color: #6f6f7a;
+      font-size: 12px;
+      letter-spacing: 0.015em;
+      opacity: 0.8;
+    }
+
+    /* Stronger holographic spine connection on brand */
+    .brand::after {
+      content: '';
+      position: absolute;
+      bottom: -1px;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: linear-gradient(
+        to right,
+        transparent 8%,
+        rgba(103,212,255,0.28) 22%,
+        rgba(165,180,252,0.22) 48%,
+        rgba(103,212,255,0.26) 72%,
+        transparent 92%
+      );
+      z-index: 3;
     }
 
     .settings-icon {
@@ -273,76 +367,166 @@ HTML_TEMPLATE = r"""<!doctype html>
     }
 
     .rail-section {
-      padding: 16px;
+      padding: 18px 18px 22px;
       display: grid;
-      gap: 20px;
+      gap: 22px;
       align-content: start;
       overflow: auto;
     }
 
+    /* Elegant section grouping with better breathing and subtle separation */
     .group {
       display: grid;
-      gap: 9px;
+      gap: 8px;
+      position: relative;
+    }
+
+    .group + .group::before {
+      content: '';
+      position: absolute;
+      top: -11px;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: linear-gradient(
+        to right,
+        transparent,
+        rgba(255,255,255,0.035),
+        transparent
+      );
     }
 
     .nav {
       display: grid;
       grid-template-columns: repeat(2, 1fr);
-      gap: 3px;
-      padding: 3px;
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      background: rgba(17, 17, 17, 0.8);
+      gap: 5px;
+      padding: 6px;
+      border: 1px solid rgba(255,255,255,0.05);
+      border-radius: 16px;
+      background: rgba(8,8,11,0.55);
       width: 100%;
       overflow: hidden;
+      backdrop-filter: blur(18px) saturate(1.1);
+      position: relative;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
     }
 
     .nav button {
-      min-height: 34px;
+      min-height: 40px;
       border: 0;
-      border-radius: 8px;
+      border-radius: 11px;
       background: transparent;
-      color: var(--muted);
+      color: #85858f;
       cursor: pointer;
       font-weight: 700;
-      font-size: 12px;
+      font-size: 12.5px;
+      letter-spacing: 0.01em;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      gap: 5px;
-      padding: 0 8px;
-      transition: background-color 0.2s, color 0.2s;
+      gap: 8px;
+      padding: 0 12px;
+      position: relative;
+      z-index: 1;
+      transition: 
+        color 0.2s cubic-bezier(0.23,1,0.32,1),
+        transform 0.2s cubic-bezier(0.23,1,0.32,1),
+        background 0.25s cubic-bezier(0.23,1,0.32,1);
+      overflow: hidden;
     }
 
+    /* Beautiful sensory hover */
     .nav button:hover {
-      background: rgba(255, 255, 255, 0.04);
-      color: var(--text);
+      color: #f4f4f8;
+      background: rgba(255,255,255,0.045);
+      transform: translateY(-1px);
     }
 
+    /* High-end active state — Cognitive Portal */
     .nav button.active {
-      color: var(--nav-active-text);
-      background: var(--nav-active-bg);
-      box-shadow: 0 2px 12px rgba(16, 172, 235, 0.25);
+      color: #ffffff;
+      background: linear-gradient(145deg, 
+        rgba(14,165,233,0.22) 0%, 
+        rgba(99,102,241,0.16) 100%);
+      box-shadow: 
+        0 0 0 1px rgba(103,212,255,0.35),
+        0 6px 20px -6px rgba(14,165,233,0.45),
+        0 0 30px -8px rgba(99,102,241,0.25),
+        inset 0 1px 0 rgba(255,255,255,0.2);
+      font-weight: 800;
+      transform: translateY(0);
+    }
+
+    /* Subtle glowing orb on active nav items */
+    .nav button.active::before {
+      content: '';
+      position: absolute;
+      left: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #67d4ff, #c4b5fd);
+      box-shadow: 
+        0 0 10px rgba(103,212,255,0.9),
+        0 0 22px rgba(103,212,255,0.5),
+        0 0 36px rgba(165,180,252,0.3);
+      z-index: 0;
+      transition: all 0.25s ease;
     }
 
     .nav button svg {
-      width: 15px;
-      height: 15px;
+      width: 17px;
+      height: 17px;
       flex-shrink: 0;
+      position: relative;
+      z-index: 1;
+      transition: transform 0.25s cubic-bezier(0.23,1,0.32,1), 
+                  filter 0.25s ease;
+    }
+
+    .nav button:hover svg {
+      transform: scale(1.1);
+    }
+
+    .nav button.active svg {
+      filter: drop-shadow(0 0 5px rgba(103,212,255,0.5));
+      transform: scale(1.05);
     }
 
     label {
-      color: var(--faint);
-      font-size: 10.5px;
+      color: #6f6f7a;
+      font-size: 10px;
       font-weight: 700;
-      letter-spacing: 0.05em;
+      letter-spacing: 0.08em;
       text-transform: uppercase;
-      margin-top: 4px;
+      margin-top: 2px;
     }
 
     .rail-section label:first-child,
     .group label:first-child {
       margin-top: 0;
+      color: #8a8a96;
+    }
+
+    /* More premium selects and inputs inside the rail */
+    .rail select,
+    .rail input {
+      height: 38px;
+      font-size: 13.5px;
+      border-radius: 9px;
+      background: rgba(10,10,12,0.7);
+      border: 1px solid rgba(255,255,255,0.07);
+      color: #e8e8ee;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    .rail select:focus,
+    .rail input:focus {
+      border-color: rgba(14,165,233,0.4);
+      box-shadow: 0 0 0 3px rgba(14,165,233,0.1);
+      outline: none;
     }
 
     input, select, textarea {
@@ -378,14 +562,20 @@ HTML_TEMPLATE = r"""<!doctype html>
     }
 
     .status-card {
-      margin: 10px 12px 12px;
-      padding: 11px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: var(--status-card-bg);
-      color: var(--muted);
-      font-size: 13px;
-      transition: background-color 0.3s;
+      margin: 8px 14px 14px;
+      padding: 12px 14px;
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 10px;
+      background: rgba(10,10,12,0.5);
+      color: #888;
+      font-size: 12.5px;
+      line-height: 1.4;
+      transition: background-color 0.3s, border-color 0.2s;
+      backdrop-filter: blur(8px);
+    }
+
+    .status-card:hover {
+      border-color: rgba(255,255,255,0.1);
     }
 
     .inline-field {
@@ -1003,20 +1193,21 @@ HTML_TEMPLATE = r"""<!doctype html>
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      padding: 0 12px;
-      height: 34px;
-      border-radius: 8px;
-      border: 1px solid var(--line);
-      background: var(--surface-2);
-      color: var(--text);
+      padding: 0 13px;
+      height: 36px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.06);
+      background: rgba(255,255,255,0.025);
+      color: #d4d4dc;
       font-weight: 700;
       font-size: 13px;
       cursor: pointer;
-      transition: background-color 0.2s, border-color 0.2s;
+      transition: all 0.2s cubic-bezier(0.23,1,0.32,1);
     }
     .account-btn:hover {
-      background: var(--surface-3);
-      border-color: var(--blue);
+      background: rgba(255,255,255,0.05);
+      border-color: rgba(103,212,255,0.25);
+      color: #f4f4f8;
     }
     .account-menu {
       position: absolute;
@@ -1670,7 +1861,18 @@ HTML_TEMPLATE = r"""<!doctype html>
       .guide.active { flex: 1; min-height: 0; }
       .settings { height: auto; }
       .settings.active { flex: 1; min-height: 0; }
-      .rail { position: fixed; left: 0; top: 0; bottom: 0; width: min(320px, 86vw); z-index: 100; transform: translateX(-101%); transition: transform .25s ease; border-right: 1px solid var(--line); background: linear-gradient(180deg, #0f0f0f 0%, #111111 100%); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+      .rail { 
+        position: fixed; left: 0; top: 0; bottom: 0; width: min(320px, 86vw); z-index: 100; 
+        transform: translateX(-101%); 
+        transition: transform 0.32s cubic-bezier(0.23, 1, 0.32, 1); 
+        border-right: 1px solid var(--line); 
+        background: linear-gradient(180deg, rgba(15,15,15,0.96) 0%, rgba(12,12,14,0.98) 100%);
+        display: grid; 
+        grid-template-rows: auto minmax(0, 1fr) auto; 
+        overflow-y: auto; 
+        -webkit-overflow-scrolling: touch;
+        box-shadow: 12px 0 40px -12px rgba(0,0,0,0.7);
+      }
       .rail.open { transform: translateX(0); }
       .brand { padding: 12px 14px; }
       .brand-row { display: block; }
