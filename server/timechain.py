@@ -105,6 +105,7 @@ MEMORY_ACCEPTED_STATUSES = {"accepted", "known", "uncertain"}
 MEMORY_INACTIVE_STATUSES = {"pending", "rejected", "superseded", "forgotten"}
 GLOBAL_MEMORY_KINDS = {"identity", "preference", "boundary", "style", "persona"}
 ALWAYS_ACTIVE_MEMORY_KINDS = {"identity", "boundary", "persona"}
+LOCAL_FALLBACK_MODES = {"chat", "engineering"}
 
 def utc_now() -> dt.datetime:
     return dt.datetime.now(dt.timezone.utc)
@@ -248,6 +249,37 @@ def summarize_poq_cambium_events(events: list[dict[str, Any]]) -> dict[str, Any]
         "evasion_rate": round(evasion_count / total, 4) if total else 0.0,
         "recent_events": recent,
     }
+
+def normalize_local_fallback_mode(value: Any) -> str:
+    mode = str(value or "").strip().lower()
+    return mode if mode in LOCAL_FALLBACK_MODES else "chat"
+
+
+def build_local_fallback_reply(query: str, *, persona_name: str = "CypherTempre") -> str:
+    text = str(query or "").strip()
+    if not text:
+        return f"{persona_name} is here. Tell me what you want to work on, and we can take it one step at a time."
+
+    lowered = text.lower()
+    if any(token in lowered for token in ("busy", "stressed", "stress", "overwhelmed", "tired", "exhausted", "burnout")):
+        return (
+            "That sounds like a heavy stretch. I am glad you checked in. "
+            "If you want, we can keep this light, or quickly sort what is urgent vs what can wait."
+        )
+
+    if re.search(r"\b(hi|hello|hey|yo|sup|good morning|good afternoon|good evening)\b", lowered):
+        return "Hey, good to hear from you. What do you want to focus on right now?"
+
+    if text.endswith("?"):
+        return (
+            "Good question. I can help think it through step by step. "
+            "Share a bit more context and I will make it concrete."
+        )
+
+    return (
+        "I hear you. If you want to unpack it, give me one concrete thing that happened and "
+        "we will work from there."
+    )
 
 def load_custom_personas(workspace: pathlib.Path) -> dict[str, dict[str, str]]:
     path = custom_personas_path(workspace)
@@ -1927,6 +1959,21 @@ class App:
         metadata = load_session_metadata(self.workspace)
         return str(metadata.get("persona_id", "")).strip()
 
+    def local_fallback_mode(self) -> str:
+        metadata = load_session_metadata(self.workspace)
+        return normalize_local_fallback_mode(metadata.get("local_fallback_mode", "chat"))
+
+    def configure_local_fallback_mode(self, mode: str) -> dict[str, Any]:
+        metadata = load_session_metadata(self.workspace)
+        clean_mode = normalize_local_fallback_mode(mode)
+        metadata["local_fallback_mode"] = clean_mode
+        save_session_metadata(self.workspace, metadata)
+        return {
+            "ok": True,
+            "session": self.active_session,
+            "local_fallback_mode": clean_mode,
+        }
+
     def bind_session_persona(self, persona_id: str, username: str | None = None) -> str:
         metadata = load_session_metadata(self.workspace)
         locked = str(metadata.get("persona_id", "")).strip()
@@ -2725,7 +2772,11 @@ class App:
         provider = (provider or self.provider).strip().lower()
         base_url = (base_url or self.base_url).strip()
         def local_fallback(provider_error: str = "") -> dict[str, Any]:
-            fallback = self.timechain._default_generator(query, retrieved, neuro)
+            fallback_mode = self.local_fallback_mode()
+            if fallback_mode == "engineering":
+                fallback = self.timechain._default_generator(query, retrieved, neuro)
+            else:
+                fallback = build_local_fallback_reply(query, persona_name=persona["name"])
             retry_reason = memory_retry_reason(query, fallback, durable_hits, persona["name"])
             local_repair = local_memory_answer(query, durable_hits, persona["name"]) if retry_reason else ""
             if local_repair:
@@ -2738,6 +2789,7 @@ class App:
                 "memory_hits": durable_hits,
                 "memory_candidates": [],
                 "retry": {"attempted": bool(local_repair), "reason": retry_reason},
+                "fallback_mode": fallback_mode,
                 "poq": {
                     "enabled": bool(self.poq.get("enabled")),
                     "skipped": True,

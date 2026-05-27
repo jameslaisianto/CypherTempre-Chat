@@ -2335,6 +2335,55 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertEqual(response["model_used"], "local-default-generator")
         self.assertIn("429", response["provider_error"])
 
+    def test_generate_llm_response_local_fallback_uses_chat_mode_by_default(self):
+        app = server.App(
+            self.make_workspace(),
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
+
+        response = app.generate_llm_response(
+            query="I am good. Has been very very busy lately",
+            domain="security",
+            persona_id="companion",
+            custom_persona=server.PERSONAS["companion"],
+            model=server.DEFAULT_MODEL,
+            api_key="",
+        )
+
+        self.assertEqual(response["model_used"], "local-default-generator")
+        self.assertEqual(response.get("fallback_mode"), "chat")
+        self.assertNotIn("Engineering analysis:", response["content"])
+
+    def test_generate_llm_response_local_fallback_can_use_engineering_mode(self):
+        app = server.App(
+            self.make_workspace(),
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="",
+            base_url="",
+            timeout=1,
+        )
+        app.configure_local_fallback_mode("engineering")
+
+        response = app.generate_llm_response(
+            query="I am good. Has been very very busy lately",
+            domain="security",
+            persona_id="companion",
+            custom_persona=server.PERSONAS["companion"],
+            model=server.DEFAULT_MODEL,
+            api_key="",
+        )
+
+        self.assertEqual(response["model_used"], "local-default-generator")
+        self.assertEqual(response.get("fallback_mode"), "engineering")
+        self.assertIn("Engineering analysis:", response["content"])
+
     def test_generate_llm_response_does_not_scaffold_standard_persona_query(self):
         workspace = self.make_workspace()
         app = server.App(

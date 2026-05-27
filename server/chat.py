@@ -65,6 +65,52 @@ def handle_chat(handler: Any, app: Any) -> None:
         handler.send_json({"ok": False, "error": "message is required"}, HTTPStatus.BAD_REQUEST)
         return
 
+    if message.lower().startswith("/fallback"):
+        parts = message.split()
+        if len(parts) == 1:
+            mode = app.local_fallback_mode()
+            handler.send_json({
+                "ok": True,
+                "accepted": True,
+                "content": f"Local fallback mode for this session is '{mode}'. Use /fallback chat or /fallback engineering.",
+                "persona_name": persona["name"],
+                "persona_id": persona_id,
+                "domain": domain,
+                "model": model,
+                "model_used": "local-command",
+            })
+            return
+
+        requested = parts[1].strip().lower()
+        if requested not in {"chat", "engineering"}:
+            handler.send_json({
+                "ok": True,
+                "accepted": True,
+                "content": "Unknown fallback mode. Use /fallback chat or /fallback engineering.",
+                "persona_name": persona["name"],
+                "persona_id": persona_id,
+                "domain": domain,
+                "model": model,
+                "model_used": "local-command",
+            })
+            return
+
+        configured = app.configure_local_fallback_mode(requested)
+        handler.send_json({
+            "ok": True,
+            "accepted": True,
+            "content": (
+                f"Local fallback mode set to '{configured.get('local_fallback_mode')}' for this session. "
+                "This only affects local fallback replies when no provider answer is available."
+            ),
+            "persona_name": persona["name"],
+            "persona_id": persona_id,
+            "domain": domain,
+            "model": model,
+            "model_used": "local-command",
+        })
+        return
+
     shared_hits = None
     if bool(payload.get("sharedMemory")):
         shared = app.shared_recall(username, message, exclude_session=app.active_session, limit=8)

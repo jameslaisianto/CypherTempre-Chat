@@ -26,6 +26,7 @@ import os
 import pathlib
 import re
 import sys
+import time
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field, asdict
@@ -246,16 +247,51 @@ class TimechainStore:
         if not self.chain_path.exists():
             return []
         rings: List[Ring] = []
+        decoder = json.JSONDecoder()
         with self.chain_path.open("r", encoding="utf-8") as f:
-            for line in f:
+            for line_no, line in enumerate(f, start=1):
                 line = line.strip()
-                if line:
+                if not line:
+                    continue
+                try:
                     rings.append(Ring.from_dict(json.loads(line)))
+                    continue
+                except json.JSONDecodeError as exc:
+                    # Be resilient to accidental concatenation like `}{` on a single JSONL line.
+                    if "Extra data" not in str(exc):
+                        raise ValueError(f"Invalid JSON in {self.chain_path} at line {line_no}: {exc}") from exc
+
+                idx = 0
+                parsed_any = False
+                while idx < len(line):
+                    while idx < len(line) and line[idx].isspace():
+                        idx += 1
+                    if idx >= len(line):
+                        break
+                    try:
+                        obj, end = decoder.raw_decode(line, idx)
+                    except json.JSONDecodeError as exc:
+                        raise ValueError(
+                            f"Invalid JSON in {self.chain_path} at line {line_no}, column {idx + 1}: {exc}"
+                        ) from exc
+                    rings.append(Ring.from_dict(obj))
+                    parsed_any = True
+                    idx = end
+                if not parsed_any:
+                    raise ValueError(f"Invalid JSON in {self.chain_path} at line {line_no}")
         return rings
 
     def append_ring(self, ring: Ring) -> None:
+        payload = json.dumps(ring.to_dict(), ensure_ascii=False)
+        needs_leading_newline = False
+        if self.chain_path.exists() and self.chain_path.stat().st_size > 0:
+            with self.chain_path.open("rb") as current:
+                current.seek(-1, 2)
+                needs_leading_newline = current.read(1) != b"\n"
         with self.chain_path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(ring.to_dict(), ensure_ascii=False) + "\n")
+            if needs_leading_newline:
+                f.write("\n")
+            f.write(payload + "\n")
 
     def save_config(self, config: Dict[str, Any]) -> None:
         with self.config_path.open("w", encoding="utf-8") as f:
@@ -264,8 +300,18 @@ class TimechainStore:
     def load_config(self) -> Dict[str, Any]:
         if not self.config_path.exists():
             return {}
-        with self.config_path.open("r", encoding="utf-8") as f:
-            return json.load(f)
+        # On Windows, concurrent requests can briefly collide with an in-flight
+        # writer and raise PermissionError. Retry a few times before falling back.
+        for _ in range(4):
+            try:
+                with self.config_path.open("r", encoding="utf-8") as f:
+                    return json.load(f)
+            except PermissionError:
+                time.sleep(0.05)
+            except json.JSONDecodeError:
+                # Partial writes can momentarily produce invalid JSON.
+                time.sleep(0.05)
+        return {}
 
     def load_overlays(self) -> Dict[str, float]:
         if not self.overlays_path.exists():

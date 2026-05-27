@@ -453,7 +453,8 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
         }
       });
       const body = await response.json().catch(() => ({}));
-      if (!response.ok || body.ok === false) throw new Error(body.error || `HTTP ${response.status}`);
+      if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+      if (body.ok === false && body.error) throw new Error(body.error);
       return body;
     }
 
