@@ -159,7 +159,7 @@ HTML_TEMPLATE = r"""<!doctype html>
 
     .app {
       display: grid;
-      grid-template-columns: 286px minmax(0, 1fr) 360px;
+      grid-template-columns: 286px minmax(0, 1fr) var(--inspector-width, 360px);
       height: 100vh;
       height: 100dvh;
       min-height: 0;
@@ -1385,6 +1385,14 @@ HTML_TEMPLATE = r"""<!doctype html>
     .inspector-head {
       padding: 16px;
       border-bottom: 1px solid var(--line-soft);
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .inspector-head-text {
+      flex: 1;
+      min-width: 0;
     }
 
     .inspector-head strong {
@@ -1611,8 +1619,43 @@ HTML_TEMPLATE = r"""<!doctype html>
       gap: 8px;
     }
 
+    /* Collapsible global right inspector (Memory Inspector) — works on every page */
+    .app.inspector-collapsed {
+      --inspector-width: 46px;
+    }
+    .inspector.collapsed {
+      border-left: 1px solid var(--line);
+      overflow: hidden;
+    }
+    .inspector.collapsed .inspector-head {
+      height: 100%;
+      writing-mode: vertical-rl;
+      transform: rotate(180deg);
+      padding: 10px 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      border-bottom: none;
+      cursor: pointer;
+    }
+    .inspector.collapsed .inspector-head-text {
+      display: none;
+    }
+    .inspector.collapsed .inspector-body,
+    .inspector.collapsed .panel {
+      display: none !important;
+    }
+    .inspector.collapsed #inspector-collapse {
+      transform: rotate(180deg);
+    }
+    .inspector-head #inspector-collapse {
+      flex-shrink: 0;
+      margin-left: auto;
+    }
+
     @media (max-width: 1120px) {
-      .app { grid-template-columns: 238px minmax(0, 1fr) 300px; }
+      .app { grid-template-columns: 238px minmax(0, 1fr) var(--inspector-width, 300px); }
       .inspector { border-left: 1px solid var(--line); border-top: 0; }
       .feature-grid { grid-template-columns: 1fr; }
       .nav button { font-size: 0; gap: 0; padding: 0 6px; }
@@ -2473,8 +2516,13 @@ HTML_TEMPLATE = r"""<!doctype html>
 
     <aside class="inspector">
       <div class="inspector-head">
-        <strong>Memory Inspector</strong>
-        <span>Recall, verify, and inspect the local chain.</span>
+        <div class="inspector-head-text">
+          <strong>Memory Inspector</strong>
+          <span>Recall, verify, and inspect the local chain.</span>
+        </div>
+        <button id="inspector-collapse" type="button" class="settings-icon" aria-label="Collapse or expand inspector" title="Collapse inspector">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+        </button>
       </div>
       <div class="inspector-body">
         <section class="panel expanded" data-panel="self">
@@ -2545,6 +2593,42 @@ HTML_TEMPLATE = r"""<!doctype html>
     </nav>
   </div>
   <div id="overlay-backdrop" class="overlay-backdrop"></div>
+
+  <!-- Inspector collapse behavior (global, works on all pages) -->
+  <script>
+  (function(){
+    const app = document.querySelector('.app');
+    const inspector = document.querySelector('.inspector');
+    const btn = document.getElementById('inspector-collapse');
+    if (!app || !inspector || !btn) return;
+
+    function apply(collapsed) {
+      app.classList.toggle('inspector-collapsed', collapsed);
+      inspector.classList.toggle('collapsed', collapsed);
+    }
+
+    // restore saved state
+    const saved = localStorage.getItem('inspectorCollapsed') === 'true';
+    apply(saved);
+
+    // header button
+    btn.addEventListener('click', (e) => {
+      e.stopImmediatePropagation();
+      const isCollapsed = app.classList.contains('inspector-collapsed');
+      const next = !isCollapsed;
+      apply(next);
+      localStorage.setItem('inspectorCollapsed', next ? 'true' : 'false');
+    });
+
+    // click anywhere on the collapsed slim bar to expand
+    inspector.addEventListener('click', (e) => {
+      if (inspector.classList.contains('collapsed') && !e.target.closest('#inspector-collapse')) {
+        apply(false);
+        localStorage.setItem('inspectorCollapsed', 'false');
+      }
+    });
+  })();
+  </script>
 
   <!-- Auth Overlay -->
   <div class="auth-overlay hidden" id="auth-overlay">
