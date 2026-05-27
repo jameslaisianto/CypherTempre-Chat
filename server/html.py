@@ -2343,6 +2343,10 @@ HTML_TEMPLATE = r"""<!doctype html>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"></rect><path d="M22 12l-5 3V9l5 3z"></path></svg>
             VidGen
           </button>
+          <button id="nav-audiogen" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1v22M4.5 4.5c4.5 3.4 7.5 5.6 7.5 5.6s3-2.2 7.5-5.6M4.5 19.5c4.5-3.4 7.5-5.6 7.5-5.6s3 2.2 7.5 5.6"></path></svg>
+            AudioGen
+          </button>
           <button id="nav-settings" type="button">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 5 15.4a1.65 1.65 0 0 0-1.51 1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 5 10.6a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 5.4a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82 1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
             Settings
@@ -2394,7 +2398,7 @@ HTML_TEMPLATE = r"""<!doctype html>
           <span id="workspace-line">Workspace loading...</span>
         </div>
         <div class="badges">
-          <span class="badge info" id="model-badge">venice-uncensored</span>
+          <span class="badge info" id="model-badge">gemma-4-uncensored</span>
           <span class="badge" id="rings-badge">rings: -</span>
           <span class="badge" id="verify-badge">verify: -</span>
         </div>
@@ -2925,6 +2929,50 @@ HTML_TEMPLATE = r"""<!doctype html>
       </div>
     </main>
 
+    <main id="audiogen-view" class="audiogen hidden">
+      <div class="audiogen-shell">
+        <div class="audiogen-workspace">
+          <div class="audiogen-header">
+            <div>
+              <h2>AudioGen Studio</h2>
+              <p>Convert text to speech with AI voices via Morpheus.</p>
+            </div>
+          </div>
+
+          <div class="audiogen-card">
+            <div class="audiogen-prompt-wrap">
+              <textarea id="audiogen-text" placeholder="Enter text to convert to speech..."></textarea>
+            </div>
+            <div class="audiogen-controls">
+              <select id="audiogen-voice">
+                <option value="af_alloy">Alloy</option>
+                <option value="af_echo">Echo</option>
+                <option value="af_fable">Fable</option>
+                <option value="af_onyx">Onyx</option>
+                <option value="af_nova">Nova</option>
+                <option value="af_shimmer">Shimmer</option>
+              </select>
+              <select id="audiogen-format">
+                <option value="mp3">MP3</option>
+                <option value="wav">WAV</option>
+                <option value="aac">AAC</option>
+                <option value="opus">Opus</option>
+                <option value="flac">FLAC</option>
+              </select>
+              <label style="display:flex;align-items:center;gap:8px;font-size:12px;">
+                <span>Speed:</span>
+                <input id="audiogen-speed" type="range" min="0.25" max="4" step="0.25" value="1" style="width:100px;">
+                <span id="audiogen-speed-label">1x</span>
+              </label>
+              <button id="audiogen-generate-btn" class="primary" type="button">Generate Audio</button>
+            </div>
+            <div id="audiogen-status"></div>
+            <div id="audiogen-result"></div>
+          </div>
+        </div>
+      </div>
+    </main>
+
     <main id="settings-view" class="settings">
       <div class="guide-shell">
         <section class="guide-hero">
@@ -2946,6 +2994,7 @@ HTML_TEMPLATE = r"""<!doctype html>
             <button type="button" class="provider-subtab active" data-subtab="chat" role="tab" aria-selected="true">Chat</button>
             <button type="button" class="provider-subtab" data-subtab="image" role="tab" aria-selected="false">Image</button>
             <button type="button" class="provider-subtab" data-subtab="video" role="tab" aria-selected="false">Video</button>
+            <button type="button" class="provider-subtab" data-subtab="audio" role="tab" aria-selected="false">Audio</button>
           </div>
 
           <!-- Chat / LLM Provider -->
@@ -2964,8 +3013,8 @@ HTML_TEMPLATE = r"""<!doctype html>
               </div>
               <div class="settings-field">
                 <label for="model">Model</label>
-                <input id="model" value="venice-uncensored">
-                <div class="hint" id="model-hint">Morpheus default: venice-uncensored.</div>
+                <input id="model" value="gemma-4-uncensored">
+                <div class="hint" id="model-hint">Morpheus default: gemma-4-uncensored.</div>
               </div>
             </div>
 
@@ -3034,6 +3083,35 @@ HTML_TEMPLATE = r"""<!doctype html>
               <label for="video-api-key">API Key (optional override)</label>
               <input id="video-api-key" type="password" autocomplete="off" placeholder="Leave empty to use main key">
               <div class="hint">Separate key for video generation. Falls back to main API key if empty.</div>
+            </div>
+          </div>
+
+          <!-- Audio Generation Provider -->
+          <div id="provider-sub-audio" class="provider-subsection hidden">
+            <div class="settings-row">
+              <div class="settings-field">
+                <label for="audio-provider">Provider</label>
+                <select id="audio-provider">
+                  <option value="morpheus">Morpheus</option>
+                  <option value="openrouter">OpenRouter</option>
+                  <option value="other">Other</option>
+                </select>
+                <div class="hint">Provider for AudioGen Studio</div>
+              </div>
+              <div class="settings-field">
+                <label for="audio-model">Model</label>
+                <input id="audio-model" type="text" placeholder="e.g., tts-kokoro or your Morpheus TTS model id" value="tts-kokoro">
+                <div class="hint" id="audio-model-hint">Use a real Morpheus TTS model id, such as tts-kokoro, not a chat model name</div>
+              </div>
+            </div>
+            <div class="settings-field">
+              <label for="audio-api-key">API Key (optional override)</label>
+              <input id="audio-api-key" type="password" autocomplete="off" placeholder="Leave empty to use main key">
+              <div class="hint">Separate key for audio generation. Falls back to main API key if empty.</div>
+            </div>
+            <div class="settings-row" style="margin-top:12px;">
+              <button id="audio-test-provider" class="secondary" type="button">Test Audio Connection</button>
+              <div class="hint">Sends a tiny text-to-speech request to verify Morpheus audio access.</div>
             </div>
           </div>
 

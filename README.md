@@ -25,7 +25,7 @@ Marketplace
 - ChatGPT-style local chat UI
 - **User accounts with login/register** — sessions and custom personas are private per-user
 - Provider-agnostic model support (Morpheus, OpenRouter, Kimi, etc.)
-- Morpheus `venice-uncensored` model default
+- Morpheus `gemma-4-uncensored` model default
 - Built-in personas
 - Persona Studio for custom fictional personas
 - **Cypher Tempre OpenClaw Runtime** — full prompt-layer v5.0 persona with Timechain-oriented self-modeling
@@ -96,7 +96,7 @@ Create an API key from your chosen provider (e.g., Morpheus, OpenRouter, or Kimi
 Default Morpheus uncensored model:
 
 ```text
-venice-uncensored
+gemma-4-uncensored
 ```
 
 ### 4. Create local env file
@@ -118,7 +118,7 @@ Set:
 ```text
 PROVIDER=morpheus
 API_KEY=YOUR_API_KEY
-MODEL=venice-uncensored
+MODEL=gemma-4-uncensored
 BASE_URL=https://api.mor.org/api/v1
 POQ_ENABLED=true
 POQ_MIN_SCORE=7
@@ -478,7 +478,7 @@ If the UI says the provider is not ready:
 - check that `.env.local` exists
 - check that `API_KEY` (or `MORPHEUS_API_KEY`) is spelled correctly
 - restart the server after editing `.env.local`
-- confirm the provider/model match your key, such as `morpheus` + `venice-uncensored` or an OpenRouter model
+- confirm the provider/model match your key, such as `morpheus` + `gemma-4-uncensored` or an OpenRouter model
 
 If responses use `local-default-generator`, the server did not receive an API key.
 

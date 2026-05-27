@@ -356,6 +356,55 @@ def save_user_custom_personas(root_workspace: pathlib.Path, username: str, perso
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(personas, ensure_ascii=False, indent=2), encoding="utf-8")
 
+
+USER_SETTING_KEYS = {
+    "provider",
+    "default_model",
+    "base_url",
+    "image_provider",
+    "image_model",
+    "video_provider",
+    "video_model",
+}
+
+
+def load_user_settings(root_workspace: pathlib.Path, username: str) -> dict[str, str]:
+    path = root_workspace / "data" / "users" / username / "settings.json"
+    if not path.exists():
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    settings: dict[str, str] = {}
+    for key in USER_SETTING_KEYS:
+        value = raw.get(key)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            settings[key] = text
+    return settings
+
+
+def save_user_settings(root_workspace: pathlib.Path, username: str, settings: dict[str, Any]) -> dict[str, str]:
+    path = root_workspace / "data" / "users" / username / "settings.json"
+    current = load_user_settings(root_workspace, username)
+    for key in USER_SETTING_KEYS:
+        if key not in settings:
+            continue
+        value = str(settings.get(key, "")).strip()
+        if value:
+            current[key] = value
+        else:
+            current.pop(key, None)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {**current, "updated_at": iso_now()}
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return current
+
 def _clean_fact_value(value: str, *, max_words: int = 12) -> str:
     cleaned = re.sub(r"\s+", " ", value or "").strip(" .,!?:;\"'")
     words = cleaned.split()
@@ -1130,6 +1179,9 @@ class App:
 
     def user_custom_personas_path(self, username: str) -> pathlib.Path:
         return self.root_workspace / "data" / "users" / username / "custom_personas.json"
+
+    def user_settings_path(self, username: str) -> pathlib.Path:
+        return self.root_workspace / "data" / "users" / username / "settings.json"
 
     def user_gallery_root(self, username: str) -> pathlib.Path:
         path = self.root_workspace / "data" / "users" / username / "gallery"
@@ -2222,6 +2274,12 @@ class App:
         else:
             save_custom_personas(self.root_workspace, personas)
         return personas
+
+    def load_user_settings(self, username: str) -> dict[str, str]:
+        return load_user_settings(self.root_workspace, username)
+
+    def save_user_settings(self, username: str, settings: dict[str, Any]) -> dict[str, str]:
+        return save_user_settings(self.root_workspace, username, settings)
 
     def self_model(self, *, now: dt.datetime | None = None) -> dict[str, Any]:
         model = self.agent.self_model()

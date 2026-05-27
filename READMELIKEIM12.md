@@ -55,7 +55,7 @@ Put your own provider settings here. The default example uses Morpheus:
 ```text
 PROVIDER=morpheus
 API_KEY=YOUR_API_KEY
-MODEL=venice-uncensored
+MODEL=gemma-4-uncensored
 BASE_URL=https://api.mor.org/api/v1
 POQ_ENABLED=true
 POQ_MIN_SCORE=7

@@ -27,7 +27,7 @@ from urllib.parse import urlparse
 import marketplace
 
 
-DEFAULT_MODEL = "venice-uncensored"
+DEFAULT_MODEL = "gemma-4-uncensored"
 DEFAULT_PROVIDER = "morpheus"
 
 PROVIDERS: dict[str, dict[str, Any]] = {
@@ -2620,7 +2620,7 @@ HTML = r"""<!doctype html>
           <span id="workspace-line">Workspace loading...</span>
         </div>
         <div class="badges">
-          <span class="badge info" id="model-badge">venice-uncensored</span>
+          <span class="badge info" id="model-badge">gemma-4-uncensored</span>
           <span class="badge" id="rings-badge">rings: -</span>
           <span class="badge" id="verify-badge">verify: -</span>
         </div>
@@ -3006,8 +3006,8 @@ HTML = r"""<!doctype html>
             </div>
             <div class="settings-field">
               <label for="model">Model</label>
-              <input id="model" value="venice-uncensored">
-              <div class="hint" id="model-hint">Morpheus default: venice-uncensored.</div>
+              <input id="model" value="gemma-4-uncensored">
+              <div class="hint" id="model-hint">Morpheus default: gemma-4-uncensored.</div>
             </div>
           </div>
 
@@ -3833,7 +3833,7 @@ HTML = r"""<!doctype html>
       renderPersonaOptions();
       els.provider.value = config.provider || localStorage.getItem('ct_provider') || 'morpheus';
       els.baseUrl.value = config.base_url || localStorage.getItem('ct_base_url') || providerEndpoints[els.provider.value] || '';
-      els.model.value = config.default_model || localStorage.getItem('ct_model') || 'venice-uncensored';
+      els.model.value = config.default_model || localStorage.getItem('ct_model') || 'gemma-4-uncensored';
       els.apiKey.value = '';
       els.persona.value = localStorage.getItem('ct_persona') || 'companion';
       if (!personas[els.persona.value] && !customPersonas[els.persona.value] && !publicPersonas[els.persona.value] && !marketplacePersonas[els.persona.value]) els.persona.value = 'companion';
@@ -3877,7 +3877,7 @@ HTML = r"""<!doctype html>
       } else if (provider === 'kimi') {
         els.modelHint.textContent = 'Example: kimi-k2.6, moonshot-v1-8k, moonshot-v1-32k';
       } else if (provider === 'morpheus') {
-        els.modelHint.textContent = 'Use model: venice-uncensored';
+        els.modelHint.textContent = 'Use model: gemma-4-uncensored';
       } else if (provider === 'other') {
         els.modelHint.textContent = 'Enter the model name your custom provider expects';
       } else {
@@ -3898,7 +3898,7 @@ HTML = r"""<!doctype html>
         setStatus('Provider not configured', 'warn');
         setStatusDetail('Add an API key or set API_KEY in .env.local to get real LLM responses.');
       }
-      els.modelBadge.textContent = els.model.value.trim() || 'venice-uncensored';
+      els.modelBadge.textContent = els.model.value.trim() || 'gemma-4-uncensored';
     }
 
     function clearProviderOverride() {
@@ -4444,7 +4444,7 @@ HTML = r"""<!doctype html>
             domain: els.domain.value,
             persona: els.persona.value,
             customPersona: customPersonas[els.persona.value] || publicPersonas[els.persona.value] || null,
-            model: els.model.value.trim() || 'venice-uncensored',
+            model: els.model.value.trim() || 'gemma-4-uncensored',
             apiKey: els.apiKey.value.trim(),
             provider: els.provider.value,
             baseUrl: els.baseUrl.value.trim()
@@ -8990,7 +8990,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--model",
         default=None,
-        help="Default model. Defaults to Morpheus venice-uncensored.",
+        help="Default model. Defaults to Morpheus gemma-4-uncensored.",
     )
     parser.add_argument(
         "--provider",

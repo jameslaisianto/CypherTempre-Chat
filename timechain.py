@@ -210,7 +210,17 @@ class Ring:
     planes: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        d = asdict(self)
+        # Omit lattice-extension fields when they are at their empty defaults so
+        # that rings sealed before these fields existed rehash to the same value
+        # that was stored, keeping verify_chain working across schema versions.
+        if not d.get("perception"):
+            d.pop("perception", None)
+        if not d.get("fields"):
+            d.pop("fields", None)
+        if not d.get("planes"):
+            d.pop("planes", None)
+        return d
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "Ring":
@@ -248,7 +258,21 @@ class TimechainStore:
             return []
         rings: List[Ring] = []
         decoder = json.JSONDecoder()
-        with self.chain_path.open("r", encoding="utf-8") as f:
+        # On Windows, the file may be temporarily locked by another thread.
+        # Retry a few times with brief pauses before giving up.
+        _retries = 5
+        _delay = 0.05
+        for _attempt in range(_retries):
+            try:
+                f_handle = self.chain_path.open("r", encoding="utf-8")
+                break
+            except PermissionError:
+                if _attempt < _retries - 1:
+                    time.sleep(_delay)
+                    _delay *= 2
+                else:
+                    raise
+        with f_handle as f:
             for line_no, line in enumerate(f, start=1):
                 line = line.strip()
                 if not line:

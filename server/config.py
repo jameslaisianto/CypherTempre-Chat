@@ -6,7 +6,7 @@ import pathlib
 from typing import Any
 
 
-DEFAULT_MODEL = "venice-uncensored"
+DEFAULT_MODEL = "gemma-4-uncensored"
 DEFAULT_PROVIDER = "morpheus"
 
 PROVIDERS: dict[str, dict[str, Any]] = {
@@ -93,6 +93,30 @@ VIDEO_PROVIDERS: dict[str, dict[str, Any]] = {
         "needs_referer": False,
         "needs_title": False,
         "label": "Other Video Provider",
+        "default_model": "",
+    },
+}
+
+AUDIO_PROVIDERS: dict[str, dict[str, Any]] = {
+    "morpheus": {
+        "url": "https://api.mor.org/api/v1/audio/speech",
+        "needs_referer": False,
+        "needs_title": False,
+        "label": "Morpheus",
+        "default_model": "tts-kokoro",
+    },
+    "openrouter": {
+        "url": "https://openrouter.ai/api/v1/audio/speech",
+        "needs_referer": True,
+        "needs_title": True,
+        "label": "OpenRouter",
+        "default_model": "openrouter-audio",
+    },
+    "other": {
+        "url": "",
+        "needs_referer": False,
+        "needs_title": False,
+        "label": "Other Audio Provider",
         "default_model": "",
     },
 }

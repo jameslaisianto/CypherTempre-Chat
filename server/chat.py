@@ -393,6 +393,29 @@ def handle_provider_test(handler: Any, app: Any) -> None:
     })
 
 
+def handle_save_user_config(handler: Any, app: Any) -> None:
+    try:
+        user = handler._auth_user()
+    except PermissionError as exc:
+        handler.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+        return
+    payload = handler.read_json()
+    settings = {
+        "provider": str(payload.get("provider", "")).strip(),
+        "default_model": str(payload.get("default_model", "")).strip(),
+        "base_url": str(payload.get("base_url", "")).strip(),
+        "image_provider": str(payload.get("image_provider", "")).strip(),
+        "image_model": str(payload.get("image_model", "")).strip(),
+        "video_provider": str(payload.get("video_provider", "")).strip(),
+        "video_model": str(payload.get("video_model", "")).strip(),
+        "audio_provider": str(payload.get("audio_provider", "")).strip(),
+        "audio_model": str(payload.get("audio_model", "")).strip(),
+        "audio_api_key": str(payload.get("audio_api_key", "")).strip(),
+    }
+    saved = app.save_user_settings(user["username"], settings)
+    handler.send_json({"ok": True, "settings": saved})
+
+
 def handle_guide_explain(handler: Any, app: Any) -> None:
     payload = handler.read_json()
     topic_id = str(payload.get("topicId", "")).strip()

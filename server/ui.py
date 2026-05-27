@@ -74,6 +74,10 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       videoProvider: document.getElementById('video-provider'),
       videoModel: document.getElementById('video-model'),
       videoApiKey: document.getElementById('video-api-key'),
+      audioProvider: document.getElementById('audio-provider'),
+      audioModel: document.getElementById('audio-model'),
+      audioApiKey: document.getElementById('audio-api-key'),
+      audioTestProvider: document.getElementById('audio-test-provider'),
       statusDot: document.getElementById('status-dot'),
       statusLabel: document.getElementById('status-label'),
       statusDetail: document.getElementById('status-detail'),
@@ -185,6 +189,16 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       navVideogen: document.getElementById('nav-videogen'),
       mobVideogen: document.getElementById('mob-videogen'),
       videogenView: document.getElementById('videogen-view'),
+      navAudiogen: document.getElementById('nav-audiogen'),
+      audiogenView: document.getElementById('audiogen-view'),
+      audiogenText: document.getElementById('audiogen-text'),
+      audiogenVoice: document.getElementById('audiogen-voice'),
+      audiogenFormat: document.getElementById('audiogen-format'),
+      audiogenSpeed: document.getElementById('audiogen-speed'),
+      audiogenSpeedLabel: document.getElementById('audiogen-speed-label'),
+      audiogenGenerateBtn: document.getElementById('audiogen-generate-btn'),
+      audiogenStatus: document.getElementById('audiogen-status'),
+      audiogenResult: document.getElementById('audiogen-result'),
       videogenModeText: document.getElementById('videogen-mode-text2video'),
       videogenModeImg: document.getElementById('videogen-mode-img2vid'),
       videogenModeRemix: document.getElementById('videogen-mode-remix'),
@@ -241,6 +255,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     let currentUser = null;
     let marketplaceData = [];
     let currentDetailId = null;
+    let configPersistTimer = null;
     const providerEndpoints = {
       morpheus: 'https://api.mor.org/api/v1/chat/completions',
       openrouter: 'https://openrouter.ai/api/v1/chat/completions',
@@ -295,6 +310,34 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       return String(value ?? '').replace(/[&<>"']/g, ch => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
       }[ch]));
+    }
+
+    function setSelectValue(selectEl, value) {
+      if (!selectEl) return;
+      const next = String(value ?? '').trim();
+      if (!next) return;
+      const hasOption = Array.from(selectEl.options || []).some(opt => String(opt.value) === next);
+      if (!hasOption) {
+        const opt = document.createElement('option');
+        opt.value = next;
+        opt.textContent = next;
+        selectEl.appendChild(opt);
+      }
+      selectEl.value = next;
+    }
+
+    function syncCreativeStudioModelsFromSettings() {
+      const imageModel = els.imageModel?.value?.trim() || localStorage.getItem('ct_image_model') || '';
+      const videoModel = els.videoModel?.value?.trim() || localStorage.getItem('ct_video_model') || '';
+
+      if (imageModel) {
+        setSelectValue(els.imagegenModel, imageModel);
+        setSelectValue(els.imagegenEditModel, imageModel);
+      }
+      if (videoModel) {
+        setSelectValue(els.videogenModel, videoModel);
+        setSelectValue(els.videogenImgModel, videoModel);
+      }
     }
 
     function renderContent(content) {
@@ -533,6 +576,48 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
         if (vk) localStorage.setItem('ct_video_api_key', vk);
         else localStorage.removeItem('ct_video_api_key');
       }
+
+      // Audio Generation specific
+      if (els.audioProvider) localStorage.setItem('ct_audio_provider', els.audioProvider.value);
+      if (els.audioModel) localStorage.setItem('ct_audio_model', els.audioModel.value.trim());
+      if (els.audioApiKey) {
+        const ak = els.audioApiKey.value.trim();
+        if (ak) localStorage.setItem('ct_audio_api_key', ak);
+        else localStorage.removeItem('ct_audio_api_key');
+      }
+
+      schedulePersistUserConfig();
+    }
+
+    function schedulePersistUserConfig() {
+      if (configPersistTimer) {
+        clearTimeout(configPersistTimer);
+      }
+      configPersistTimer = setTimeout(() => {
+        configPersistTimer = null;
+        persistUserConfig();
+      }, 350);
+    }
+
+    async function persistUserConfig() {
+      const token = localStorage.getItem('ct_auth_token') || '';
+      if (!token) return;
+      try {
+        await api('/api/config', {
+          method: 'POST',
+          body: JSON.stringify({
+            provider: els.provider?.value || '',
+            default_model: els.model?.value?.trim() || '',
+            base_url: els.baseUrl?.value?.trim() || '',
+            image_provider: els.imageProvider?.value || '',
+            image_model: els.imageModel?.value?.trim() || '',
+            video_provider: els.videoProvider?.value || '',
+            video_model: els.videoModel?.value?.trim() || '',
+          }),
+        });
+      } catch {
+        // Ignore persistence failures; local settings still apply.
+      }
     }
 
     function loadCustomPersonas() {
@@ -638,18 +723,19 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       marketplacePersonas = config.marketplace_personas || {};
       saveCustomPersonas();
       renderPersonaOptions();
-      els.provider.value = config.provider || localStorage.getItem('ct_provider') || 'morpheus';
-      els.baseUrl.value = config.base_url || localStorage.getItem('ct_base_url') || providerEndpoints[els.provider.value] || '';
-      els.model.value = config.default_model || localStorage.getItem('ct_model') || 'venice-uncensored';
+      // Browser settings should win so user-selected values persist across reloads.
+      els.provider.value = localStorage.getItem('ct_provider') || config.provider || 'morpheus';
+      els.baseUrl.value = localStorage.getItem('ct_base_url') || config.base_url || providerEndpoints[els.provider.value] || '';
+      els.model.value = localStorage.getItem('ct_model') || config.default_model || 'gemma-4-uncensored';
       els.apiKey.value = '';
       els.persona.value = localStorage.getItem('ct_persona') || 'companion';
 
       // Restore Image Generation settings
       if (els.imageProvider) {
-        els.imageProvider.value = localStorage.getItem('ct_image_provider') || 'openrouter';
+        els.imageProvider.value = localStorage.getItem('ct_image_provider') || config.image_provider || 'openrouter';
       }
       if (els.imageModel) {
-        const storedImageModel = localStorage.getItem('ct_image_model');
+        const storedImageModel = localStorage.getItem('ct_image_model') || config.image_model;
         if (storedImageModel) {
           els.imageModel.value = storedImageModel;
         } else if (els.imageProvider) {
@@ -660,10 +746,10 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
 
       // Restore Video Generation settings
       if (els.videoProvider) {
-        els.videoProvider.value = localStorage.getItem('ct_video_provider') || 'openrouter';
+        els.videoProvider.value = localStorage.getItem('ct_video_provider') || config.video_provider || 'openrouter';
       }
       if (els.videoModel) {
-        const storedVideoModel = localStorage.getItem('ct_video_model');
+        const storedVideoModel = localStorage.getItem('ct_video_model') || config.video_model;
         if (storedVideoModel) {
           els.videoModel.value = storedVideoModel;
         } else if (els.videoProvider) {
@@ -671,12 +757,23 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
         }
       }
       if (els.videoApiKey) els.videoApiKey.value = '';
+      
+      // Restore Audio Generation settings
+      if (els.audioProvider) {
+        els.audioProvider.value = localStorage.getItem('ct_audio_provider') || config.audio_provider || 'morpheus';
+      }
+      if (els.audioModel) {
+        els.audioModel.value = normalizeAudioModel(localStorage.getItem('ct_audio_model') || config.audio_model || 'tts-kokoro');
+      }
+      if (els.audioApiKey) els.audioApiKey.value = '';
+      
       if (!personas[els.persona.value] && !customPersonas[els.persona.value] && !creatorPersonas[els.persona.value] && !publicPersonas[els.persona.value] && !marketplacePersonas[els.persona.value]) els.persona.value = 'companion';
       els.domain.value = localStorage.getItem('ct_domain') || 'auto';
       updateProviderHint();
       updatePersonaText();
       updateSetup(config.has_env_key);
       validatePersonaModel();
+      syncCreativeStudioModelsFromSettings();
       applySessionPersonaLock();
     }
 
@@ -712,7 +809,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       } else if (provider === 'kimi') {
         els.modelHint.textContent = 'Example: kimi-k2.6, moonshot-v1-8k, moonshot-v1-32k';
       } else if (provider === 'morpheus') {
-        els.modelHint.textContent = 'Use model: venice-uncensored';
+        els.modelHint.textContent = 'Use model: gemma-4-uncensored';
       } else if (provider === 'other') {
         els.modelHint.textContent = 'Enter the model name your custom provider expects';
       } else {
@@ -805,7 +902,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
         setStatus('Provider not configured', 'warn');
         setStatusDetail('Add an API key or set API_KEY in .env.local to get real LLM responses.');
       }
-      els.modelBadge.textContent = els.model.value.trim() || 'venice-uncensored';
+      els.modelBadge.textContent = els.model.value.trim() || 'gemma-4-uncensored';
     }
 
     function clearProviderOverride() {
@@ -819,6 +916,9 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       localStorage.removeItem('ct_video_provider');
       localStorage.removeItem('ct_video_model');
       localStorage.removeItem('ct_video_api_key');
+      localStorage.removeItem('ct_audio_provider');
+      localStorage.removeItem('ct_audio_model');
+      localStorage.removeItem('ct_audio_api_key');
       api('/api/config').then(config => applyLocalConfig(config));
     }
 
@@ -844,6 +944,34 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
         setStatusDetail(error.message);
       } finally {
         els.testProvider.disabled = false;
+      }
+    }
+
+    async function testAudioProvider() {
+      saveLocalConfig();
+      setStatus('Testing audio provider...', '');
+      setStatusDetail('Sending a tiny TTS request...');
+      if (els.audioTestProvider) els.audioTestProvider.disabled = true;
+      try {
+        const data = await api('/api/audiogen/generate', {
+          method: 'POST',
+          body: JSON.stringify({
+            text: 'Audio connection test.',
+            voice: 'af_alloy',
+            response_format: 'mp3',
+            speed: 1,
+            provider: els.audioProvider?.value || localStorage.getItem('ct_audio_provider') || 'morpheus',
+            model: normalizeAudioModel(els.audioModel?.value || localStorage.getItem('ct_audio_model') || 'tts-kokoro'),
+            apiKey: (els.audioApiKey?.value || els.apiKey?.value || '').trim(),
+          })
+        });
+        setStatus('Audio provider OK', 'ok');
+        setStatusDetail(`Connected · ${data.format || 'mp3'} · ${normalizeAudioModel(els.audioModel?.value || localStorage.getItem('ct_audio_model') || 'tts-kokoro')}`);
+      } catch (error) {
+        setStatus('Audio connection failed', 'error');
+        setStatusDetail(error.message);
+      } finally {
+        if (els.audioTestProvider) els.audioTestProvider.disabled = false;
       }
     }
 
@@ -1453,7 +1581,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
             domain: els.domain.value,
             persona: els.persona.value,
             customPersona: customPersonas[els.persona.value] || publicPersonas[els.persona.value] || null,
-            model: els.model.value.trim() || 'venice-uncensored',
+            model: els.model.value.trim() || 'gemma-4-uncensored',
             apiKey: els.apiKey.value.trim(),
             provider: els.provider.value,
             baseUrl: els.baseUrl.value.trim(),
@@ -1492,7 +1620,18 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
         await verifyChain();
       } catch (error) {
         removeThinkingMessage();
-        appendMessage('CypherTempre', error.message, { accepted: false }, true);
+        // The server may have finished processing even though the connection was
+        // dropped (e.g. slow model + browser timeout or user navigation).
+        // Try reloading history first — if the response was saved it will appear
+        // without the user having to manually refresh.
+        try {
+          await restoreHistory();
+          await refreshSummary();
+          await verifyChain();
+        } catch (_) {
+          // History reload failed too — fall back to showing the error inline.
+          appendMessage('CypherTempre', error.message, { accepted: false }, true);
+        }
       } finally {
         if (thinkingMessage && thinkingMessage.isConnected) thinkingMessage.remove();
         isSending = false;
@@ -1594,6 +1733,9 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     els.testProvider.addEventListener('click', () => {
       testProvider().catch(error => { setStatus(error.message, '#6b3c3c'); });
     });
+    if (els.audioTestProvider) els.audioTestProvider.addEventListener('click', () => {
+      testAudioProvider().catch(error => { setStatus(error.message, '#6b3c3c'); });
+    });
     if (els.clearProviderOverride) els.clearProviderOverride.addEventListener('click', clearProviderOverride);
     els.domain.addEventListener('change', saveLocalConfig);
 
@@ -1609,6 +1751,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     }
     if (els.imageModel) {
       els.imageModel.addEventListener('change', () => {
+        syncCreativeStudioModelsFromSettings();
         saveLocalConfig();
         refreshProviderSummary();
       });
@@ -1627,6 +1770,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     }
     if (els.videoModel) {
       els.videoModel.addEventListener('change', () => {
+        syncCreativeStudioModelsFromSettings();
         saveLocalConfig();
         refreshProviderSummary();
       });
@@ -1828,22 +1972,25 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       const marketplace = view === 'marketplace';
       const imagegen = view === 'imagegen';
       const videogen = view === 'videogen';
+      const audiogen = view === 'audiogen';
 
-      if (els.chatView) els.chatView.classList.toggle('hidden', guide || settings || marketplace || imagegen || videogen);
+      if (els.chatView) els.chatView.classList.toggle('hidden', guide || settings || marketplace || imagegen || videogen || audiogen);
       if (els.guideView) els.guideView.classList.toggle('active', guide);
       if (els.settingsView) els.settingsView.classList.toggle('active', settings);
       if (els.marketplaceView) els.marketplaceView.classList.toggle('active', marketplace);
       if (els.imagegenView) els.imagegenView.classList.toggle('hidden', !imagegen);
       if (els.videogenView) els.videogenView.classList.toggle('hidden', !videogen);
+      if (els.audiogenView) els.audiogenView.classList.toggle('hidden', !audiogen);
 
-      if (els.navChat) els.navChat.classList.toggle('active', !guide && !settings && !marketplace && !imagegen && !videogen);
+      if (els.navChat) els.navChat.classList.toggle('active', !guide && !settings && !marketplace && !imagegen && !videogen && !audiogen);
       if (els.navGuide) els.navGuide.classList.toggle('active', guide);
       if (els.navSettings) els.navSettings.classList.toggle('active', settings);
       if (els.navMarketplace) els.navMarketplace.classList.toggle('active', marketplace);
       if (els.navImagegen) els.navImagegen.classList.toggle('active', imagegen);
       if (els.navVideogen) els.navVideogen.classList.toggle('active', videogen);
+      if (els.navAudiogen) els.navAudiogen.classList.toggle('active', audiogen);
 
-      if (els.mobChat) els.mobChat.classList.toggle('active', !guide && !settings && !marketplace && !imagegen);
+      if (els.mobChat) els.mobChat.classList.toggle('active', !guide && !settings && !marketplace && !imagegen && !audiogen);
       if (els.mobGuide) els.mobGuide.classList.toggle('active', guide);
       if (els.mobSettings) els.mobSettings.classList.toggle('active', settings);
       if (els.mobMarketplace) els.mobMarketplace.classList.toggle('active', marketplace);
@@ -2002,15 +2149,16 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       }
     }
 
-    // Switch between Chat / Image / Video provider sub-views
+    // Switch between Chat / Image / Video / Audio provider sub-views
     function setProviderSubtab(subtab) {
-      const valid = ['chat', 'image', 'video'];
+      const valid = ['chat', 'image', 'video', 'audio'];
       if (!valid.includes(subtab)) subtab = 'chat';
 
       const sections = {
         chat: document.getElementById('provider-sub-chat'),
         image: document.getElementById('provider-sub-image'),
-        video: document.getElementById('provider-sub-video')
+        video: document.getElementById('provider-sub-video'),
+        audio: document.getElementById('provider-sub-audio')
       };
 
       Object.keys(sections).forEach(key => {
@@ -2031,10 +2179,16 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       if (subtab === 'video') updateVideoModelOptions();
     }
 
+    function normalizeAudioModel(value) {
+      const model = String(value || '').trim();
+      if (!model || model === 'tts-1') return 'tts-kokoro';
+      return model;
+    }
+
     // Compute and display the effective provider configuration (with fallbacks)
     function updateEffectiveProviderSummary() {
       const chatProv = els.provider?.value || localStorage.getItem('ct_provider') || 'morpheus';
-      const chatModel = els.model?.value?.trim() || localStorage.getItem('ct_model') || 'venice-uncensored';
+      const chatModel = els.model?.value?.trim() || localStorage.getItem('ct_model') || 'gemma-4-uncensored';
 
       const imageProv = els.imageProvider?.value || localStorage.getItem('ct_image_provider') || chatProv;
       const imageModel = els.imageModel?.value?.trim() || localStorage.getItem('ct_image_model') || imageProviderDefaults[imageProv] || '—';
@@ -2257,6 +2411,12 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     if (els.mobImagegen) els.mobImagegen.addEventListener('click', () => setMainView('imagegen'));
     if (els.navVideogen) els.navVideogen.addEventListener('click', () => setMainView('videogen'));
     if (els.mobVideogen) els.mobVideogen.addEventListener('click', () => setMainView('videogen'));
+    if (els.navAudiogen) els.navAudiogen.addEventListener('click', () => setMainView('audiogen'));
+    if (els.audiogenGenerateBtn) els.audiogenGenerateBtn.addEventListener('click', audiogenGenerate);
+    if (els.audiogenSpeed) els.audiogenSpeed.addEventListener('input', (e) => {
+      const val = parseFloat(e.target.value);
+      if (els.audiogenSpeedLabel) els.audiogenSpeedLabel.textContent = val.toFixed(2) + 'x';
+    });
     if (els.detailClose) els.detailClose.addEventListener('click', closeDetail);
     if (els.detailSubscribe) els.detailSubscribe.addEventListener('click', doSubscribe);
     if (els.detailUnsubscribe) els.detailUnsubscribe.addEventListener('click', doUnsubscribe);
@@ -2837,6 +2997,48 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       }
     }
 
+    let audiogenBusy = false;
+    async function audiogenGenerate() {
+      if (audiogenBusy) return;
+      const text = els.audiogenText?.value?.trim();
+      if (!text) {
+        els.audiogenStatus.innerHTML = '<span style="color:var(--error);display:inline-flex;padding:6px 12px;">Enter text first.</span>';
+        return;
+      }
+      audiogenBusy = true;
+      els.audiogenStatus.innerHTML = '<div style="display:flex;align-items:center;gap:8px;"><div style="width:16px;height:16px;border:2px solid var(--primary);border-radius:50%;border-top-color:transparent;animation:spin 0.6s linear infinite;"></div><span>Generating audio...</span></div>';
+      els.audiogenResult.innerHTML = '';
+      try {
+        const data = await api('/api/audiogen/generate', {
+          method: 'POST',
+          body: JSON.stringify({
+            text,
+            voice: els.audiogenVoice?.value || 'af_alloy',
+            response_format: els.audiogenFormat?.value || 'mp3',
+            speed: parseFloat(els.audiogenSpeed?.value || 1),
+            model: normalizeAudioModel(els.audioModel?.value || localStorage.getItem('ct_audio_model') || 'tts-kokoro'),
+            apiKey: localStorage.getItem('ct_audio_api_key') || localStorage.getItem('ct_api_key') || '',
+            provider: localStorage.getItem('ct_audio_provider') || localStorage.getItem('ct_provider') || 'morpheus',
+          })
+        });
+        els.audiogenStatus.textContent = '';
+        const mimeMap = { 'mp3': 'audio/mpeg', 'wav': 'audio/wav', 'aac': 'audio/aac', 'opus': 'audio/opus', 'flac': 'audio/flac' };
+        const mimeType = mimeMap[data.format] || 'audio/mpeg';
+        els.audiogenResult.innerHTML = `
+          <div style="margin-top:16px;padding:16px;background:var(--bg-secondary);border-radius:8px;">
+            <audio controls style="width:100%;margin-bottom:8px;">
+              <source src="data:${mimeType};base64,${data.audio_data}" type="${mimeType}">
+            </audio>
+            <div style="font-size:11px;color:var(--text-muted);word-break:break-all;">${esc(data.audio_id)}</div>
+          </div>`;
+      } catch (error) {
+        els.audiogenStatus.textContent = '';
+        els.audiogenResult.innerHTML = `<div style="color:var(--error);padding:12px;background:rgba(255,0,0,0.1);border-radius:4px;">${esc(error.message)}</div>`;
+      } finally {
+        audiogenBusy = false;
+      }
+    }
+
     async function videogenRenderImg2Vid() {
       if (videogenBusy) return;
       const prompt = els.videogenImgPrompt?.value?.trim();
@@ -2855,6 +3057,8 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
         const durEl = document.querySelector('#videogen-img-duration .active');
         const duration = durEl ? durEl.dataset.val : '10s';
         const model = els.videogenImgModel?.value || 'demo-cinematic';
+        const configuredVideoProvider = localStorage.getItem('ct_video_provider') || localStorage.getItem('ct_provider') || 'openrouter';
+        const provider = model.startsWith('demo') ? 'demo' : configuredVideoProvider;
         const data = await api('/api/videogen/img2vid', {
           method: 'POST',
           body: JSON.stringify({
@@ -2863,8 +3067,8 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
             aspect_ratio: '16:9',
             duration,
             motion_preset: els.videogenImgMotion?.value || 'Dolly In',
-            apiKey: localStorage.getItem('ct_api_key') || '',
-            provider: model.startsWith('demo') ? 'demo' : (localStorage.getItem('ct_provider') || 'openrouter'),
+            apiKey: localStorage.getItem('ct_video_api_key') || localStorage.getItem('ct_api_key') || '',
+            provider,
           })
         });
         els.videogenImgResult.innerHTML = `
@@ -2890,6 +3094,8 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       els.videogenRemixResult.innerHTML = '<div class="cine-status"><div class="cine-spinner"></div><span>Branching new cut…</span></div>';
       try {
         const model = els.videogenModel?.value || 'demo-cinematic';
+        const configuredVideoProvider = localStorage.getItem('ct_video_provider') || localStorage.getItem('ct_provider') || 'openrouter';
+        const provider = model.startsWith('demo') ? 'demo' : configuredVideoProvider;
         const data = await api('/api/videogen/remix', {
           method: 'POST',
           body: JSON.stringify({
@@ -2899,8 +3105,8 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
             aspect_ratio: '16:9',
             duration: '8s',
             motion_preset: 'Remix',
-            apiKey: localStorage.getItem('ct_api_key') || '',
-            provider: model.startsWith('demo') ? 'demo' : (localStorage.getItem('ct_provider') || 'openrouter'),
+            apiKey: localStorage.getItem('ct_video_api_key') || localStorage.getItem('ct_api_key') || '',
+            provider,
           })
         });
         els.videogenRemixResult.innerHTML = `
@@ -2929,6 +3135,50 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     if (els.videogenModeText) els.videogenModeText.addEventListener('click', () => setVideogenMode('text2video'));
     if (els.videogenModeImg) els.videogenModeImg.addEventListener('click', () => setVideogenMode('img2vid'));
     if (els.videogenModeRemix) els.videogenModeRemix.addEventListener('click', () => setVideogenMode('remix'));
+    if (els.imagegenModel) {
+      els.imagegenModel.addEventListener('change', () => {
+        const selected = els.imagegenModel.value?.trim() || '';
+        if (!selected) return;
+        localStorage.setItem('ct_image_model', selected);
+        setSelectValue(els.imageModel, selected);
+        setSelectValue(els.imagegenEditModel, selected);
+        schedulePersistUserConfig();
+        refreshProviderSummary();
+      });
+    }
+    if (els.imagegenEditModel) {
+      els.imagegenEditModel.addEventListener('change', () => {
+        const selected = els.imagegenEditModel.value?.trim() || '';
+        if (!selected) return;
+        localStorage.setItem('ct_image_model', selected);
+        setSelectValue(els.imageModel, selected);
+        setSelectValue(els.imagegenModel, selected);
+        schedulePersistUserConfig();
+        refreshProviderSummary();
+      });
+    }
+    if (els.videogenModel) {
+      els.videogenModel.addEventListener('change', () => {
+        const selected = els.videogenModel.value?.trim() || '';
+        if (!selected) return;
+        localStorage.setItem('ct_video_model', selected);
+        setSelectValue(els.videoModel, selected);
+        setSelectValue(els.videogenImgModel, selected);
+        schedulePersistUserConfig();
+        refreshProviderSummary();
+      });
+    }
+    if (els.videogenImgModel) {
+      els.videogenImgModel.addEventListener('change', () => {
+        const selected = els.videogenImgModel.value?.trim() || '';
+        if (!selected) return;
+        localStorage.setItem('ct_video_model', selected);
+        setSelectValue(els.videoModel, selected);
+        setSelectValue(els.videogenModel, selected);
+        schedulePersistUserConfig();
+        refreshProviderSummary();
+      });
+    }
     if (els.videogenRenderBtn) els.videogenRenderBtn.addEventListener('click', videogenRenderText2Video);
     if (els.videogenImgBtn) els.videogenImgBtn.addEventListener('click', videogenRenderImg2Vid);
     if (els.videogenRemixBtn) els.videogenRemixBtn.addEventListener('click', videogenRenderRemix);

@@ -2265,7 +2265,7 @@ class PromptAssemblyTests(unittest.TestCase):
     def test_default_model_is_venice_uncensored(self):
         self.assertEqual(
             server.DEFAULT_MODEL,
-            "venice-uncensored",
+            "gemma-4-uncensored",
         )
         self.assertEqual(server.DEFAULT_PROVIDER, "morpheus")
         self.assertIn(server.DEFAULT_MODEL, server.HTML)
@@ -2710,7 +2710,7 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertIn('id="test-provider"', server.HTML)
         self.assertIn('id="base-url"', server.HTML)
         self.assertIn('value="morpheus"', server.HTML)
-        self.assertIn("venice-uncensored", server.HTML)
+        self.assertIn("gemma-4-uncensored", server.HTML)
         self.assertIn('value="kimi-code"', server.HTML)
         self.assertIn("kimi-for-coding", server.HTML)
         self.assertIn("providerEndpoints", server.HTML)

@@ -17,7 +17,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 import marketplace
-from server import auth, chat, imagegen, videogen
+from server import auth, chat, imagegen, videogen, audiogen
 from server import marketplace as marketplace_routes
 
 from server.config import (
@@ -101,6 +101,7 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                     custom_personas = {}
                     public_personas = {}
                     creator_personas = {}
+                    user_settings = {}
                     if user:
                         subs = marketplace.get_subscriptions(user["username"])
                         for sub in subs:
@@ -113,6 +114,7 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                                 }
                         custom_personas = app.custom_personas(username=user["username"])
                         creator_personas = app.created_personas(username=user["username"])
+                        user_settings = app.load_user_settings(user["username"])
                         public_personas = load_all_public_custom_personas(app.root_workspace)
                         # Exclude the user's own public personas from the public list
                         for key in list(public_personas.keys()):
@@ -120,9 +122,16 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                                 public_personas.pop(key, None)
                     self.send_json({
                         "ok": True,
-                        "provider": app.provider,
-                        "default_model": app.default_model,
-                        "base_url": app.base_url or default_provider_url(app.provider),
+                        "provider": user_settings.get("provider") or app.provider,
+                        "default_model": user_settings.get("default_model") or app.default_model,
+                        "base_url": user_settings.get("base_url") or app.base_url or default_provider_url(user_settings.get("provider") or app.provider),
+                        "image_provider": user_settings.get("image_provider", ""),
+                        "image_model": user_settings.get("image_model", ""),
+                        "video_provider": user_settings.get("video_provider", ""),
+                        "video_model": user_settings.get("video_model", ""),
+                        "audio_provider": user_settings.get("audio_provider", ""),
+                        "audio_model": user_settings.get("audio_model", ""),
+                        "audio_api_key": user_settings.get("audio_api_key", ""),
                         "has_env_key": bool(app.api_key),
                         "personas": {
                             key: safe_persona_metadata(key, value)
@@ -369,6 +378,9 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 if path == "/api/test":
                     self.handle_provider_test()
                     return
+                if path == "/api/config":
+                    self.handle_save_user_config()
+                    return
                 if path == "/api/guide/explain":
                     self.handle_guide_explain()
                     return
@@ -523,6 +535,9 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 if path == "/api/videogen/delete":
                     self.handle_videogen_delete()
                     return
+                if path == "/api/audiogen/generate":
+                    self.handle_audiogen_generate()
+                    return
                 self.send_error(HTTPStatus.NOT_FOUND, "Not found")
             except Exception as exc:
                 self.send_exception(exc)
@@ -550,6 +565,9 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
 
         def handle_videogen_delete(self) -> None:
             videogen.handle_videogen_delete(self, app)
+
+        def handle_audiogen_generate(self) -> None:
+            audiogen.handle_audiogen_generate(self, app)
 
         def handle_chat(self) -> None:
             chat.handle_chat(self, app)
@@ -601,6 +619,9 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
 
         def handle_provider_test(self) -> None:
             chat.handle_provider_test(self, app)
+
+        def handle_save_user_config(self) -> None:
+            chat.handle_save_user_config(self, app)
 
         def handle_guide_explain(self) -> None:
             chat.handle_guide_explain(self, app)
@@ -713,11 +734,17 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
 
         def send_json(self, body: dict[str, Any], status: HTTPStatus = HTTPStatus.OK) -> None:
             encoded = json.dumps(body, ensure_ascii=False).encode("utf-8")
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(encoded)))
-            self.end_headers()
-            self.wfile.write(encoded)
+            try:
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+            except (ConnectionAbortedError, BrokenPipeError, ConnectionResetError):
+                # Client closed the connection (e.g. browser timed out or refreshed)
+                # before the response could be delivered.  The request was already
+                # processed and persisted, so this is not a real error.
+                pass
 
         def send_exception(self, exc: Exception) -> None:
             traceback.print_exc()
@@ -747,7 +774,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--model",
         default=None,
-        help="Default model. Defaults to Morpheus venice-uncensored.",
+        help="Default model. Defaults to Morpheus gemma-4-uncensored.",
     )
     parser.add_argument(
         "--provider",

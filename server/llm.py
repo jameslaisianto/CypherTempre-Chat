@@ -1022,8 +1022,22 @@ def call_llm(
     choices = body.get("choices") or []
     if not choices:
         raise RuntimeError(f"{config['label']} returned no choices.")
-    message = choices[0].get("message") or {}
-    content, frame_declaration = extract_frame_declaration(message.get("content") or "")
+    choice = choices[0] if isinstance(choices[0], dict) else {}
+    message = choice.get("message") or {}
+    content_source = (
+        message.get("content")
+        or message.get("reasoning_content")
+        or message.get("reasoning")
+        or message.get("text")
+        or choice.get("text")
+        or body.get("output_text")
+        or body.get("output")
+        or body.get("text")
+        or ""
+    )
+    if isinstance(content_source, list):
+        content_source = "".join(str(part) for part in content_source)
+    content, frame_declaration = extract_frame_declaration(str(content_source))
     if not content:
         raise RuntimeError(f"{config['label']} returned an empty response.")
     result = {
@@ -1252,3 +1266,102 @@ def call_video_generation(
         raise RuntimeError(f"{config.get('label', provider)} did not return a usable video URL or data.")
 
     return result
+
+
+def _list_morpheus_model_ids(*, api_key: str, base_url: str = "") -> list[str]:
+    url = (base_url or "https://api.mor.org/api/v1").rstrip("/")
+    if url.endswith("/chat/completions"):
+      url = url[: -len("/chat/completions")].rstrip("/")
+    if url.endswith("/audio/speech"):
+      url = url[: -len("/audio/speech")].rstrip("/")
+    models_url = f"{url}/models"
+    request = urllib.request.Request(
+        models_url,
+        headers={"Authorization": f"Bearer {api_key}"},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20.0) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        return []
+
+    data = body.get("data") or []
+    ids: list[str] = []
+    for item in data:
+        if isinstance(item, dict):
+            model_id = str(item.get("id", "")).strip()
+            if model_id:
+                ids.append(model_id)
+    return ids
+
+
+def call_audio_generation(
+    *,
+    provider: str,
+    api_key: str,
+    model: str,
+    text: str,
+    voice: str = "af_alloy",
+    response_format: str = "mp3",
+    speed: float = 1.0,
+    timeout: float = 60.0,
+    base_url: str = "",
+) -> str:
+    """Generate audio/speech via Morpheus.
+
+    Returns base64-encoded audio data.
+    """
+    if api_key in {"YOUR_API_KEY", "YOUR_MORPHEUS_API_KEY"}:
+        raise RuntimeError("API key is still the example placeholder.")
+
+    from server.config import AUDIO_PROVIDERS
+
+    config = AUDIO_PROVIDERS.get(provider, AUDIO_PROVIDERS.get("morpheus", {}))
+    url = (base_url or config.get("url", "")).rstrip("/")
+    if not url:
+        raise RuntimeError(f"No URL configured for audio provider: {provider}")
+
+    effective_model = model.strip() or str(config.get("default_model", "")).strip()
+    if provider == "morpheus":
+        available_models = _list_morpheus_model_ids(api_key=api_key, base_url=base_url or "")
+        tts_models = [m for m in available_models if "tts" in m.lower()]
+        if tts_models:
+            if not effective_model or effective_model == "tts-1" or effective_model not in available_models:
+                effective_model = tts_models[0]
+
+    payload: dict[str, Any] = {
+        "model": effective_model,
+        "input": text,
+        "voice": voice,
+        "response_format": response_format,
+        "speed": speed,
+    }
+
+    headers: dict[str, str] = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            binary_data = response.read()
+            # Response is binary audio, encode to base64 for transmission to client
+            return base64.b64encode(binary_data).decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        try:
+            parsed = json.loads(detail)
+            message = parsed.get("error", {}).get("message") or detail
+        except json.JSONDecodeError:
+            message = detail
+        raise RuntimeError(f"{config.get('label')} HTTP {exc.code}: {message}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"{config.get('label')} request failed: {exc.reason}") from exc
