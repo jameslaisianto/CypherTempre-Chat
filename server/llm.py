@@ -33,6 +33,31 @@ _MODEL_CATALOG_CACHE: dict[str, tuple[float, dict[str, list[dict[str, Any]]]]] =
 MODEL_CATALOG_CACHE_SECONDS = 300
 
 
+def _infer_modalities_from_model_id(model_id: str) -> tuple[list[str], list[str]]:
+    """Best-effort modality guess when a provider omits architecture metadata."""
+    lowered = (model_id or "").lower()
+    inputs = ["text"]
+    outputs: list[str] = []
+    image_tokens = (
+        "image", "flux", "dall", "lustify", "imagine", "banana", "riverflow",
+        "gpt-5-image", "nano-banana", "midjourney", "stable-diffusion", "sdxl",
+    )
+    if any(token in lowered for token in image_tokens):
+        outputs.append("image")
+    if "video" in lowered:
+        outputs.append("video")
+    if any(token in lowered for token in ("tts", "audio", "speech", "kokoro")):
+        outputs.append("audio")
+    if not outputs:
+        outputs.append("text")
+    if outputs == ["text"] and any(
+        token in lowered for token in ("vision", "gemini", "gpt-4", "gpt-5", "claude", "gemma")
+    ):
+        if "vision" in lowered or "flash" in lowered:
+            inputs.append("image")
+    return inputs, outputs
+
+
 def categorize_provider_models(models: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
     catalog: dict[str, list[dict[str, Any]]] = {
         "chat": [],
@@ -51,6 +76,8 @@ def categorize_provider_models(models: list[dict[str, Any]]) -> dict[str, list[d
         architecture = raw.get("architecture") if isinstance(raw.get("architecture"), dict) else {}
         inputs = [str(value).lower() for value in architecture.get("input_modalities") or []]
         outputs = [str(value).lower() for value in architecture.get("output_modalities") or []]
+        if not inputs and not outputs:
+            inputs, outputs = _infer_modalities_from_model_id(model_id)
         item = {
             "id": model_id,
             "name": str(raw.get("name") or model_id).strip(),
@@ -63,9 +90,7 @@ def categorize_provider_models(models: list[dict[str, Any]]) -> dict[str, list[d
                 catalog["vision"].append(item)
         if "image" in outputs:
             catalog["image"].append(item)
-            # SurplusIntelligence has no native /images/edits route. The app
-            # provides source-aware editing by analyzing the source with a
-            # vision model, then regenerating with any image output model.
+        if "image" in inputs and "image" in outputs:
             catalog["image_edit"].append(item)
         if "video" in outputs:
             catalog["video"].append(item)

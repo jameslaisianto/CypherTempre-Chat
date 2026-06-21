@@ -16,4 +16,12 @@ from server.timechain import _doc_path  # noqa: F401
 # shadowing the server.marketplace submodule before server.server loads.
 del marketplace  # noqa: F821
 
-from server.server import HTML, SW_JS, build_parser, build_poq_config, main, make_handler  # noqa: F401
+from server.server import (  # noqa: F401
+    HTML,
+    SW_JS,
+    build_parser,
+    build_poq_config,
+    main,
+    make_handler,
+    resolve_model_discovery_credentials,
+)

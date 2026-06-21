@@ -7,7 +7,7 @@ import uuid
 from http import HTTPStatus
 from typing import Any
 
-from server.config import IMAGE_PROVIDERS
+from server.image_edit import call_image_edit, call_image_redefine
 from server.image_prompt import enrich_generation_prompt, build_anchored_edit_prompt
 from server.llm import call_image_generation
 
@@ -133,23 +133,24 @@ def handle_imagegen_edit(handler: Any, app: Any) -> None:
     ]
     messages = [{"role": "user", "content": content}]
     try:
-        images = call_image_generation(
+        images = call_image_edit(
             provider=provider,
             api_key=api_key,
             model=model,
             messages=messages,
             timeout=max(app.timeout, 600.0),
             base_url=base_url,
-            modalities=["image", "text"],
             aspect_ratio=aspect_ratio,
             image_size=image_size,
-            operation="edit",
         )
     except Exception as exc:
         handler.send_json({"ok": False, "error": str(exc)})
         return
     if not images:
-        handler.send_json({"ok": False, "error": "No image was generated."})
+        handler.send_json({
+            "ok": False,
+            "error": "No edited image was returned. Try Raw prompt mode, a different edit model, or a smaller source image.",
+        })
         return
     image_id = uuid.uuid4().hex
     entry = app.add_gallery_image(
@@ -178,7 +179,7 @@ def handle_imagegen_redefine(handler: Any, app: Any) -> None:
     payload = handler.read_json()
     source_id = str(payload.get("source_id", "")).strip()
     prompt = str(payload.get("prompt", "")).strip()
-    model = str(payload.get("model") or app.image_edit_model or app.image_model or "").strip()
+    model = str(payload.get("model") or app.image_model or "").strip()
     aspect_ratio = str(payload.get("aspect_ratio", "1:1")).strip() or "1:1"
     image_size = str(payload.get("image_size", "")).strip()
     base_url = str(payload.get("baseUrl") or payload.get("image_base_url") or app.image_base_url or app.base_url).strip()
@@ -217,23 +218,24 @@ def handle_imagegen_redefine(handler: Any, app: Any) -> None:
     ]
     messages = [{"role": "user", "content": content}]
     try:
-        images = call_image_generation(
+        images = call_image_redefine(
             provider=provider,
             api_key=api_key,
             model=model,
             messages=messages,
             timeout=max(app.timeout, 600.0),
             base_url=base_url,
-            modalities=["image", "text"],
             aspect_ratio=aspect_ratio,
             image_size=image_size,
-            operation="edit",
         )
     except Exception as exc:
         handler.send_json({"ok": False, "error": str(exc)})
         return
     if not images:
-        handler.send_json({"ok": False, "error": "No image was generated."})
+        handler.send_json({
+            "ok": False,
+            "error": "No redefined image was returned. Try Raw prompt mode, a different edit model, or a smaller source image.",
+        })
         return
     image_id = uuid.uuid4().hex
     entry = app.add_gallery_image(

@@ -327,12 +327,7 @@ def call_image_edit(
     aspect_ratio: str = "",
     image_size: str = "",
 ) -> list[str]:
-    """Edit or redefine an image while preserving source identity when possible.
-
-    Uses native multimodal editing (source image passed to the image model) for all
-    providers, matching Grok Imagine-style reference editing. SurplusIntelligence only
-    falls back to describe-then-regenerate when native edit fails.
-    """
+    """Edit an image only through a native reference-image path."""
     placeholder_keys = {
         "YOUR_API_KEY",
         "YOUR_MORPHEUS_API_KEY",
@@ -343,20 +338,42 @@ def call_image_edit(
     if api_key in placeholder_keys:
         raise RuntimeError("API key is still the example placeholder.")
 
-    try:
-        return _native_image_edit(
-            provider=provider,
-            api_key=api_key,
-            model=model,
-            messages=messages,
-            timeout=timeout,
-            base_url=base_url,
-            aspect_ratio=aspect_ratio,
-            image_size=image_size,
+    if provider == "surplusintelligence":
+        raise RuntimeError(
+            "SurplusIntelligence does not expose a native image-edit endpoint. "
+            "Use Redefine for a new interpretation, or configure an image provider/model "
+            "that accepts the source image as edit input."
         )
-    except Exception as native_error:
-        if provider != "surplusintelligence":
-            raise native_error
+
+    return _native_image_edit(
+        provider=provider,
+        api_key=api_key,
+        model=model,
+        messages=messages,
+        timeout=timeout,
+        base_url=base_url,
+        aspect_ratio=aspect_ratio,
+        image_size=image_size,
+    )
+
+
+def call_image_redefine(
+    *,
+    provider: str,
+    api_key: str,
+    model: str,
+    messages: list[dict[str, Any]],
+    timeout: float,
+    base_url: str = "",
+    aspect_ratio: str = "",
+    image_size: str = "",
+) -> list[str]:
+    """Create a new interpretation from a source image.
+
+    SurplusIntelligence has generation but no native edit endpoint, so Redefine is
+    the explicit place where describe-then-regenerate behavior is allowed.
+    """
+    if provider == "surplusintelligence":
         return _surplus_regenerate_fallback(
             provider=provider,
             api_key=api_key,
@@ -367,3 +384,13 @@ def call_image_edit(
             aspect_ratio=aspect_ratio,
             image_size=image_size,
         )
+    return call_image_edit(
+        provider=provider,
+        api_key=api_key,
+        model=model,
+        messages=messages,
+        timeout=timeout,
+        base_url=base_url,
+        aspect_ratio=aspect_ratio,
+        image_size=image_size,
+    )

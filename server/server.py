@@ -21,7 +21,7 @@ from server import auth, chat, imagegen, videogen, audiogen
 from server import marketplace as marketplace_routes
 
 from server.config import (
-    DEFAULT_MODEL, DEFAULT_PROVIDER, PROVIDERS, PERSONAS,
+    DEFAULT_MODEL, DEFAULT_PROVIDER, PROVIDERS, IMAGE_PROVIDERS, VIDEO_PROVIDERS, AUDIO_PROVIDERS, PERSONAS,
     DEFAULT_TIMECHAIN_PATH, DEFAULT_ENV_PATH,
     DEFAULT_POQ_ENABLED, DEFAULT_POQ_MIN_SCORE, DEFAULT_POQ_MAX_RETRIES,
     DEFAULT_POQ_OVERFITTING_CHECK,
@@ -54,7 +54,7 @@ MANIFEST_JSON = json.dumps({
 }, indent=2)
 
 SW_JS = (
-    "const CACHE_NAME = 'cyphertempre-v3';\\n"
+    "const CACHE_NAME = 'cyphertempre-v4';\\n"
     "const URLS_TO_CACHE = ['/','/manifest.json','/icon.svg'];\\n"
     "self.addEventListener('install', e => {\\n"
     "  self.skipWaiting();\\n"
@@ -81,6 +81,41 @@ def with_runtime_metadata(personas: dict[str, dict[str, Any]]) -> dict[str, dict
         key: {**value, **safe_persona_metadata(key, value)}
         for key, value in (personas or {}).items()
     }
+
+
+def resolve_model_discovery_credentials(
+    app: App,
+    provider: str,
+    *,
+    api_key_override: str = "",
+    base_url_override: str = "",
+) -> tuple[str, str]:
+    """Pick the API key and base URL used to discover models for a provider.
+
+    Image/video/audio providers must use their modality-specific credentials so the
+    catalog matches what ImageGen and other studios can actually call.
+    """
+    provider = (provider or app.provider).strip().lower()
+    api_key = (api_key_override or "").strip()
+    base_url = (base_url_override or "").strip()
+
+    if provider in IMAGE_PROVIDERS:
+        base_url = base_url or app.image_base_url or IMAGE_PROVIDERS[provider].get("url", "")
+        api_key = api_key or app.image_api_key or app.api_key
+    elif provider in VIDEO_PROVIDERS:
+        base_url = base_url or app.video_base_url or VIDEO_PROVIDERS[provider].get("url", "")
+        api_key = api_key or app.video_api_key or app.api_key
+    elif provider in AUDIO_PROVIDERS:
+        base_url = base_url or app.audio_base_url or AUDIO_PROVIDERS[provider].get("url", "")
+        api_key = api_key or app.audio_api_key or app.api_key
+    elif provider == app.provider:
+        base_url = base_url or app.base_url or default_provider_url(provider)
+        api_key = api_key or app.api_key
+    else:
+        base_url = base_url or default_provider_url(provider)
+        api_key = api_key or app.api_key
+    return api_key, base_url
+
 
 def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
@@ -153,11 +188,16 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                     return
                 if path == "/api/models":
                     provider = (self.query_param("provider") or app.provider).strip().lower()
-                    base_url = app.base_url if provider == app.provider else default_provider_url(provider)
+                    api_key, base_url = resolve_model_discovery_credentials(
+                        app,
+                        provider,
+                        api_key_override=self.query_param("apiKey"),
+                        base_url_override=self.query_param("baseUrl"),
+                    )
                     catalog = list_provider_models(
                         provider=provider,
                         base_url=base_url,
-                        api_key=app.api_key,
+                        api_key=api_key,
                         timeout=min(app.timeout, 20.0),
                     )
                     self.send_json({"ok": True, "provider": provider, "catalog": catalog})

@@ -34,3 +34,5 @@ Thumbs.db
 /data
 /server/data/users
 /agent-tools
+*.out
+.tmp-server.err

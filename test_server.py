@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import marketplace
 import server
 import server.audiogen as audiogen_handlers
+import server.image_edit as image_edit_handlers
 import server.imagegen as imagegen_handlers
 import server.videogen as videogen_handlers
 from server.trainer import Trainer
@@ -1124,7 +1125,7 @@ class PromptAssemblyTests(unittest.TestCase):
             "aspect_ratio": "1:1",
             "baseUrl": "https://image.example.test/v1/chat/completions",
         })
-        with mock.patch("server.imagegen.call_image_generation", return_value=[TINY_PNG_B64]) as call_image:
+        with mock.patch("server.imagegen.call_image_edit", return_value=[TINY_PNG_B64]) as call_image:
             imagegen_handlers.handle_imagegen_edit(handler, app)
 
         status, body = handler.responses[-1]
@@ -1132,7 +1133,6 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertTrue(body["ok"])
         self.assertEqual(body["image"]["mode"], "edit")
         kwargs = call_image.call_args.kwargs
-        self.assertEqual(kwargs["operation"], "edit")
         self.assertEqual(kwargs["aspect_ratio"], "1:1")
         self.assertEqual(kwargs["base_url"], "https://image.example.test/v1/chat/completions")
         image_part = kwargs["messages"][0]["content"][0]["image_url"]["url"]
@@ -1157,7 +1157,7 @@ class PromptAssemblyTests(unittest.TestCase):
             "provider": "openrouter",
             "aspect_ratio": "4:3",
         })
-        with mock.patch("server.imagegen.call_image_generation", return_value=[TINY_PNG_B64]) as call_image:
+        with mock.patch("server.imagegen.call_image_redefine", return_value=[TINY_PNG_B64]) as call_image:
             imagegen_handlers.handle_imagegen_redefine(handler, app)
 
         status, body = handler.responses[-1]
@@ -1167,7 +1167,7 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertEqual(body["image"]["source_id"], source["id"])
         self.assertEqual(body["image"]["supersedes_ring"], source["ring_n"])
         self.assertGreater(body["image"]["ring_n"], source["ring_n"])
-        self.assertEqual(call_image.call_args.kwargs["operation"], "edit")
+        self.assertIn("messages", call_image.call_args.kwargs)
 
     def test_imagegen_generate_bypass_skips_prompt_enrichment(self):
         app = self.make_app()
@@ -1204,7 +1204,7 @@ class PromptAssemblyTests(unittest.TestCase):
 
         with (
             mock.patch("server.imagegen.build_anchored_edit_prompt", side_effect=fake_anchor) as anchor,
-            mock.patch("server.imagegen.call_image_generation", return_value=[TINY_PNG_B64]) as call_image,
+            mock.patch("server.imagegen.call_image_edit", return_value=[TINY_PNG_B64]) as call_image,
         ):
             imagegen_handlers.handle_imagegen_edit(handler, app)
 
@@ -3334,10 +3334,36 @@ class PromptAssemblyTests(unittest.TestCase):
 
         self.assertEqual([item["id"] for item in catalog["chat"]], ["chat-model", "vision-model"])
         self.assertEqual([item["id"] for item in catalog["image"]], ["image-edit-model", "image-model"])
-        self.assertEqual([item["id"] for item in catalog["image_edit"]], ["image-edit-model", "image-model"])
+        self.assertEqual([item["id"] for item in catalog["image_edit"]], ["image-edit-model"])
         self.assertEqual([item["id"] for item in catalog["vision"]], ["vision-model"])
         self.assertEqual([item["id"] for item in catalog["video"]], ["video-model"])
         self.assertEqual([item["id"] for item in catalog["audio"]], ["audio-model"])
+
+    def test_categorize_provider_models_infers_image_models_without_architecture(self):
+        catalog = server.categorize_provider_models([
+            {"id": "gpt-5-image", "name": "GPT-5 Image"},
+            {"id": "deepseek-v4-flash", "name": "DeepSeek V4 Flash"},
+        ])
+        self.assertEqual([item["id"] for item in catalog["image"]], ["gpt-5-image"])
+        self.assertEqual(catalog["image_edit"], [])
+        self.assertEqual([item["id"] for item in catalog["chat"]], ["deepseek-v4-flash"])
+
+    def test_resolve_model_discovery_credentials_uses_image_provider_keys(self):
+        app = server.App(
+            self.make_workspace(),
+            server.pathlib.Path("timechain.py").resolve(),
+            default_model="chat-model",
+            provider="morpheus",
+            api_key="chat-key",
+            base_url="https://chat.example/v1/chat/completions",
+            timeout=5,
+            image_provider="surplusintelligence",
+            image_api_key="image-key",
+            image_base_url="https://image.example/v1",
+        )
+        api_key, base_url = server.resolve_model_discovery_credentials(app, "surplusintelligence")
+        self.assertEqual(api_key, "image-key")
+        self.assertEqual(base_url, "https://image.example/v1")
 
     def test_list_provider_models_fetches_models_endpoint_and_categorizes(self):
         body = {
@@ -3364,7 +3390,10 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertIn('id="chat-model-options"', server.HTML)
         self.assertIn('id="audio-model-options"', server.HTML)
         self.assertIn("async function refreshProviderModels", server.HTML)
-        self.assertIn("catalog.image_edit", server.HTML)
+        self.assertIn(
+            "imageEditModelsByProvider[provider] = (catalog.image_edit || []).map(model => model.id)",
+            server.HTML,
+        )
         self.assertIn("catalog.video", server.HTML)
         self.assertIn("catalog.audio", server.HTML)
         self.assertIn("'/api/models?'", server.HTML)
@@ -3378,16 +3407,50 @@ class PromptAssemblyTests(unittest.TestCase):
         edit_end = ui_source.index("function updateVideoModelOptions()", edit_start)
         edit_source = ui_source[edit_start:edit_end]
 
-        self.assertNotIn("localStorage.getItem('ct_image_edit_model')", sync_source)
+        self.assertIn("localStorage.getItem('ct_image_edit_model')", sync_source)
+        self.assertIn("providerDiscoveryCredentials", ui_source)
         self.assertIn("localStorage.setItem('ct_image_edit_model', els.imagegenEditModel.value)", edit_source)
         self.assertIn("localStorage.setItem('ct_image_model', els.imageModel.value)", ui_source)
         self.assertIn("localStorage.setItem('ct_video_model', els.videoModel.value)", ui_source)
         self.assertIn("Source-aware edit: analyzes the upload, then regenerates it", ui_source)
 
+    def test_surplus_empty_edit_catalog_disables_fake_editing(self):
+        ui_source = server.HTML
+        start = ui_source.index("function updateImageEditModelOptions()")
+        end = ui_source.index("function updateVideoModelOptions()", start)
+        edit_source = ui_source[start:end]
+
+        self.assertIn("els.imagegenEditModel.disabled = nativeUnavailable", edit_source)
+        self.assertIn("els.imagegenEditBtn.disabled = nativeUnavailable", edit_source)
+        self.assertIn("Native image editing unavailable", edit_source)
+
+    def test_surplus_discovery_populates_generation_and_source_aware_edit_models(self):
+        ui_source = server.HTML
+
+        self.assertIn(
+            "const discoveredImageModels = (catalog.image || []).map(model => model.id)",
+            ui_source,
+        )
+        self.assertIn("imageModelsByProvider[provider] = discoveredImageModels", ui_source)
+        self.assertIn(
+            "imageEditModelsByProvider[provider] = (catalog.image_edit || []).map(model => model.id)",
+            ui_source,
+        )
+        self.assertIn("if (discoveredImageModels.length)", ui_source)
+
+    def test_surplus_ui_does_not_present_generation_models_as_true_edit_models(self):
+        ui_source = server.HTML
+        self.assertIn("Native image editing is not available through SurplusIntelligence", ui_source)
+        self.assertIn("model: els.imagegenModel?.value", ui_source)
+        self.assertNotIn(
+            "model: els.imagegenEditModel?.value || els.imagegenModel?.value",
+            ui_source[ui_source.index("async function imagegenRedefine()"):],
+        )
+
     def test_image_edit_upload_uses_one_hidden_file_picker_and_bumps_shell_cache(self):
         self.assertIn('.imagegen-dropzone input[type="file"]', server.HTML)
         self.assertIn("pointer-events: none", server.HTML)
-        self.assertIn("const CACHE_NAME = 'cyphertempre-v3'", server.SW_JS)
+        self.assertIn("const CACHE_NAME = 'cyphertempre-v4'", server.SW_JS)
 
     def test_imagegen_creative_canvas_has_comparison_preview_and_download_controls(self):
         for marker in (
@@ -3398,7 +3461,9 @@ class PromptAssemblyTests(unittest.TestCase):
             'id="imagegen-lightbox"',
             "openImagePreview",
             "downloadImage",
-            "Source-aware edit: analyzing your image, then rendering the final result",
+            "Source-aware edit in progress",
+            "IMAGEGEN_EDIT_TIMEOUT_MS",
+            "compressImageForEdit",
         ):
             self.assertIn(marker, server.HTML)
 
@@ -3417,6 +3482,7 @@ class PromptAssemblyTests(unittest.TestCase):
 
     def test_imagegen_edit_and_redefine_allow_ten_minute_provider_wait(self):
         source = inspect.getsource(imagegen_handlers)
+        self.assertGreaterEqual(source.count("call_image_edit"), 2)
         self.assertGreaterEqual(source.count("timeout=max(app.timeout, 600.0)"), 2)
 
     def test_surplus_image_generation_uses_images_generations_endpoint(self):
@@ -3438,6 +3504,53 @@ class PromptAssemblyTests(unittest.TestCase):
         payload = json.loads(request.data.decode("utf-8"))
         self.assertEqual(payload["prompt"], "make this high definition")
         self.assertNotIn("messages", payload)
+
+    def test_surplus_call_image_edit_rejects_regeneration_as_fake_editing(self):
+        messages = [{
+            "role": "user",
+            "content": [
+                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{TINY_PNG_B64}"}},
+                {"type": "text", "text": "make the image high definition"},
+            ],
+        }]
+        with (
+            mock.patch("server.image_edit._native_image_edit") as native_edit,
+            mock.patch("server.image_edit._surplus_regenerate_fallback") as surplus_edit,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "does not expose a native image-edit endpoint"):
+                image_edit_handlers.call_image_edit(
+                    provider="surplusintelligence",
+                    api_key="sk-test",
+                    model="gpt-5-image",
+                    messages=messages,
+                    timeout=5,
+                    base_url="https://api.surplusintelligence.ai/v1",
+                )
+        native_edit.assert_not_called()
+        surplus_edit.assert_not_called()
+
+    def test_surplus_redefine_explicitly_uses_regeneration(self):
+        messages = [{
+            "role": "user",
+            "content": [
+                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{TINY_PNG_B64}"}},
+                {"type": "text", "text": "reinterpret this as a watercolor"},
+            ],
+        }]
+        with mock.patch(
+            "server.image_edit._surplus_regenerate_fallback",
+            return_value=[TINY_PNG_B64],
+        ) as regenerate:
+            images = image_edit_handlers.call_image_redefine(
+                provider="surplusintelligence",
+                api_key="sk-test",
+                model="venice-lustify-v8",
+                messages=messages,
+                timeout=5,
+                base_url="https://api.surplusintelligence.ai/v1",
+            )
+        self.assertEqual(images, [TINY_PNG_B64])
+        regenerate.assert_called_once()
 
     def test_surplus_image_edit_analyzes_source_then_regenerates(self):
         body = {"data": [{"b64_json": TINY_PNG_B64}]}

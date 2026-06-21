@@ -367,16 +367,45 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       selectEl.value = next;
     }
 
+    function providerDiscoveryCredentials(provider) {
+      const prov = String(provider || '').trim();
+      const chatKey = localStorage.getItem('ct_api_key') || '';
+      const chatBase = localStorage.getItem('ct_base_url') || els.baseUrl?.value?.trim() || '';
+      if (prov === (els.imageProvider?.value || localStorage.getItem('ct_image_provider') || '')) {
+        return {
+          apiKey: localStorage.getItem('ct_image_api_key') || chatKey,
+          baseUrl: localStorage.getItem('ct_image_base_url') || '',
+        };
+      }
+      if (prov === (els.videoProvider?.value || localStorage.getItem('ct_video_provider') || '')) {
+        return {
+          apiKey: localStorage.getItem('ct_video_api_key') || chatKey,
+          baseUrl: localStorage.getItem('ct_video_base_url') || '',
+        };
+      }
+      if (prov === (els.audioProvider?.value || localStorage.getItem('ct_audio_provider') || '')) {
+        return {
+          apiKey: localStorage.getItem('ct_audio_api_key') || chatKey,
+          baseUrl: localStorage.getItem('ct_audio_base_url') || '',
+        };
+      }
+      return { apiKey: chatKey, baseUrl: chatBase };
+    }
+
     function syncCreativeStudioModelsFromSettings() {
-      const imageModel = els.imageModel?.value?.trim() || '';
-      const imageEditModel = els.imagegenEditModel?.value?.trim() || '';
+      const imageModel = els.imageModel?.value?.trim() || localStorage.getItem('ct_image_model') || '';
+      const imageEditModel = localStorage.getItem('ct_image_edit_model') || '';
       const videoModel = els.videoModel?.value?.trim() || '';
+      const imageProv = els.imageProvider?.value || localStorage.getItem('ct_image_provider') || '';
+      const editList = imageEditModelsByProvider[imageProv] || [];
 
       if (imageModel) {
         setSelectValue(els.imagegenModel, imageModel);
       }
       if (imageEditModel) {
         setSelectValue(els.imagegenEditModel, imageEditModel);
+      } else if (imageModel && editList.includes(imageModel)) {
+        setSelectValue(els.imagegenEditModel, imageModel);
       }
       if (videoModel) {
         setSelectValue(els.videogenModel, videoModel);
@@ -528,21 +557,63 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       setStatus(data.provider_error ? `Guide explanation used local fallback: ${data.provider_error}` : `Guide explanation created: ${data.topic?.title || topicId}.`, data.provider_error ? '#6b5730' : '#35674f');
     }
 
-    async function api(path, options = {}) {
+    async function api(path, options = {}, timeoutMs = 0) {
       const token = localStorage.getItem('ct_auth_token') || '';
-      const response = await fetch(path, {
-        ...options,
-        credentials: 'same-origin',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { 'X-Auth-Token': token } : {}),
-          ...(options.headers || {})
+      const controller = timeoutMs > 0 ? new AbortController() : null;
+      const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+      try {
+        const response = await fetch(path, {
+          ...options,
+          credentials: 'same-origin',
+          signal: controller?.signal,
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { 'X-Auth-Token': token } : {}),
+            ...(options.headers || {})
+          }
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+        if (body.ok === false && body.error) throw new Error(body.error);
+        return body;
+      } catch (error) {
+        if (error?.name === 'AbortError') {
+          throw new Error('Request timed out. Image edits can take several minutes — try Raw prompt mode or a smaller image.');
         }
-      });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
-      if (body.ok === false && body.error) throw new Error(body.error);
-      return body;
+        if (error instanceof TypeError && /fetch/i.test(error.message || '')) {
+          throw new Error('Network error — connection dropped before the edit finished. Try Raw prompt mode or a smaller image.');
+        }
+        throw error;
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    }
+
+    const IMAGEGEN_EDIT_TIMEOUT_MS = 10 * 60 * 1000;
+
+    async function compressImageForEdit(dataUrl, maxDim = 1536, quality = 0.86) {
+      if (!dataUrl || !dataUrl.startsWith('data:image')) return dataUrl;
+      try {
+        const image = await new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = () => reject(new Error('Could not read the uploaded image.'));
+          img.src = dataUrl;
+        });
+        const scale = Math.min(1, maxDim / Math.max(image.width, image.height));
+        const width = Math.max(1, Math.round(image.width * scale));
+        const height = Math.max(1, Math.round(image.height * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return dataUrl;
+        ctx.drawImage(image, 0, 0, width, height);
+        const mime = dataUrl.includes('image/png') && scale === 1 ? 'image/png' : 'image/jpeg';
+        return canvas.toDataURL(mime, quality);
+      } catch {
+        return dataUrl;
+      }
     }
 
     function sessionQuery() {
@@ -906,6 +977,9 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     }
 
     function renderImageResultCard(data, operation) {
+      if (!data?.image?.id) {
+        return '<div class="imagegen-error">Edit finished but the response was incomplete. Refresh the gallery — your image may still have been saved.</div>';
+      }
       const src = data.data_url || `/api/imagegen/image/${encodeURIComponent(data.image.id)}`;
       const filename = `cyphertempre-${operation}-${data.image.id}.png`;
       return `
@@ -935,14 +1009,15 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       });
     }
 
-    function setImageEditSource(file) {
+    async function setImageEditSource(file) {
       if (!file || !file.type.startsWith('image/')) return;
       const reader = new FileReader();
-      reader.onload = () => {
-        els.imagegenEditPreview.src = reader.result;
+      reader.onload = async () => {
+        const compressed = await compressImageForEdit(reader.result);
+        els.imagegenEditPreview.src = compressed;
         els.imagegenEditPreview.classList.remove('hidden');
         els.imagegenSourceStage?.classList.add('has-source');
-        els.imagegenEditPreview.onclick = () => openImagePreview(reader.result, file.name);
+        els.imagegenEditPreview.onclick = () => openImagePreview(compressed, file.name);
       };
       reader.readAsDataURL(file);
     }
@@ -968,13 +1043,20 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     async function refreshProviderModels(provider = 'surplusintelligence', force = false) {
       if (provider !== 'surplusintelligence') return;
       if (!force && discoveredModelProviders.has(provider)) return;
-      const data = await api('/api/models?' + new URLSearchParams({ provider }));
+      const creds = providerDiscoveryCredentials(provider);
+      const params = new URLSearchParams({ provider });
+      if (creds.apiKey) params.set('apiKey', creds.apiKey);
+      if (creds.baseUrl) params.set('baseUrl', creds.baseUrl);
+      const data = await api('/api/models?' + params);
       const catalog = data.catalog || {};
       discoveredModelProviders.add(provider);
 
       populateModelDatalist(els.chatModelOptions, catalog.chat);
       populateModelDatalist(els.audioModelOptions, catalog.audio);
-      imageModelsByProvider[provider] = (catalog.image || []).map(model => model.id);
+      const discoveredImageModels = (catalog.image || []).map(model => model.id);
+      if (discoveredImageModels.length) {
+        imageModelsByProvider[provider] = discoveredImageModels;
+      }
       imageEditModelsByProvider[provider] = (catalog.image_edit || []).map(model => model.id);
       videoModelsByProvider[provider] = (catalog.video || []).map(model => model.id);
 
@@ -1041,15 +1123,19 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
 
       if (list.length === 0) {
         const opt = document.createElement('option');
-        const discoveryUnavailable = prov === 'surplusintelligence';
-        opt.value = discoveryUnavailable ? '' : (current || '');
-        opt.textContent = discoveryUnavailable
-          ? 'No image-editing models are currently advertised'
-          : (current || 'Enter custom edit model');
+        const nativeUnavailable = prov === 'surplusintelligence';
+        const fallback = nativeUnavailable ? '' : (current || imageEditProviderDefaults[prov] || '');
+        opt.value = fallback;
+        opt.textContent = nativeUnavailable
+          ? 'Native image editing unavailable'
+          : (fallback || 'Enter custom edit model');
         els.imagegenEditModel.appendChild(opt);
-        els.imagegenEditModel.disabled = discoveryUnavailable;
-        if (els.imagegenEditBtn) els.imagegenEditBtn.disabled = discoveryUnavailable;
-        if (discoveryUnavailable) localStorage.removeItem('ct_image_edit_model');
+        els.imagegenEditModel.disabled = nativeUnavailable;
+        if (els.imagegenEditBtn) els.imagegenEditBtn.disabled = nativeUnavailable;
+        if (fallback) localStorage.setItem('ct_image_edit_model', fallback);
+        els.imagegenEditModel.title = nativeUnavailable
+          ? 'Native image editing is not available through SurplusIntelligence. Use Redefine for a new interpretation.'
+          : '';
         return;
       }
 
@@ -1984,14 +2070,28 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     }
     if (els.imageModel) {
       els.imageModel.addEventListener('change', () => {
+        const selected = els.imageModel.value?.trim() || '';
+        const prov = els.imageProvider?.value || '';
+        const editList = imageEditModelsByProvider[prov] || [];
+        if (selected && editList.includes(selected)) {
+          setSelectValue(els.imagegenEditModel, selected);
+          localStorage.setItem('ct_image_edit_model', selected);
+        }
         syncCreativeStudioModelsFromSettings();
         saveLocalConfig();
         refreshProviderSummary();
       });
     }
+    let imageModelDiscoveryTimer = null;
     if (els.imageApiKey) els.imageApiKey.addEventListener('input', () => {
       saveLocalConfig();
       refreshProviderSummary();
+      if (imageModelDiscoveryTimer) clearTimeout(imageModelDiscoveryTimer);
+      imageModelDiscoveryTimer = setTimeout(() => {
+        imageModelDiscoveryTimer = null;
+        discoveredModelProviders.delete(els.imageProvider?.value || 'surplusintelligence');
+        refreshProviderModels(els.imageProvider?.value || 'surplusintelligence', true).catch(() => null);
+      }, 500);
     });
     if (els.imageBaseUrl) els.imageBaseUrl.addEventListener('input', () => {
       saveLocalConfig();
@@ -2924,39 +3024,42 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       els.imagegenEditBtn.textContent = 'Working…';
       const bypass = imagegenBypassPayload('edit').bypass_prompt;
       els.imagegenEditResult.innerHTML = bypass
-        ? '<div class="imagegen-progress"><div><div class="imagegen-spinner"></div><strong>Raw edit in progress</strong><span>Sending your prompt directly to the image model without identity analysis.</span></div></div>'
-        : '<div class="imagegen-progress"><div><div class="imagegen-spinner"></div><strong>Source-aware edit in progress</strong><span>Source-aware edit: analyzing your image, then rendering the final result. This can take several minutes.</span></div></div>';
-      let imageData = '';
-      if (els.imagegenEditPreview?.src?.startsWith('data:')) {
-        imageData = els.imagegenEditPreview.src;
-      } else if (fileInput.files[0]) {
-        imageData = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result);
-          reader.onerror = reject;
-          reader.readAsDataURL(fileInput.files[0]);
-        });
-      }
+        ? '<div class="imagegen-progress"><div><div class="imagegen-spinner"></div><strong>Raw edit in progress</strong><span>Sending your prompt directly to the image model. This may take a few minutes on mobile.</span></div></div>'
+        : '<div class="imagegen-progress"><div><div class="imagegen-spinner"></div><strong>Source-aware edit in progress</strong><span>Analyzing your image, then rendering the result. This can take several minutes — keep this tab open.</span></div></div>';
       try {
+        let imageData = '';
+        if (els.imagegenEditPreview?.src?.startsWith('data:')) {
+          imageData = els.imagegenEditPreview.src;
+        } else if (fileInput.files[0]) {
+          imageData = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(new Error('Could not read the uploaded image.'));
+            reader.readAsDataURL(fileInput.files[0]);
+          });
+        }
+        imageData = await compressImageForEdit(imageData);
         const data = await api('/api/imagegen/edit', {
           method: 'POST',
           body: JSON.stringify({
             prompt,
             image: imageData,
-            model: els.imagegenEditModel?.value || els.imagegenModel?.value,
+            model: els.imagegenEditModel?.value,
             aspect_ratio: els.imagegenEditAspect?.value || els.imagegenAspect?.value,
             apiKey: localStorage.getItem('ct_image_api_key') || localStorage.getItem('ct_api_key') || '',
             provider: localStorage.getItem('ct_image_provider') || localStorage.getItem('ct_provider') || 'openrouter',
             baseUrl: localStorage.getItem('ct_image_base_url') || '',
             ...imagegenBypassPayload('edit'),
           })
-        });
+        }, IMAGEGEN_EDIT_TIMEOUT_MS);
         els.imagegenEditResult.innerHTML = renderImageResultCard(data, 'Edit');
         wireImageActions(els.imagegenEditResult);
-        renderImagegenLineage({ ok: true, chain: [data.image] });
+        if (data.image) renderImagegenLineage({ ok: true, chain: [data.image] });
         loadImagegen();
+        els.imagegenEditResult.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       } catch (error) {
-        els.imagegenEditResult.innerHTML = `<div class="imagegen-error">${esc(error.message)}</div>`;
+        els.imagegenEditResult.innerHTML = `<div class="imagegen-error">${esc(error.message || 'Image edit failed.')}</div>`;
+        els.imagegenEditResult.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       } finally {
         imagegenBusy = false;
         els.imagegenEditBtn.disabled = false;
@@ -2987,20 +3090,22 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
           body: JSON.stringify({
             source_id: imagegenSelectedImageId,
             prompt,
-            model: els.imagegenEditModel?.value || els.imagegenModel?.value,
+            model: els.imagegenModel?.value,
             aspect_ratio: els.imagegenAspect?.value,
             apiKey: localStorage.getItem('ct_image_api_key') || localStorage.getItem('ct_api_key') || '',
             provider: localStorage.getItem('ct_image_provider') || localStorage.getItem('ct_provider') || 'openrouter',
             baseUrl: localStorage.getItem('ct_image_base_url') || '',
             ...imagegenBypassPayload('redefine'),
           })
-        });
+        }, IMAGEGEN_EDIT_TIMEOUT_MS);
         els.imagegenRedefineResult.innerHTML = renderImageResultCard(data, 'Redefine');
         wireImageActions(els.imagegenRedefineResult);
-        loadImagegenLineage(data.image.id);
+        if (data.image?.id) loadImagegenLineage(data.image.id);
         loadImagegen();
+        els.imagegenRedefineResult.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       } catch (error) {
-        els.imagegenRedefineResult.innerHTML = `<div class="imagegen-error">${esc(error.message)}</div>`;
+        els.imagegenRedefineResult.innerHTML = `<div class="imagegen-error">${esc(error.message || 'Redefine failed.')}</div>`;
+        els.imagegenRedefineResult.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       } finally {
         imagegenBusy = false;
         els.imagegenRedefineBtn.disabled = false;
