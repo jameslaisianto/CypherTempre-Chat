@@ -19,15 +19,20 @@ def handle_imagegen_generate(handler: Any, app: Any) -> None:
         return
     payload = handler.read_json()
     prompt = str(payload.get("prompt", "")).strip()
-    model = str(payload.get("model", IMAGE_PROVIDERS.get("openrouter", {}).get("default_model", ""))).strip()
+    model = str(payload.get("model") or app.image_model or "").strip()
     aspect_ratio = str(payload.get("aspect_ratio", "1:1")).strip() or "1:1"
-    api_key = str(payload.get("apiKey", app.api_key)).strip() or app.api_key
-    provider = str(payload.get("provider", "openrouter")).strip() or "openrouter"
+    image_size = str(payload.get("image_size", "")).strip()
+    base_url = str(payload.get("baseUrl") or payload.get("image_base_url") or app.image_base_url or app.base_url).strip()
+    api_key = str(payload.get("apiKey") or app.image_api_key or app.api_key).strip()
+    provider = str(payload.get("provider") or app.image_provider or app.provider).strip()
     if not prompt:
         handler.send_json({"ok": False, "error": "prompt is required"}, HTTPStatus.BAD_REQUEST)
         return
     if not api_key:
         handler.send_json({"ok": False, "error": "API key is required"}, HTTPStatus.BAD_REQUEST)
+        return
+    if not model:
+        handler.send_json({"ok": False, "error": "Image model is required"}, HTTPStatus.BAD_REQUEST)
         return
     messages = [{"role": "user", "content": prompt}]
     try:
@@ -37,7 +42,11 @@ def handle_imagegen_generate(handler: Any, app: Any) -> None:
             model=model,
             messages=messages,
             timeout=min(app.timeout, 120.0),
+            base_url=base_url,
             modalities=["image"],
+            aspect_ratio=aspect_ratio,
+            image_size=image_size,
+            operation="generate",
         )
     except Exception as exc:
         handler.send_json({"ok": False, "error": str(exc)})
@@ -72,10 +81,12 @@ def handle_imagegen_edit(handler: Any, app: Any) -> None:
     payload = handler.read_json()
     prompt = str(payload.get("prompt", "")).strip()
     image_data = str(payload.get("image", "")).strip()
-    model = str(payload.get("model", "google/gemini-2.5-flash-image-preview")).strip()
+    model = str(payload.get("model") or app.image_edit_model or app.image_model or "").strip()
     aspect_ratio = str(payload.get("aspect_ratio", "1:1")).strip() or "1:1"
-    api_key = str(payload.get("apiKey", app.api_key)).strip() or app.api_key
-    provider = str(payload.get("provider", "openrouter")).strip() or "openrouter"
+    image_size = str(payload.get("image_size", "")).strip()
+    base_url = str(payload.get("baseUrl") or payload.get("image_base_url") or app.image_base_url or app.base_url).strip()
+    api_key = str(payload.get("apiKey") or app.image_api_key or app.api_key).strip()
+    provider = str(payload.get("provider") or app.image_provider or app.provider).strip()
     if not prompt:
         handler.send_json({"ok": False, "error": "prompt is required"}, HTTPStatus.BAD_REQUEST)
         return
@@ -85,10 +96,15 @@ def handle_imagegen_edit(handler: Any, app: Any) -> None:
     if not api_key:
         handler.send_json({"ok": False, "error": "API key is required"}, HTTPStatus.BAD_REQUEST)
         return
+    if not model:
+        handler.send_json({"ok": False, "error": "Image model is required"}, HTTPStatus.BAD_REQUEST)
+        return
+    source_mime = "image/png"
     if image_data.startswith("data:image"):
-        image_data = image_data.split(",", 1)[1]
+        header, image_data = image_data.split(",", 1)
+        source_mime = header.split(";", 1)[0].replace("data:", "") or source_mime
     content: list[dict[str, Any]] = [
-        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_data}"}},
+        {"type": "image_url", "image_url": {"url": f"data:{source_mime};base64,{image_data}"}},
         {"type": "text", "text": prompt},
     ]
     messages = [{"role": "user", "content": content}]
@@ -98,8 +114,12 @@ def handle_imagegen_edit(handler: Any, app: Any) -> None:
             api_key=api_key,
             model=model,
             messages=messages,
-            timeout=min(app.timeout, 120.0),
+            timeout=max(app.timeout, 600.0),
+            base_url=base_url,
             modalities=["image", "text"],
+            aspect_ratio=aspect_ratio,
+            image_size=image_size,
+            operation="edit",
         )
     except Exception as exc:
         handler.send_json({"ok": False, "error": str(exc)})
@@ -134,10 +154,12 @@ def handle_imagegen_redefine(handler: Any, app: Any) -> None:
     payload = handler.read_json()
     source_id = str(payload.get("source_id", "")).strip()
     prompt = str(payload.get("prompt", "")).strip()
-    model = str(payload.get("model", IMAGE_PROVIDERS.get("openrouter", {}).get("default_model", ""))).strip()
+    model = str(payload.get("model") or app.image_edit_model or app.image_model or "").strip()
     aspect_ratio = str(payload.get("aspect_ratio", "1:1")).strip() or "1:1"
-    api_key = str(payload.get("apiKey", app.api_key)).strip() or app.api_key
-    provider = str(payload.get("provider", "openrouter")).strip() or "openrouter"
+    image_size = str(payload.get("image_size", "")).strip()
+    base_url = str(payload.get("baseUrl") or payload.get("image_base_url") or app.image_base_url or app.base_url).strip()
+    api_key = str(payload.get("apiKey") or app.image_api_key or app.api_key).strip()
+    provider = str(payload.get("provider") or app.image_provider or app.provider).strip()
     if not source_id:
         handler.send_json({"ok": False, "error": "source_id is required"}, HTTPStatus.BAD_REQUEST)
         return
@@ -146,6 +168,9 @@ def handle_imagegen_redefine(handler: Any, app: Any) -> None:
         return
     if not api_key:
         handler.send_json({"ok": False, "error": "API key is required"}, HTTPStatus.BAD_REQUEST)
+        return
+    if not model:
+        handler.send_json({"ok": False, "error": "Image model is required"}, HTTPStatus.BAD_REQUEST)
         return
     img_path = app.gallery_image_path(user["username"], source_id)
     if not img_path.exists():
@@ -163,8 +188,12 @@ def handle_imagegen_redefine(handler: Any, app: Any) -> None:
             api_key=api_key,
             model=model,
             messages=messages,
-            timeout=min(app.timeout, 120.0),
+            timeout=max(app.timeout, 600.0),
+            base_url=base_url,
             modalities=["image", "text"],
+            aspect_ratio=aspect_ratio,
+            image_size=image_size,
+            operation="edit",
         )
     except Exception as exc:
         handler.send_json({"ok": False, "error": str(exc)})

@@ -21,7 +21,7 @@ from server.config import (
     PROMPT_BUDGET_CHARS, MIN_COMPACTED_PERSONA_CHARS,
     DEFAULT_RESPONSE_TOKENS, LONG_RESPONSE_TOKENS,
     ACTIVE_CONTEXT_DAYS, SESSION_PAUSE_NOTICE_DAYS,
-    default_provider_url, resolve_chat_completions_url,
+    default_provider_url, resolve_chat_completions_url, resolve_provider_endpoint,
 )
 
 MEMORY_ACCEPTED_STATUSES = {"accepted", "known", "uncertain"}
@@ -29,6 +29,93 @@ FRAME_DECLARATION_START = "[CT_FRAME_DECLARATION]"
 FRAME_DECLARATION_END = "[/CT_FRAME_DECLARATION]"
 RUNTIME_PROFILE_STANDARD = "standard_enhanced"
 RUNTIME_PROFILE_CYPHERTEMPRE = "cyphertempre_full"
+_MODEL_CATALOG_CACHE: dict[str, tuple[float, dict[str, list[dict[str, Any]]]]] = {}
+MODEL_CATALOG_CACHE_SECONDS = 300
+
+
+def categorize_provider_models(models: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    catalog: dict[str, list[dict[str, Any]]] = {
+        "chat": [],
+        "vision": [],
+        "image": [],
+        "image_edit": [],
+        "video": [],
+        "audio": [],
+    }
+    for raw in models or []:
+        if not isinstance(raw, dict):
+            continue
+        model_id = str(raw.get("id", "")).strip()
+        if not model_id:
+            continue
+        architecture = raw.get("architecture") if isinstance(raw.get("architecture"), dict) else {}
+        inputs = [str(value).lower() for value in architecture.get("input_modalities") or []]
+        outputs = [str(value).lower() for value in architecture.get("output_modalities") or []]
+        item = {
+            "id": model_id,
+            "name": str(raw.get("name") or model_id).strip(),
+            "input_modalities": inputs,
+            "output_modalities": outputs,
+        }
+        if "text" in outputs:
+            catalog["chat"].append(item)
+            if "image" in inputs:
+                catalog["vision"].append(item)
+        if "image" in outputs:
+            catalog["image"].append(item)
+            # SurplusIntelligence has no native /images/edits route. The app
+            # provides source-aware editing by analyzing the source with a
+            # vision model, then regenerating with any image output model.
+            catalog["image_edit"].append(item)
+        if "video" in outputs:
+            catalog["video"].append(item)
+        if "audio" in outputs:
+            catalog["audio"].append(item)
+    for items in catalog.values():
+        items.sort(key=lambda item: (item["name"].lower(), item["id"].lower()))
+    return catalog
+
+
+def _models_endpoint(base_url: str) -> str:
+    url = (base_url or "").strip().rstrip("/")
+    for suffix in ("/chat/completions", "/audio/speech"):
+        if url.endswith(suffix):
+            url = url[: -len(suffix)].rstrip("/")
+    if url.endswith("/v1"):
+        return f"{url}/models"
+    return f"{url}/models" if url else ""
+
+
+def list_provider_models(
+    *,
+    provider: str,
+    base_url: str,
+    api_key: str = "",
+    timeout: float = 20.0,
+    use_cache: bool = True,
+) -> dict[str, list[dict[str, Any]]]:
+    models_url = _models_endpoint(base_url or default_provider_url(provider))
+    if not models_url:
+        raise RuntimeError(f"No models endpoint configured for provider: {provider}")
+    now = time.time()
+    cached = _MODEL_CATALOG_CACHE.get(models_url)
+    if use_cache and cached and now - cached[0] < MODEL_CATALOG_CACHE_SECONDS:
+        return cached[1]
+    headers = {"Accept": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key.strip()}"
+    request = urllib.request.Request(models_url, headers=headers, method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Model discovery HTTP {exc.code}: {detail}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"Model discovery failed: {exc.reason}") from exc
+    catalog = categorize_provider_models(body.get("data") or [])
+    _MODEL_CATALOG_CACHE[models_url] = (now, catalog)
+    return catalog
 
 
 def resolve_runtime_options(
@@ -1068,6 +1155,9 @@ def call_image_generation(
     timeout: float,
     base_url: str = "",
     modalities: list[str] | None = None,
+    aspect_ratio: str = "",
+    image_size: str = "",
+    operation: str = "generate",
 ) -> list[str]:
     """Generate images via a provider that supports image output modalities.
 
@@ -1078,15 +1168,101 @@ def call_image_generation(
     config = IMAGE_PROVIDERS.get(provider, IMAGE_PROVIDERS.get("openrouter", {}))
     if provider == "other":
         config = {"url": "", "needs_referer": False, "needs_title": False, "label": "Custom"}
-    url = (base_url or config.get("url", "")).rstrip("/")
+    provider_url = base_url or config.get("url", "")
+    surplus_images_api = provider == "surplusintelligence"
+    if surplus_images_api:
+        api_root = provider_url.rstrip("/")
+        for suffix in ("/chat/completions", "/audio/speech", "/images/generations"):
+            if api_root.endswith(suffix):
+                api_root = api_root[: -len(suffix)].rstrip("/")
+        url = resolve_provider_endpoint(api_root, "images/generations")
+    else:
+        url = resolve_provider_endpoint(provider_url, "chat/completions")
     if not url:
         raise RuntimeError(f"No URL configured for image provider: {provider}")
-    payload: dict[str, Any] = {
-        "model": model or config.get("default_model", ""),
-        "messages": messages,
-    }
-    if modalities:
-        payload["modalities"] = modalities
+    if surplus_images_api:
+        prompt_parts: list[str] = []
+        for message in messages:
+            content = message.get("content")
+            if isinstance(content, str):
+                prompt_parts.append(content)
+            elif isinstance(content, list):
+                for part in content:
+                    if isinstance(part, dict) and part.get("type") == "text":
+                        prompt_parts.append(str(part.get("text", "")))
+        prompt = "\n".join(part.strip() for part in prompt_parts if part.strip())
+        if operation == "edit":
+            catalog = list_provider_models(
+                provider=provider,
+                base_url=provider_url,
+                api_key=api_key,
+                timeout=min(timeout, 20.0),
+            )
+            vision_models = catalog.get("vision") or []
+            if not vision_models:
+                raise RuntimeError("SurplusIntelligence returned no vision model for source-aware image editing.")
+            vision_ids = [item["id"] for item in vision_models]
+            preferred_vision_ids = ("gemini-2.5-flash", "gpt-5.4-nano", "gemma-4-uncensored")
+            vision_model = next(
+                (candidate for candidate in preferred_vision_ids if candidate in vision_ids),
+                vision_ids[0],
+            )
+            analysis_messages = [{
+                "role": "user",
+                "content": [
+                    *[
+                        part
+                        for message in messages
+                        for part in (message.get("content") if isinstance(message.get("content"), list) else [])
+                        if isinstance(part, dict) and part.get("type") == "image_url"
+                    ],
+                    {
+                        "type": "text",
+                        "text": (
+                            "Analyze the supplied image and write one detailed image-generation prompt that "
+                            "faithfully preserves its subject, identity, composition, pose, colors, and important "
+                            f"details while applying this requested change: {prompt}. Return only the final prompt."
+                        ),
+                    },
+                ],
+            }]
+            analysis = call_llm(
+                provider=provider,
+                api_key=api_key,
+                model=vision_model,
+                messages=analysis_messages,
+                timeout=timeout,
+                base_url=provider_url,
+                max_tokens=1200,
+            )
+            prompt = analysis["content"]
+        size_map = {
+            "1:1": "1024x1024",
+            "16:9": "1536x1024",
+            "4:3": "1536x1024",
+            "9:16": "1024x1536",
+        }
+        payload = {
+            "model": model or config.get("default_model", ""),
+            "prompt": prompt,
+            "n": 1,
+            "response_format": "b64_json",
+            "size": image_size if re.fullmatch(r"\d+x\d+", image_size or "") else size_map.get(aspect_ratio, "1024x1024"),
+        }
+    else:
+        payload = {
+            "model": model or config.get("default_model", ""),
+            "messages": messages,
+        }
+        if modalities:
+            payload["modalities"] = modalities
+        image_config: dict[str, Any] = {}
+        if aspect_ratio:
+            image_config["aspect_ratio"] = aspect_ratio
+        if image_size:
+            image_config["image_size"] = image_size
+        if image_config:
+            payload["image_config"] = image_config
     headers: dict[str, str] = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -1115,30 +1291,53 @@ def call_image_generation(
     except urllib.error.URLError as exc:
         raise RuntimeError(f"{config.get('label', provider)} request failed: {exc.reason}") from exc
 
-    choices = body.get("choices") or []
-    if not choices:
-        raise RuntimeError(f"{config.get('label', provider)} returned no choices.")
-    message = choices[0].get("message") or {}
-    images = message.get("images") or []
     results: list[str] = []
-    for img in images:
-        if isinstance(img, dict):
-            data = img.get("data") or ""
-            b64 = img.get("b64_json") or ""
-            url_str = img.get("url") or ""
-            if b64:
-                results.append(b64)
-            elif data:
-                results.append(data)
-            elif url_str:
-                results.append(url_str)
-        elif isinstance(img, str):
-            results.append(img)
-    # Some providers may embed image in content as markdown or data URL
+
+    def append_image_value(value: Any) -> None:
+        if not value:
+            return
+        if isinstance(value, dict):
+            for key in ("b64_json", "data", "url", "image_url", "imageUrl"):
+                before = len(results)
+                append_image_value(value.get(key))
+                if len(results) > before:
+                    break
+            return
+        text = str(value).strip()
+        if not text:
+            return
+        if text.startswith("data:image"):
+            results.append(text.split(",", 1)[1] if "," in text else text)
+        elif text.startswith("https://"):
+            request = urllib.request.Request(text, method="GET")
+            try:
+                with urllib.request.urlopen(request, timeout=timeout) as response:
+                    results.append(base64.b64encode(response.read()).decode("ascii"))
+            except urllib.error.HTTPError as exc:
+                detail = exc.read().decode("utf-8", errors="replace")
+                raise RuntimeError(f"{config.get('label', provider)} image download HTTP {exc.code}: {detail}") from exc
+            except urllib.error.URLError as exc:
+                raise RuntimeError(f"{config.get('label', provider)} image download failed: {exc.reason}") from exc
+        else:
+            results.append(text)
+
+    choices = body.get("choices") or []
+    if choices:
+        message = choices[0].get("message") or {}
+        for img in message.get("images") or []:
+            append_image_value(img)
+        if not results:
+            content = (message.get("content") or "").strip()
+            if content.startswith("data:image"):
+                append_image_value(content)
+
     if not results:
-        content = (message.get("content") or "").strip()
-        if content.startswith("data:image"):
-            results.append(content.split(",", 1)[1] if "," in content else content)
+        for item in body.get("data") or []:
+            append_image_value(item)
+
+    if not results:
+        append_image_value(body.get("url") or body.get("image_url") or body.get("imageUrl"))
+
     return results
 
 
@@ -1180,7 +1379,7 @@ def call_video_generation(
 
     config = VIDEO_PROVIDERS.get(provider, VIDEO_PROVIDERS.get("openrouter", {}))
 
-    url = (base_url or config.get("url", "")).rstrip("/")
+    url = resolve_provider_endpoint(base_url or config.get("url", ""), "chat/completions")
     if not url:
         raise RuntimeError(f"No URL configured for video provider: {provider}")
 
@@ -1318,7 +1517,7 @@ def call_audio_generation(
     from server.config import AUDIO_PROVIDERS
 
     config = AUDIO_PROVIDERS.get(provider, AUDIO_PROVIDERS.get("morpheus", {}))
-    url = (base_url or config.get("url", "")).rstrip("/")
+    url = resolve_provider_endpoint(base_url or config.get("url", ""), "audio/speech")
     if not url:
         raise RuntimeError(f"No URL configured for audio provider: {provider}")
 

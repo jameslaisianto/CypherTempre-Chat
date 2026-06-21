@@ -38,8 +38,7 @@ from server.timechain import (
     load_local_env,
     sanitize_session_id,
 )
-from server.llm import safe_persona_metadata
-from server.llm import serialize_history
+from server.llm import list_provider_models, safe_persona_metadata, serialize_history
 
 # Compose the full HTML page from template and JS
 HTML = HTML_TEMPLATE.replace("{ui_js}", UI_JS)
@@ -55,12 +54,17 @@ MANIFEST_JSON = json.dumps({
 }, indent=2)
 
 SW_JS = (
-    "const CACHE_NAME = 'cyphertempre-v1';\\n"
+    "const CACHE_NAME = 'cyphertempre-v3';\\n"
     "const URLS_TO_CACHE = ['/','/manifest.json','/icon.svg'];\\n"
     "self.addEventListener('install', e => {\\n"
+    "  self.skipWaiting();\\n"
     "  e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(URLS_TO_CACHE)));\\n"
     "});\\n"
+    "self.addEventListener('activate', e => {\\n"
+    "  e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))).then(() => self.clients.claim()));\\n"
+    "});\\n"
     "self.addEventListener('fetch', e => {\\n"
+    "  if (e.request.mode === 'navigate') { e.respondWith(fetch(e.request).catch(() => caches.match('/'))); return; }\\n"
     "  e.respondWith(caches.match(e.request).then(r => r || fetch(e.request)));\\n"
     "});\\n"
 )
@@ -125,13 +129,16 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                         "provider": user_settings.get("provider") or app.provider,
                         "default_model": user_settings.get("default_model") or app.default_model,
                         "base_url": user_settings.get("base_url") or app.base_url or default_provider_url(user_settings.get("provider") or app.provider),
-                        "image_provider": user_settings.get("image_provider", ""),
-                        "image_model": user_settings.get("image_model", ""),
-                        "video_provider": user_settings.get("video_provider", ""),
-                        "video_model": user_settings.get("video_model", ""),
-                        "audio_provider": user_settings.get("audio_provider", ""),
-                        "audio_model": user_settings.get("audio_model", ""),
-                        "audio_api_key": user_settings.get("audio_api_key", ""),
+                        "image_provider": user_settings.get("image_provider") or app.image_provider,
+                        "image_model": user_settings.get("image_model") or app.image_model,
+                        "image_edit_model": user_settings.get("image_edit_model") or app.image_edit_model,
+                        "image_base_url": user_settings.get("image_base_url") or app.image_base_url,
+                        "video_provider": user_settings.get("video_provider") or app.video_provider,
+                        "video_model": user_settings.get("video_model") or app.video_model,
+                        "video_base_url": user_settings.get("video_base_url") or app.video_base_url,
+                        "audio_provider": user_settings.get("audio_provider") or app.audio_provider,
+                        "audio_model": user_settings.get("audio_model") or app.audio_model,
+                        "audio_base_url": user_settings.get("audio_base_url") or app.audio_base_url,
                         "has_env_key": bool(app.api_key),
                         "personas": {
                             key: safe_persona_metadata(key, value)
@@ -143,6 +150,17 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                         "marketplace_personas": with_runtime_metadata(mp_personas),
                         "poq": app.poq,
                     })
+                    return
+                if path == "/api/models":
+                    provider = (self.query_param("provider") or app.provider).strip().lower()
+                    base_url = app.base_url if provider == app.provider else default_provider_url(provider)
+                    catalog = list_provider_models(
+                        provider=provider,
+                        base_url=base_url,
+                        api_key=app.api_key,
+                        timeout=min(app.timeout, 20.0),
+                    )
+                    self.send_json({"ok": True, "provider": provider, "catalog": catalog})
                     return
                 if path == "/api/guide/topics":
                     self.send_json({"ok": True, "topics": guide_topics_payload()})
@@ -923,6 +941,19 @@ def main() -> int:
         base_url=base_url,
         timeout=timeout,
         poq=build_poq_config(args),
+        image_provider=os.environ.get("IMAGE_PROVIDER", provider).strip().lower(),
+        image_model=os.environ.get("IMAGE_MODEL", "").strip(),
+        image_edit_model=os.environ.get("IMAGE_EDIT_MODEL", "").strip(),
+        image_api_key=os.environ.get("IMAGE_API_KEY", "").strip() or api_key,
+        image_base_url=os.environ.get("IMAGE_BASE_URL", "").strip() or base_url,
+        video_provider=os.environ.get("VIDEO_PROVIDER", provider).strip().lower(),
+        video_model=os.environ.get("VIDEO_MODEL", "").strip(),
+        video_api_key=os.environ.get("VIDEO_API_KEY", "").strip() or api_key,
+        video_base_url=os.environ.get("VIDEO_BASE_URL", "").strip() or base_url,
+        audio_provider=os.environ.get("AUDIO_PROVIDER", provider).strip().lower(),
+        audio_model=os.environ.get("AUDIO_MODEL", "").strip(),
+        audio_api_key=os.environ.get("AUDIO_API_KEY", "").strip() or api_key,
+        audio_base_url=os.environ.get("AUDIO_BASE_URL", "").strip() or base_url,
     )
     migrate_global_data_to_users(app)
     handler = make_handler(app)

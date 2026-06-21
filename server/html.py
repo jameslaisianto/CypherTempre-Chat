@@ -2125,6 +2125,9 @@ HTML_TEMPLATE = r"""<!doctype html>
       box-shadow: 0 10px 30px -10px rgba(0,0,0,0.6);
     }
     .imagegen-result-card img { display: block; width: 100%; height: auto; }
+    .imagegen-panel > .imagegen-card > .imagegen-result .imagegen-result-card img {
+      max-height: 58vh; object-fit: contain; background: #08090c;
+    }
     .imagegen-result-meta { 
       display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; 
       font-size: 12px; color: #888; background: #111; border-top: 1px solid #222; 
@@ -2143,6 +2146,7 @@ HTML_TEMPLATE = r"""<!doctype html>
       color: #777; cursor: pointer; transition: all .2s; background: #0a0a0c; 
     }
     .imagegen-dropzone:hover { border-color: #0ea5e9; background: rgba(14,165,233,0.06); }
+    .imagegen-dropzone input[type="file"] { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
     .imagegen-dropzone svg { width: 36px; height: 36px; stroke-width: 1.6; margin-bottom: 12px; opacity: 0.7; }
     .imagegen-dropzone p { margin: 0; font-size: 14px; }
     .imagegen-dropzone .hint { font-size: 11.5px; margin-top: 6px; opacity: 0.6; }
@@ -2203,6 +2207,128 @@ HTML_TEMPLATE = r"""<!doctype html>
       .imagegen-gallery-grid { grid-template-columns: repeat(3, 1fr); gap: 8px; }
       .imagegen-card { padding: 14px; }
       .imagegen-controls button.primary { width: 100%; }
+    }
+    .imagegen-gallery-grid .thumb .download {
+      position: absolute; top: 8px; left: 8px; width: 26px; height: 26px; border-radius: 8px;
+      background: rgba(0,0,0,.62); color: #fff; border: 0; display: none; align-items: center;
+      justify-content: center; font-size: 15px; cursor: pointer;
+    }
+    .imagegen-gallery-grid .thumb:hover .download { display: flex; }
+
+    /* ImageGen Creative Canvas */
+    .imagegen {
+      background:
+        radial-gradient(circle at 20% 0%, rgba(14,165,233,.09), transparent 34%),
+        radial-gradient(circle at 80% 100%, rgba(124,58,237,.08), transparent 32%),
+        #07080a;
+    }
+    .imagegen-shell { grid-template-columns: minmax(0,1fr) 230px; gap: 16px; padding: 18px 20px; }
+    .imagegen-workspace { overflow-y: auto; padding-right: 3px; scrollbar-width: thin; }
+    .imagegen-header { align-items: center; padding: 0 2px; }
+    .imagegen-header h2 { font-size: 24px; font-weight: 750; letter-spacing: -.7px; }
+    .imagegen-header p { margin-top: 2px; color: #777d89; }
+    .imagegen-card {
+      padding: 16px;
+      gap: 14px;
+      border-radius: 18px;
+      background: linear-gradient(145deg, rgba(20,22,28,.96), rgba(12,13,17,.96));
+      border-color: rgba(255,255,255,.075);
+      box-shadow: 0 18px 55px rgba(0,0,0,.22);
+    }
+    .imagegen-compare-stage { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 12px; }
+    .imagegen-media-stage {
+      position: relative; min-height: 330px; max-height: 54vh; overflow: hidden;
+      display: grid; place-items: center; border: 1px solid rgba(255,255,255,.08);
+      border-radius: 15px; background:
+        linear-gradient(45deg, rgba(255,255,255,.018) 25%, transparent 25% 75%, rgba(255,255,255,.018) 75%),
+        linear-gradient(45deg, rgba(255,255,255,.018) 25%, #090a0d 25% 75%, rgba(255,255,255,.018) 75%);
+      background-size: 24px 24px; background-position: 0 0, 12px 12px;
+    }
+    .imagegen-stage-label {
+      position: absolute; top: 10px; left: 10px; z-index: 2; padding: 5px 9px;
+      border-radius: 999px; background: rgba(7,8,10,.78); border: 1px solid rgba(255,255,255,.08);
+      color: #aeb4c0; font-size: 10px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase;
+      backdrop-filter: blur(10px);
+    }
+    .imagegen-media-stage .imagegen-preview,
+    .imagegen-media-stage .imagegen-result-card,
+    .imagegen-media-stage .imagegen-result-card img {
+      width: 100%; height: 100%; max-height: 54vh; object-fit: contain; border: 0; border-radius: 0;
+    }
+    .imagegen-media-stage .imagegen-result { width: 100%; height: 100%; min-height: 330px; }
+    .imagegen-media-stage .imagegen-result-card { display: grid; grid-template-rows: minmax(0,1fr) auto; }
+    .imagegen-stage-empty { text-align: center; color: #606775; max-width: 240px; padding: 28px; }
+    .imagegen-stage-empty strong { display: block; color: #aeb4c0; margin-bottom: 5px; font-size: 13px; }
+    .imagegen-source-stage.has-source .imagegen-dropzone { display: none; }
+    .imagegen-source-stage:not(.has-source) .imagegen-preview,
+    .imagegen-source-stage:not(.has-source) .imagegen-replace-source { display: none; }
+    .imagegen-replace-source {
+      position: absolute; right: 10px; top: 10px; z-index: 3; border: 1px solid rgba(255,255,255,.12);
+      background: rgba(7,8,10,.78); color: #e8edf5; border-radius: 999px; padding: 6px 11px;
+      font-size: 11px; font-weight: 700; cursor: pointer; backdrop-filter: blur(10px);
+    }
+    .imagegen-source-stage .imagegen-dropzone {
+      width: calc(100% - 24px); min-height: 230px; display: grid; place-items: center;
+      align-content: center; padding: 24px; border-color: rgba(103,212,255,.24);
+      background: rgba(14,165,233,.035);
+    }
+    .imagegen-control-dock {
+      display: grid; grid-template-columns: minmax(220px,1fr) minmax(180px,.65fr) auto;
+      gap: 10px; align-items: end; padding: 12px; border: 1px solid rgba(255,255,255,.07);
+      border-radius: 14px; background: rgba(7,8,11,.72);
+    }
+    .imagegen-control-dock .imagegen-prompt-wrap { grid-column: 1 / -1; }
+    .imagegen-control-dock textarea { min-height: 78px; max-height: 150px; }
+    .imagegen-control-dock select { min-width: 0; width: 100%; }
+    .imagegen-action-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .imagegen-action {
+      min-height: 34px; border-radius: 9px; padding: 0 12px; border: 1px solid rgba(255,255,255,.1);
+      background: rgba(255,255,255,.045); color: #dce3ec; font-size: 11px; font-weight: 700; cursor: pointer;
+    }
+    .imagegen-action:hover { border-color: rgba(103,212,255,.55); color: #fff; }
+    .imagegen-result-meta { gap: 10px; flex-wrap: wrap; }
+    .imagegen-result-meta .imagegen-action-row { margin-left: auto; }
+    .imagegen-progress {
+      min-height: 330px; display: grid; place-items: center; text-align: center; padding: 32px;
+      color: #aeb4c0; background: radial-gradient(circle, rgba(14,165,233,.08), transparent 55%);
+    }
+    .imagegen-progress .imagegen-spinner { width: 28px; height: 28px; margin: 0 auto 12px; }
+    .imagegen-progress strong { display: block; color: #eef5ff; margin-bottom: 6px; }
+    .imagegen-sidebar { padding: 14px; border-radius: 16px; }
+    .imagegen-gallery-grid { grid-template-columns: 1fr; gap: 9px; }
+    .imagegen-gallery-grid .thumb { aspect-ratio: 4/3; }
+    .imagegen-lightbox {
+      position: fixed; inset: 0; z-index: 500; display: grid; place-items: center; padding: 32px;
+      background: rgba(0,0,0,.88); backdrop-filter: blur(18px);
+    }
+    .imagegen-lightbox.hidden { display: none; }
+    .imagegen-lightbox img { max-width: min(94vw, 1500px); max-height: 88vh; object-fit: contain; border-radius: 14px; box-shadow: 0 24px 90px #000; }
+    .imagegen-lightbox-close {
+      position: fixed; top: 20px; right: 24px; width: 42px; height: 42px; border-radius: 50%;
+      border: 1px solid rgba(255,255,255,.16); background: rgba(20,20,24,.8); color: white; font-size: 24px; cursor: pointer;
+    }
+    @media (max-width: 1120px) {
+      .imagegen-shell { grid-template-columns: minmax(0,1fr) 190px; padding: 16px; }
+      .imagegen-control-dock { grid-template-columns: 1fr 1fr; }
+      .imagegen-control-dock button.primary { grid-column: 1/-1; }
+    }
+    @media (max-width: 820px) {
+      .imagegen-shell { grid-template-columns: 1fr; grid-template-rows: minmax(0,1fr) auto; overflow-y: auto; }
+      .imagegen-workspace { overflow: visible; }
+      .imagegen-sidebar { max-height: none; }
+      .imagegen-gallery-grid { display: flex; overflow-x: auto; }
+      .imagegen-gallery-grid .thumb { width: 128px; flex: 0 0 128px; }
+    }
+    @media (max-width: 680px) {
+      .imagegen-header { align-items: flex-start; }
+      .imagegen-modes { width: 100%; }
+      .imagegen-modes button { flex: 1; justify-content: center; padding-inline: 10px; }
+      .imagegen-compare-stage { grid-template-columns: 1fr; }
+      .imagegen-media-stage { min-height: 280px; max-height: 48vh; }
+      .imagegen-control-dock { grid-template-columns: 1fr; }
+      .imagegen-control-dock textarea,
+      .imagegen-control-dock .imagegen-prompt-wrap,
+      .imagegen-control-dock button.primary { grid-column: auto; }
     }
 
     /* =====================================================
@@ -2727,23 +2853,42 @@ HTML_TEMPLATE = r"""<!doctype html>
 
           <div id="imagegen-panel-edit" class="imagegen-panel hidden">
             <div class="imagegen-card">
-              <div class="imagegen-dropzone" id="imagegen-edit-dropzone">
-                <input type="file" id="imagegen-edit-file" accept="image/*">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-                <p>Drop an image here, or click to browse</p>
-                <div class="hint">Supports PNG, JPG, WEBP</div>
+              <div class="imagegen-compare-stage">
+                <div id="imagegen-source-stage" class="imagegen-media-stage imagegen-source-stage">
+                  <span class="imagegen-stage-label">Source</span>
+                  <div class="imagegen-dropzone" id="imagegen-edit-dropzone">
+                    <input type="file" id="imagegen-edit-file" accept="image/*">
+                    <div>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                      <p>Drop an image here, or click to browse</p>
+                      <div class="hint">PNG, JPG or WEBP · one click to select</div>
+                    </div>
+                  </div>
+                  <img id="imagegen-edit-preview" class="imagegen-preview hidden" alt="Edit preview">
+                  <button id="imagegen-replace-source" class="imagegen-replace-source" type="button">Replace image</button>
+                </div>
+                <div id="imagegen-output-stage" class="imagegen-media-stage">
+                  <span class="imagegen-stage-label">Result</span>
+                  <div id="imagegen-edit-result" class="imagegen-result">
+                    <div class="imagegen-stage-empty"><strong>Your edited image appears here</strong>Source and result stay side-by-side for comparison.</div>
+                  </div>
+                </div>
               </div>
-              <img id="imagegen-edit-preview" class="imagegen-preview hidden" alt="Edit preview">
-              <div class="imagegen-prompt-wrap">
-                <textarea id="imagegen-edit-prompt" placeholder="Describe what changes to make..."></textarea>
-              </div>
-              <div class="imagegen-controls">
+              <div class="imagegen-control-dock">
+                <div class="imagegen-prompt-wrap">
+                  <textarea id="imagegen-edit-prompt" placeholder="Describe the change — enhance detail, restore color, change lighting..."></textarea>
+                </div>
                 <select id="imagegen-edit-model">
                   <option value="google/gemini-2.5-flash-image-preview">Gemini Flash Image (Edit)</option>
                 </select>
+                <select id="imagegen-edit-aspect">
+                  <option value="1:1">1:1 Square</option>
+                  <option value="4:3">4:3 Classic</option>
+                  <option value="16:9">16:9 Wide</option>
+                  <option value="9:16">9:16 Portrait</option>
+                </select>
                 <button id="imagegen-edit-btn" class="primary" type="button">Apply Edit</button>
               </div>
-              <div id="imagegen-edit-result" class="imagegen-result"></div>
             </div>
           </div>
 
@@ -2770,6 +2915,11 @@ HTML_TEMPLATE = r"""<!doctype html>
         </aside>
       </div>
     </main>
+
+    <div id="imagegen-lightbox" class="imagegen-lightbox hidden" role="dialog" aria-modal="true" aria-label="Image preview">
+      <button id="imagegen-lightbox-close" class="imagegen-lightbox-close" type="button" aria-label="Close preview">&times;</button>
+      <img id="imagegen-lightbox-image" alt="Full image preview">
+    </div>
 
     <!-- ===================== 2026 CINE TEMPRE STUDIO (VideoGen) ===================== -->
     <main id="videogen-view" class="videogen hidden">
@@ -3003,6 +3153,7 @@ HTML_TEMPLATE = r"""<!doctype html>
               <div class="settings-field">
                 <label for="provider">Provider</label>
                 <select id="provider">
+                  <option value="surplusintelligence">SurplusIntelligence</option>
                   <option value="morpheus">Morpheus</option>
                   <option value="openrouter">OpenRouter</option>
                   <option value="kimi-code">Kimi Code</option>
@@ -3013,7 +3164,8 @@ HTML_TEMPLATE = r"""<!doctype html>
               </div>
               <div class="settings-field">
                 <label for="model">Model</label>
-                <input id="model" value="gemma-4-uncensored">
+                <input id="model" list="chat-model-options" value="gemma-4-uncensored">
+                <datalist id="chat-model-options"></datalist>
                 <div class="hint" id="model-hint">Morpheus default: gemma-4-uncensored.</div>
               </div>
             </div>
@@ -3041,6 +3193,7 @@ HTML_TEMPLATE = r"""<!doctype html>
               <div class="settings-field">
                 <label for="image-provider">Provider</label>
                 <select id="image-provider">
+                  <option value="surplusintelligence">SurplusIntelligence</option>
                   <option value="openrouter">OpenRouter</option>
                   <option value="morpheus">Morpheus</option>
                   <option value="other">Other</option>
@@ -3058,6 +3211,11 @@ HTML_TEMPLATE = r"""<!doctype html>
               <input id="image-api-key" type="password" autocomplete="off" placeholder="Leave empty to use main key">
               <div class="hint">Separate key for image generation. Falls back to main API key if empty.</div>
             </div>
+            <div class="settings-field">
+              <label for="image-base-url">Base URL (optional)</label>
+              <input id="image-base-url" type="url" autocomplete="off" placeholder="Leave empty to use provider default">
+              <div class="hint">Optional image endpoint override for custom providers.</div>
+            </div>
           </div>
 
           <!-- Video Generation Provider -->
@@ -3066,6 +3224,7 @@ HTML_TEMPLATE = r"""<!doctype html>
               <div class="settings-field">
                 <label for="video-provider">Provider</label>
                 <select id="video-provider">
+                  <option value="surplusintelligence">SurplusIntelligence</option>
                   <option value="openrouter">OpenRouter</option>
                   <option value="morpheus">Morpheus</option>
                   <option value="demo">Demo (built-in)</option>
@@ -3084,6 +3243,10 @@ HTML_TEMPLATE = r"""<!doctype html>
               <input id="video-api-key" type="password" autocomplete="off" placeholder="Leave empty to use main key">
               <div class="hint">Separate key for video generation. Falls back to main API key if empty.</div>
             </div>
+            <div class="settings-field">
+              <label for="video-base-url">Base URL (optional)</label>
+              <input id="video-base-url" type="url" autocomplete="off" placeholder="Leave empty to use provider default">
+            </div>
           </div>
 
           <!-- Audio Generation Provider -->
@@ -3092,6 +3255,7 @@ HTML_TEMPLATE = r"""<!doctype html>
               <div class="settings-field">
                 <label for="audio-provider">Provider</label>
                 <select id="audio-provider">
+                  <option value="surplusintelligence">SurplusIntelligence</option>
                   <option value="morpheus">Morpheus</option>
                   <option value="openrouter">OpenRouter</option>
                   <option value="other">Other</option>
@@ -3100,7 +3264,8 @@ HTML_TEMPLATE = r"""<!doctype html>
               </div>
               <div class="settings-field">
                 <label for="audio-model">Model</label>
-                <input id="audio-model" type="text" placeholder="e.g., tts-kokoro or your Morpheus TTS model id" value="tts-kokoro">
+                <input id="audio-model" list="audio-model-options" type="text" placeholder="Select a supported audio model" value="tts-kokoro">
+                <datalist id="audio-model-options"></datalist>
                 <div class="hint" id="audio-model-hint">Use a real Morpheus TTS model id, such as tts-kokoro, not a chat model name</div>
               </div>
             </div>
@@ -3108,6 +3273,10 @@ HTML_TEMPLATE = r"""<!doctype html>
               <label for="audio-api-key">API Key (optional override)</label>
               <input id="audio-api-key" type="password" autocomplete="off" placeholder="Leave empty to use main key">
               <div class="hint">Separate key for audio generation. Falls back to main API key if empty.</div>
+            </div>
+            <div class="settings-field">
+              <label for="audio-base-url">Base URL (optional)</label>
+              <input id="audio-base-url" type="url" autocomplete="off" placeholder="Leave empty to use provider default">
             </div>
             <div class="settings-row" style="margin-top:12px;">
               <button id="audio-test-provider" class="secondary" type="button">Test Audio Connection</button>

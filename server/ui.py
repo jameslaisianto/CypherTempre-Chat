@@ -66,17 +66,22 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       settingsStatus: document.getElementById('settings-status'),
       provider: document.getElementById('provider'),
       modelHint: document.getElementById('model-hint'),
+      chatModelOptions: document.getElementById('chat-model-options'),
 
       // Separate providers for creative modalities
       imageProvider: document.getElementById('image-provider'),
       imageModel: document.getElementById('image-model'),
       imageApiKey: document.getElementById('image-api-key'),
+      imageBaseUrl: document.getElementById('image-base-url'),
       videoProvider: document.getElementById('video-provider'),
       videoModel: document.getElementById('video-model'),
       videoApiKey: document.getElementById('video-api-key'),
+      videoBaseUrl: document.getElementById('video-base-url'),
       audioProvider: document.getElementById('audio-provider'),
       audioModel: document.getElementById('audio-model'),
+      audioModelOptions: document.getElementById('audio-model-options'),
       audioApiKey: document.getElementById('audio-api-key'),
+      audioBaseUrl: document.getElementById('audio-base-url'),
       audioTestProvider: document.getElementById('audio-test-provider'),
       statusDot: document.getElementById('status-dot'),
       statusLabel: document.getElementById('status-label'),
@@ -177,6 +182,9 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       imagegenEditPrompt: document.getElementById('imagegen-edit-prompt'),
       imagegenEditBtn: document.getElementById('imagegen-edit-btn'),
       imagegenEditResult: document.getElementById('imagegen-edit-result'),
+      imagegenEditAspect: document.getElementById('imagegen-edit-aspect'),
+      imagegenSourceStage: document.getElementById('imagegen-source-stage'),
+      imagegenReplaceSource: document.getElementById('imagegen-replace-source'),
       imagegenRedefineGallery: document.getElementById('imagegen-redefine-gallery'),
       imagegenRedefinePrompt: document.getElementById('imagegen-redefine-prompt'),
       imagegenRedefineBtn: document.getElementById('imagegen-redefine-btn'),
@@ -184,6 +192,9 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       imagegenGalleryGrid: document.getElementById('imagegen-gallery-grid'),
       imagegenGalleryCount: document.getElementById('imagegen-gallery-count'),
       imagegenEditModel: document.getElementById('imagegen-edit-model'),
+      imagegenLightbox: document.getElementById('imagegen-lightbox'),
+      imagegenLightboxImage: document.getElementById('imagegen-lightbox-image'),
+      imagegenLightboxClose: document.getElementById('imagegen-lightbox-close'),
 
       // CineTempre VideoGen (2026 Director's Cut)
       navVideogen: document.getElementById('nav-videogen'),
@@ -256,7 +267,9 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     let marketplaceData = [];
     let currentDetailId = null;
     let configPersistTimer = null;
+    const discoveredModelProviders = new Set();
     const providerEndpoints = {
+      surplusintelligence: 'https://api.surplusintelligence.ai/v1',
       morpheus: 'https://api.mor.org/api/v1/chat/completions',
       openrouter: 'https://openrouter.ai/api/v1/chat/completions',
       'kimi-code': 'https://api.kimi.com/coding/v1/chat/completions',
@@ -266,12 +279,21 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
 
     // Recommended default models for the new Image / Video provider sections
     const imageProviderDefaults = {
+      surplusintelligence: '',
       openrouter: 'black-forest-labs/flux.2-pro',
       morpheus: 'grok-imagine-image',
       other: ''
     };
 
+    const imageEditProviderDefaults = {
+      surplusintelligence: '',
+      openrouter: 'google/gemini-2.5-flash-image-preview',
+      morpheus: 'nano-banana-2',
+      other: ''
+    };
+
     const videoProviderDefaults = {
+      surplusintelligence: '',
       openrouter: 'black-forest-labs/flux-video-pro',
       morpheus: 'grok-video-2026',
       demo: 'demo-cinematic',
@@ -280,6 +302,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
 
     // Curated model lists for Image and Video providers (used to populate the selects)
     const imageModelsByProvider = {
+      surplusintelligence: [],
       openrouter: [
         'black-forest-labs/flux.2-pro',
         'google/gemini-2.5-flash-image-preview',
@@ -293,7 +316,22 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       other: []
     };
 
+    const imageEditModelsByProvider = {
+      surplusintelligence: [],
+      openrouter: [
+        'google/gemini-2.5-flash-image-preview',
+        'google/gemini-2.5-flash-image',
+        'sourceful/riverflow-v2-pro'
+      ],
+      morpheus: [
+        'nano-banana-2',
+        'grok-imagine-image'
+      ],
+      other: []
+    };
+
     const videoModelsByProvider = {
+      surplusintelligence: [],
       openrouter: [
         'black-forest-labs/flux-video-pro'
       ],
@@ -327,12 +365,15 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     }
 
     function syncCreativeStudioModelsFromSettings() {
-      const imageModel = els.imageModel?.value?.trim() || localStorage.getItem('ct_image_model') || '';
-      const videoModel = els.videoModel?.value?.trim() || localStorage.getItem('ct_video_model') || '';
+      const imageModel = els.imageModel?.value?.trim() || '';
+      const imageEditModel = els.imagegenEditModel?.value?.trim() || '';
+      const videoModel = els.videoModel?.value?.trim() || '';
 
       if (imageModel) {
         setSelectValue(els.imagegenModel, imageModel);
-        setSelectValue(els.imagegenEditModel, imageModel);
+      }
+      if (imageEditModel) {
+        setSelectValue(els.imagegenEditModel, imageEditModel);
       }
       if (videoModel) {
         setSelectValue(els.videogenModel, videoModel);
@@ -562,6 +603,12 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       // Image Generation specific
       if (els.imageProvider) localStorage.setItem('ct_image_provider', els.imageProvider.value);
       if (els.imageModel) localStorage.setItem('ct_image_model', els.imageModel.value.trim());
+      if (els.imagegenEditModel) localStorage.setItem('ct_image_edit_model', els.imagegenEditModel.value.trim());
+      if (els.imageBaseUrl) {
+        const imageBaseUrl = els.imageBaseUrl.value.trim();
+        if (imageBaseUrl) localStorage.setItem('ct_image_base_url', imageBaseUrl);
+        else localStorage.removeItem('ct_image_base_url');
+      }
       if (els.imageApiKey) {
         const ik = els.imageApiKey.value.trim();
         if (ik) localStorage.setItem('ct_image_api_key', ik);
@@ -571,6 +618,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       // Video Generation specific
       if (els.videoProvider) localStorage.setItem('ct_video_provider', els.videoProvider.value);
       if (els.videoModel) localStorage.setItem('ct_video_model', els.videoModel.value.trim());
+      if (els.videoBaseUrl) localStorage.setItem('ct_video_base_url', els.videoBaseUrl.value.trim());
       if (els.videoApiKey) {
         const vk = els.videoApiKey.value.trim();
         if (vk) localStorage.setItem('ct_video_api_key', vk);
@@ -580,6 +628,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       // Audio Generation specific
       if (els.audioProvider) localStorage.setItem('ct_audio_provider', els.audioProvider.value);
       if (els.audioModel) localStorage.setItem('ct_audio_model', els.audioModel.value.trim());
+      if (els.audioBaseUrl) localStorage.setItem('ct_audio_base_url', els.audioBaseUrl.value.trim());
       if (els.audioApiKey) {
         const ak = els.audioApiKey.value.trim();
         if (ak) localStorage.setItem('ct_audio_api_key', ak);
@@ -611,8 +660,14 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
             base_url: els.baseUrl?.value?.trim() || '',
             image_provider: els.imageProvider?.value || '',
             image_model: els.imageModel?.value?.trim() || '',
+            image_edit_model: els.imagegenEditModel?.value?.trim() || '',
+            image_base_url: els.imageBaseUrl?.value?.trim() || '',
             video_provider: els.videoProvider?.value || '',
             video_model: els.videoModel?.value?.trim() || '',
+            video_base_url: els.videoBaseUrl?.value?.trim() || '',
+            audio_provider: els.audioProvider?.value || '',
+            audio_model: els.audioModel?.value?.trim() || '',
+            audio_base_url: els.audioBaseUrl?.value?.trim() || '',
           }),
         });
       } catch {
@@ -743,6 +798,10 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
         }
       }
       if (els.imageApiKey) els.imageApiKey.value = '';
+      if (els.imageBaseUrl) els.imageBaseUrl.value = localStorage.getItem('ct_image_base_url') || config.image_base_url || '';
+      if (config.image_edit_model && !localStorage.getItem('ct_image_edit_model')) {
+        localStorage.setItem('ct_image_edit_model', config.image_edit_model);
+      }
 
       // Restore Video Generation settings
       if (els.videoProvider) {
@@ -757,6 +816,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
         }
       }
       if (els.videoApiKey) els.videoApiKey.value = '';
+      if (els.videoBaseUrl) els.videoBaseUrl.value = localStorage.getItem('ct_video_base_url') || config.video_base_url || '';
       
       // Restore Audio Generation settings
       if (els.audioProvider) {
@@ -766,6 +826,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
         els.audioModel.value = normalizeAudioModel(localStorage.getItem('ct_audio_model') || config.audio_model || 'tts-kokoro');
       }
       if (els.audioApiKey) els.audioApiKey.value = '';
+      if (els.audioBaseUrl) els.audioBaseUrl.value = localStorage.getItem('ct_audio_base_url') || config.audio_base_url || '';
       
       if (!personas[els.persona.value] && !customPersonas[els.persona.value] && !creatorPersonas[els.persona.value] && !publicPersonas[els.persona.value] && !marketplacePersonas[els.persona.value]) els.persona.value = 'companion';
       els.domain.value = localStorage.getItem('ct_domain') || 'auto';
@@ -818,6 +879,118 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       if (!els.baseUrl.value.trim() && providerEndpoints[provider]) els.baseUrl.value = providerEndpoints[provider];
     }
 
+    function openImagePreview(src, alt = 'Image preview') {
+      if (!src || !els.imagegenLightbox || !els.imagegenLightboxImage) return;
+      els.imagegenLightboxImage.src = src;
+      els.imagegenLightboxImage.alt = alt;
+      els.imagegenLightbox.classList.remove('hidden');
+    }
+
+    function closeImagePreview() {
+      if (!els.imagegenLightbox || !els.imagegenLightboxImage) return;
+      els.imagegenLightbox.classList.add('hidden');
+      els.imagegenLightboxImage.removeAttribute('src');
+    }
+
+    function downloadImage(src, filename = 'cyphertempre-image.png') {
+      if (!src) return;
+      const link = document.createElement('a');
+      link.href = src;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    }
+
+    function renderImageResultCard(data, operation) {
+      const src = data.data_url || `/api/imagegen/image/${encodeURIComponent(data.image.id)}`;
+      const filename = `cyphertempre-${operation}-${data.image.id}.png`;
+      return `
+        <div class="imagegen-result-card">
+          <img src="${esc(src)}" alt="${esc(operation)} image" data-preview-src="${esc(src)}">
+          <div class="imagegen-result-meta">
+            <span class="badge">${esc(data.image.model)}</span>
+            <span>${esc(operation)} · ${esc(data.image.aspect_ratio)}</span>
+            <div class="imagegen-action-row">
+              <button class="imagegen-action" type="button" data-image-preview="${esc(src)}">Preview</button>
+              <button class="imagegen-action" type="button" data-image-download="${esc(src)}" data-filename="${esc(filename)}">Download</button>
+            </div>
+          </div>
+        </div>`;
+    }
+
+    function wireImageActions(container) {
+      if (!container) return;
+      container.querySelectorAll('[data-image-preview]').forEach(button => {
+        button.addEventListener('click', () => openImagePreview(button.dataset.imagePreview));
+      });
+      container.querySelectorAll('[data-image-download]').forEach(button => {
+        button.addEventListener('click', () => downloadImage(button.dataset.imageDownload, button.dataset.filename));
+      });
+      container.querySelectorAll('img[data-preview-src]').forEach(image => {
+        image.addEventListener('click', () => openImagePreview(image.dataset.previewSrc, image.alt));
+      });
+    }
+
+    function setImageEditSource(file) {
+      if (!file || !file.type.startsWith('image/')) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        els.imagegenEditPreview.src = reader.result;
+        els.imagegenEditPreview.classList.remove('hidden');
+        els.imagegenSourceStage?.classList.add('has-source');
+        els.imagegenEditPreview.onclick = () => openImagePreview(reader.result, file.name);
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function populateModelDatalist(element, models) {
+      if (!element) return;
+      element.innerHTML = '';
+      (models || []).forEach(model => {
+        const option = document.createElement('option');
+        option.value = model.id;
+        option.label = model.name || model.id;
+        element.appendChild(option);
+      });
+    }
+
+    function chooseSupportedModel(element, models, fallback = '') {
+      if (!element || !models?.length) return;
+      const ids = models.map(model => model.id);
+      const current = element.value?.trim() || fallback;
+      element.value = ids.includes(current) ? current : ids[0];
+    }
+
+    async function refreshProviderModels(provider = 'surplusintelligence', force = false) {
+      if (provider !== 'surplusintelligence') return;
+      if (!force && discoveredModelProviders.has(provider)) return;
+      const data = await api('/api/models?' + new URLSearchParams({ provider }));
+      const catalog = data.catalog || {};
+      discoveredModelProviders.add(provider);
+
+      populateModelDatalist(els.chatModelOptions, catalog.chat);
+      populateModelDatalist(els.audioModelOptions, catalog.audio);
+      imageModelsByProvider[provider] = (catalog.image || []).map(model => model.id);
+      imageEditModelsByProvider[provider] = (catalog.image_edit || []).map(model => model.id);
+      videoModelsByProvider[provider] = (catalog.video || []).map(model => model.id);
+
+      if (els.provider?.value === provider) {
+        chooseSupportedModel(els.model, catalog.chat, localStorage.getItem('ct_model') || '');
+        if (els.modelHint) els.modelHint.textContent = `${catalog.chat?.length || 0} supported chat models detected.`;
+      }
+      if (els.imageProvider?.value === provider) {
+        updateImageModelOptions();
+        updateImageEditModelOptions();
+      }
+      if (els.videoProvider?.value === provider) updateVideoModelOptions();
+      if (els.audioProvider?.value === provider) {
+        chooseSupportedModel(els.audioModel, catalog.audio, localStorage.getItem('ct_audio_model') || '');
+      }
+      syncCreativeStudioModelsFromSettings();
+      updateEffectiveProviderSummary();
+    }
+
     function updateImageModelOptions() {
       if (!els.imageProvider || !els.imageModel) return;
       const prov = els.imageProvider.value;
@@ -848,9 +1021,52 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       } else {
         els.imageModel.value = imageProviderDefaults[prov] || list[0];
       }
+      localStorage.setItem('ct_image_model', els.imageModel.value);
 
       if (els.imageModelHint) {
         els.imageModelHint.textContent = prov === 'other' ? 'Enter the exact model name your provider expects.' : 'Recommended models for this provider.';
+      }
+    }
+
+    function updateImageEditModelOptions() {
+      if (!els.imageProvider || !els.imagegenEditModel) return;
+      const prov = els.imageProvider.value;
+      const list = imageEditModelsByProvider[prov] || [];
+      const current = els.imagegenEditModel.value || localStorage.getItem('ct_image_edit_model') || '';
+
+      els.imagegenEditModel.innerHTML = '';
+
+      if (list.length === 0) {
+        const opt = document.createElement('option');
+        const discoveryUnavailable = prov === 'surplusintelligence';
+        opt.value = discoveryUnavailable ? '' : (current || '');
+        opt.textContent = discoveryUnavailable
+          ? 'No image-editing models are currently advertised'
+          : (current || 'Enter custom edit model');
+        els.imagegenEditModel.appendChild(opt);
+        els.imagegenEditModel.disabled = discoveryUnavailable;
+        if (els.imagegenEditBtn) els.imagegenEditBtn.disabled = discoveryUnavailable;
+        if (discoveryUnavailable) localStorage.removeItem('ct_image_edit_model');
+        return;
+      }
+
+      els.imagegenEditModel.disabled = false;
+      if (els.imagegenEditBtn) els.imagegenEditBtn.disabled = false;
+      list.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m;
+        opt.textContent = m;
+        els.imagegenEditModel.appendChild(opt);
+      });
+
+      if (current && list.includes(current)) {
+        els.imagegenEditModel.value = current;
+      } else {
+        els.imagegenEditModel.value = imageEditProviderDefaults[prov] || list[0];
+      }
+      localStorage.setItem('ct_image_edit_model', els.imagegenEditModel.value);
+      if (prov === 'surplusintelligence' && els.imagegenEditResult) {
+        els.imagegenEditModel.title = 'Source-aware edit: analyzes the upload, then regenerates it with the selected image model.';
       }
     }
 
@@ -883,6 +1099,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       } else {
         els.videoModel.value = videoProviderDefaults[prov] || list[0];
       }
+      localStorage.setItem('ct_video_model', els.videoModel.value);
 
       if (els.videoModelHint) {
         els.videoModelHint.textContent = prov === 'demo' ? 'Built-in demo clip. No API key required.' :
@@ -912,13 +1129,17 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       localStorage.removeItem('ct_api_key');
       localStorage.removeItem('ct_image_provider');
       localStorage.removeItem('ct_image_model');
+      localStorage.removeItem('ct_image_edit_model');
+      localStorage.removeItem('ct_image_base_url');
       localStorage.removeItem('ct_image_api_key');
       localStorage.removeItem('ct_video_provider');
       localStorage.removeItem('ct_video_model');
       localStorage.removeItem('ct_video_api_key');
+      localStorage.removeItem('ct_video_base_url');
       localStorage.removeItem('ct_audio_provider');
       localStorage.removeItem('ct_audio_model');
       localStorage.removeItem('ct_audio_api_key');
+      localStorage.removeItem('ct_audio_base_url');
       api('/api/config').then(config => applyLocalConfig(config));
     }
 
@@ -961,6 +1182,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
             response_format: 'mp3',
             speed: 1,
             provider: els.audioProvider?.value || localStorage.getItem('ct_audio_provider') || 'morpheus',
+            baseUrl: els.audioBaseUrl?.value || localStorage.getItem('ct_audio_base_url') || '',
             model: normalizeAudioModel(els.audioModel?.value || localStorage.getItem('ct_audio_model') || 'tts-kokoro'),
             apiKey: (els.audioApiKey?.value || els.apiKey?.value || '').trim(),
           })
@@ -1726,6 +1948,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       updateProviderHint();
       updateSetup();
       saveLocalConfig();
+      refreshProviderModels(els.provider.value).catch(error => setStatusDetail(error.message));
     });
     els.model.addEventListener('input', () => { updateSetup(); saveLocalConfig(); validatePersonaModel(); });
     els.apiKey.addEventListener('input', () => { updateSetup(); saveLocalConfig(); });
@@ -1744,7 +1967,14 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
 
     if (els.imageProvider) {
       els.imageProvider.addEventListener('change', () => {
-        updateImageModelOptions();
+        refreshProviderModels(els.imageProvider.value)
+          .then(() => {
+            updateImageModelOptions();
+            updateImageEditModelOptions();
+          })
+          .catch(error => {
+            if (els.imageModelHint) els.imageModelHint.textContent = error.message;
+          });
         saveLocalConfig();
         refreshProviderSummary();
       });
@@ -1760,10 +1990,18 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       saveLocalConfig();
       refreshProviderSummary();
     });
+    if (els.imageBaseUrl) els.imageBaseUrl.addEventListener('input', () => {
+      saveLocalConfig();
+      refreshProviderSummary();
+    });
 
     if (els.videoProvider) {
       els.videoProvider.addEventListener('change', () => {
-        updateVideoModelOptions();
+        refreshProviderModels(els.videoProvider.value)
+          .then(updateVideoModelOptions)
+          .catch(error => {
+            if (els.videoModelHint) els.videoModelHint.textContent = error.message;
+          });
         saveLocalConfig();
         refreshProviderSummary();
       });
@@ -1776,6 +2014,11 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       });
     }
     if (els.videoApiKey) els.videoApiKey.addEventListener('input', () => {
+      saveLocalConfig();
+      refreshProviderSummary();
+    });
+    if (els.audioProvider) els.audioProvider.addEventListener('change', () => {
+      refreshProviderModels(els.audioProvider.value).catch(error => setStatusDetail(error.message));
       saveLocalConfig();
       refreshProviderSummary();
     });
@@ -2557,8 +2800,9 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       }
       els.imagegenGalleryGrid.innerHTML = images.map(img => `
         <div class="thumb" data-id="${esc(img.id)}" data-ring="${esc(img.ring_n || '')}" title="${esc(img.prompt)}">
-          <img src="/api/imagegen/image/${esc(img.id)}" loading="lazy" alt="">
+          <img src="/api/imagegen/image/${esc(img.id)}" loading="lazy" alt="${esc(img.prompt)}" data-preview-src="/api/imagegen/image/${esc(img.id)}">
           ${img.ring_n ? `<span class="ring">v${esc(img.ring_n)}</span>` : ''}
+          <button class="download" data-id="${esc(img.id)}" title="Download">↓</button>
           <button class="del" data-id="${esc(img.id)}" title="Delete">&times;</button>
         </div>
       `).join('');
@@ -2568,6 +2812,14 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
             e.stopPropagation();
             deleteImagegenImage(thumb.dataset.id);
             return;
+          }
+          if (e.target.classList.contains('download')) {
+            e.stopPropagation();
+            downloadImage(`/api/imagegen/image/${thumb.dataset.id}`, `cyphertempre-${thumb.dataset.id}.png`);
+            return;
+          }
+          if (e.target.tagName === 'IMG') {
+            openImagePreview(e.target.src, e.target.alt);
           }
           imagegenSelectedImageId = thumb.dataset.id;
           renderImagegenRedefineGallery();
@@ -2613,17 +2865,12 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
             aspect_ratio: els.imagegenAspect?.value,
             apiKey: localStorage.getItem('ct_image_api_key') || localStorage.getItem('ct_api_key') || '',
             provider: localStorage.getItem('ct_image_provider') || localStorage.getItem('ct_provider') || 'openrouter',
+            baseUrl: localStorage.getItem('ct_image_base_url') || '',
           })
         });
         els.imagegenStatus.textContent = '';
-        els.imagegenResult.innerHTML = `
-          <div class="imagegen-result-card">
-            <img src="${esc(data.data_url)}" alt="Generated image">
-            <div class="imagegen-result-meta">
-              <span class="badge">${esc(data.image.model)}</span>
-              <span>${esc(data.image.aspect_ratio)} · ${new Date(data.image.created_at).toLocaleString()}</span>
-            </div>
-          </div>`;
+        els.imagegenResult.innerHTML = renderImageResultCard(data, 'Generate');
+        wireImageActions(els.imagegenResult);
         renderImagegenLineage({ ok: true, chain: [data.image] });
         loadImagegen();
       } catch (error) {
@@ -2643,7 +2890,9 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
         els.imagegenEditResult.innerHTML = '<div class="imagegen-error">Upload an image first.</div>'; return;
       }
       imagegenBusy = true;
-      els.imagegenEditResult.innerHTML = '<div class="imagegen-status"><div class="imagegen-spinner"></div><span>Editing image...</span></div>';
+      els.imagegenEditBtn.disabled = true;
+      els.imagegenEditBtn.textContent = 'Working…';
+      els.imagegenEditResult.innerHTML = '<div class="imagegen-progress"><div><div class="imagegen-spinner"></div><strong>Source-aware edit in progress</strong><span>Source-aware edit: analyzing your image, then rendering the final result. This can take several minutes.</span></div></div>';
       let imageData = '';
       if (els.imagegenEditPreview?.src?.startsWith('data:')) {
         imageData = els.imagegenEditPreview.src;
@@ -2662,25 +2911,22 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
             prompt,
             image: imageData,
             model: els.imagegenEditModel?.value || els.imagegenModel?.value,
-            aspect_ratio: els.imagegenAspect?.value,
+            aspect_ratio: els.imagegenEditAspect?.value || els.imagegenAspect?.value,
             apiKey: localStorage.getItem('ct_image_api_key') || localStorage.getItem('ct_api_key') || '',
             provider: localStorage.getItem('ct_image_provider') || localStorage.getItem('ct_provider') || 'openrouter',
+            baseUrl: localStorage.getItem('ct_image_base_url') || '',
           })
         });
-        els.imagegenEditResult.innerHTML = `
-          <div class="imagegen-result-card">
-            <img src="${esc(data.data_url)}" alt="Edited image">
-            <div class="imagegen-result-meta">
-              <span class="badge">${esc(data.image.model)}</span>
-              <span>Edit · ${esc(data.image.aspect_ratio)}</span>
-            </div>
-          </div>`;
+        els.imagegenEditResult.innerHTML = renderImageResultCard(data, 'Edit');
+        wireImageActions(els.imagegenEditResult);
         renderImagegenLineage({ ok: true, chain: [data.image] });
         loadImagegen();
       } catch (error) {
         els.imagegenEditResult.innerHTML = `<div class="imagegen-error">${esc(error.message)}</div>`;
       } finally {
         imagegenBusy = false;
+        els.imagegenEditBtn.disabled = false;
+        els.imagegenEditBtn.textContent = 'Apply Edit';
       }
     }
 
@@ -2696,33 +2942,30 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
         return;
       }
       imagegenBusy = true;
-      els.imagegenRedefineResult.innerHTML = '<div class="imagegen-status"><div class="imagegen-spinner"></div><span>Redefining image...</span></div>';
+      els.imagegenRedefineBtn.disabled = true;
+      els.imagegenRedefineResult.innerHTML = '<div class="imagegen-progress"><div><div class="imagegen-spinner"></div><strong>Building a new interpretation</strong><span>Analyzing the source and rendering its next version. This may take several minutes.</span></div></div>';
       try {
         const data = await api('/api/imagegen/redefine', {
           method: 'POST',
           body: JSON.stringify({
             source_id: imagegenSelectedImageId,
             prompt,
-            model: els.imagegenModel?.value,
+            model: els.imagegenEditModel?.value || els.imagegenModel?.value,
             aspect_ratio: els.imagegenAspect?.value,
             apiKey: localStorage.getItem('ct_image_api_key') || localStorage.getItem('ct_api_key') || '',
             provider: localStorage.getItem('ct_image_provider') || localStorage.getItem('ct_provider') || 'openrouter',
+            baseUrl: localStorage.getItem('ct_image_base_url') || '',
           })
         });
-        els.imagegenRedefineResult.innerHTML = `
-          <div class="imagegen-result-card">
-            <img src="${esc(data.data_url)}" alt="Redefined image">
-            <div class="imagegen-result-meta">
-              <span class="badge">${esc(data.image.model)}</span>
-              <span>Redefine · ${esc(data.image.aspect_ratio)}</span>
-            </div>
-          </div>`;
+        els.imagegenRedefineResult.innerHTML = renderImageResultCard(data, 'Redefine');
+        wireImageActions(els.imagegenRedefineResult);
         loadImagegenLineage(data.image.id);
         loadImagegen();
       } catch (error) {
         els.imagegenRedefineResult.innerHTML = `<div class="imagegen-error">${esc(error.message)}</div>`;
       } finally {
         imagegenBusy = false;
+        els.imagegenRedefineBtn.disabled = false;
       }
     }
 
@@ -2764,13 +3007,13 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     if (els.imagegenEditFile) {
       els.imagegenEditFile.addEventListener('change', (e) => {
         const file = e.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = () => {
-          els.imagegenEditPreview.src = reader.result;
-          els.imagegenEditPreview.classList.remove('hidden');
-        };
-        reader.readAsDataURL(file);
+        setImageEditSource(file);
+      });
+    }
+    if (els.imagegenReplaceSource) {
+      els.imagegenReplaceSource.addEventListener('click', (event) => {
+        event.stopPropagation();
+        els.imagegenEditFile?.click();
       });
     }
     if (els.imagegenEditDropzone) {
@@ -2785,14 +3028,18 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
         const dt = new DataTransfer();
         dt.items.add(file);
         els.imagegenEditFile.files = dt.files;
-        const reader = new FileReader();
-        reader.onload = () => {
-          els.imagegenEditPreview.src = reader.result;
-          els.imagegenEditPreview.classList.remove('hidden');
-        };
-        reader.readAsDataURL(file);
+        setImageEditSource(file);
       });
     }
+    if (els.imagegenLightboxClose) els.imagegenLightboxClose.addEventListener('click', closeImagePreview);
+    if (els.imagegenLightbox) {
+      els.imagegenLightbox.addEventListener('click', event => {
+        if (event.target === els.imagegenLightbox) closeImagePreview();
+      });
+    }
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && !els.imagegenLightbox?.classList.contains('hidden')) closeImagePreview();
+    });
 
     // ===================================================================
     // CINE TEMPRE STUDIO — 2026 VideoGen (creative, filmic, director-grade)
@@ -2978,6 +3225,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
             motion_preset: els.videogenMotion?.value || 'Static',
             apiKey: localStorage.getItem('ct_video_api_key') || localStorage.getItem('ct_api_key') || '',
             provider: localStorage.getItem('ct_video_provider') || prov,
+            baseUrl: localStorage.getItem('ct_video_base_url') || '',
           })
         });
         els.videogenStatus.textContent = '';
@@ -3019,6 +3267,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
             model: normalizeAudioModel(els.audioModel?.value || localStorage.getItem('ct_audio_model') || 'tts-kokoro'),
             apiKey: localStorage.getItem('ct_audio_api_key') || localStorage.getItem('ct_api_key') || '',
             provider: localStorage.getItem('ct_audio_provider') || localStorage.getItem('ct_provider') || 'morpheus',
+            baseUrl: localStorage.getItem('ct_audio_base_url') || '',
           })
         });
         els.audiogenStatus.textContent = '';
@@ -3069,6 +3318,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
             motion_preset: els.videogenImgMotion?.value || 'Dolly In',
             apiKey: localStorage.getItem('ct_video_api_key') || localStorage.getItem('ct_api_key') || '',
             provider,
+            baseUrl: localStorage.getItem('ct_video_base_url') || '',
           })
         });
         els.videogenImgResult.innerHTML = `
@@ -3107,6 +3357,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
             motion_preset: 'Remix',
             apiKey: localStorage.getItem('ct_video_api_key') || localStorage.getItem('ct_api_key') || '',
             provider,
+            baseUrl: localStorage.getItem('ct_video_base_url') || '',
           })
         });
         els.videogenRemixResult.innerHTML = `
@@ -3141,7 +3392,6 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
         if (!selected) return;
         localStorage.setItem('ct_image_model', selected);
         setSelectValue(els.imageModel, selected);
-        setSelectValue(els.imagegenEditModel, selected);
         schedulePersistUserConfig();
         refreshProviderSummary();
       });
@@ -3150,9 +3400,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       els.imagegenEditModel.addEventListener('change', () => {
         const selected = els.imagegenEditModel.value?.trim() || '';
         if (!selected) return;
-        localStorage.setItem('ct_image_model', selected);
-        setSelectValue(els.imageModel, selected);
-        setSelectValue(els.imagegenModel, selected);
+        localStorage.setItem('ct_image_edit_model', selected);
         schedulePersistUserConfig();
         refreshProviderSummary();
       });
@@ -3204,10 +3452,22 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     checkAuth().then((authenticated) => {
       if (!authenticated) return;
       return api('/api/config')
-        .then(config => {
+        .then(async config => {
           applyLocalConfig(config);
+          const startupProviders = new Set([
+            els.provider?.value,
+            els.imageProvider?.value,
+            els.videoProvider?.value,
+            els.audioProvider?.value,
+          ].filter(Boolean));
+          const discoveryResults = await Promise.allSettled(
+            [...startupProviders].map(provider => refreshProviderModels(provider))
+          );
+          const discoveryFailure = discoveryResults.find(result => result.status === 'rejected');
+          if (discoveryFailure) setStatusDetail(`Model discovery: ${discoveryFailure.reason?.message || discoveryFailure.reason}`);
           // Populate Image/Video model selects with curated options based on chosen providers
           updateImageModelOptions();
+          updateImageEditModelOptions();
           updateVideoModelOptions();
           updateEffectiveProviderSummary();
           return syncCustomPersonasToServer(config).then(() => {

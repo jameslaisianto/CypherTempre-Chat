@@ -23,17 +23,21 @@ def handle_videogen_generate(handler: Any, app: Any) -> None:
         return
     payload = handler.read_json()
     prompt = str(payload.get("prompt", "")).strip()
-    model = str(payload.get("model", VIDEO_PROVIDERS.get("openrouter", {}).get("default_model", ""))).strip()
+    model = str(payload.get("model") or app.video_model or "").strip()
+    base_url = str(payload.get("baseUrl") or app.video_base_url or app.base_url).strip()
     aspect_ratio = str(payload.get("aspect_ratio", "16:9")).strip() or "16:9"
     duration = str(payload.get("duration", "8s")).strip() or "8s"
     motion_preset = str(payload.get("motion_preset", "Static")).strip() or "Static"
-    api_key = str(payload.get("apiKey", app.api_key)).strip() or app.api_key
-    provider = str(payload.get("provider", "openrouter")).strip() or "openrouter"
+    api_key = str(payload.get("apiKey") or app.video_api_key or app.api_key).strip()
+    provider = str(payload.get("provider") or app.video_provider or app.provider).strip()
     if not prompt:
         handler.send_json({"ok": False, "error": "prompt is required"}, HTTPStatus.BAD_REQUEST)
         return
     if provider != "demo" and not api_key:
         handler.send_json({"ok": False, "error": "API key is required"}, HTTPStatus.BAD_REQUEST)
+        return
+    if provider != "demo" and not model:
+        handler.send_json({"ok": False, "error": "Video model is required"}, HTTPStatus.BAD_REQUEST)
         return
 
     messages = [{"role": "user", "content": prompt}]
@@ -47,6 +51,7 @@ def handle_videogen_generate(handler: Any, app: Any) -> None:
             aspect_ratio=aspect_ratio,
             duration=duration,
             motion_preset=motion_preset,
+            base_url=base_url,
         )
     except Exception as exc:
         handler.send_json({"ok": False, "error": str(exc)})
@@ -83,12 +88,13 @@ def handle_videogen_img2vid(handler: Any, app: Any) -> None:
     payload = handler.read_json()
     prompt = str(payload.get("prompt", "")).strip()
     image_data = str(payload.get("image", "")).strip()
-    model = str(payload.get("model", VIDEO_PROVIDERS.get("openrouter", {}).get("default_model", ""))).strip()
+    model = str(payload.get("model") or app.video_model or "").strip()
+    base_url = str(payload.get("baseUrl") or app.video_base_url or app.base_url).strip()
     aspect_ratio = str(payload.get("aspect_ratio", "16:9")).strip() or "16:9"
     duration = str(payload.get("duration", "8s")).strip() or "8s"
     motion_preset = str(payload.get("motion_preset", "Dolly In")).strip() or "Dolly In"
-    api_key = str(payload.get("apiKey", app.api_key)).strip() or app.api_key
-    provider = str(payload.get("provider", "openrouter")).strip() or "openrouter"
+    api_key = str(payload.get("apiKey") or app.video_api_key or app.api_key).strip()
+    provider = str(payload.get("provider") or app.video_provider or app.provider).strip()
     if not prompt:
         handler.send_json({"ok": False, "error": "prompt is required"}, HTTPStatus.BAD_REQUEST)
         return
@@ -97,6 +103,9 @@ def handle_videogen_img2vid(handler: Any, app: Any) -> None:
         return
     if provider != "demo" and not api_key:
         handler.send_json({"ok": False, "error": "API key is required"}, HTTPStatus.BAD_REQUEST)
+        return
+    if provider != "demo" and not model:
+        handler.send_json({"ok": False, "error": "Video model is required"}, HTTPStatus.BAD_REQUEST)
         return
     if image_data.startswith("data:image"):
         image_data = image_data.split(",", 1)[1]
@@ -116,6 +125,7 @@ def handle_videogen_img2vid(handler: Any, app: Any) -> None:
             aspect_ratio=aspect_ratio,
             duration=duration,
             motion_preset=motion_preset,
+            base_url=base_url,
         )
     except Exception as exc:
         handler.send_json({"ok": False, "error": str(exc)})
@@ -152,12 +162,13 @@ def handle_videogen_remix(handler: Any, app: Any) -> None:
     payload = handler.read_json()
     source_id = str(payload.get("source_id", "")).strip()
     prompt = str(payload.get("prompt", "")).strip()
-    model = str(payload.get("model", VIDEO_PROVIDERS.get("openrouter", {}).get("default_model", ""))).strip()
+    model = str(payload.get("model") or app.video_model or "").strip()
+    base_url = str(payload.get("baseUrl") or app.video_base_url or app.base_url).strip()
     aspect_ratio = str(payload.get("aspect_ratio", "16:9")).strip() or "16:9"
     duration = str(payload.get("duration", "8s")).strip() or "8s"
     motion_preset = str(payload.get("motion_preset", "Remix")).strip() or "Remix"
-    api_key = str(payload.get("apiKey", app.api_key)).strip() or app.api_key
-    provider = str(payload.get("provider", "openrouter")).strip() or "openrouter"
+    api_key = str(payload.get("apiKey") or app.video_api_key or app.api_key).strip()
+    provider = str(payload.get("provider") or app.video_provider or app.provider).strip()
     if not source_id:
         handler.send_json({"ok": False, "error": "source_id is required"}, HTTPStatus.BAD_REQUEST)
         return
@@ -166,6 +177,9 @@ def handle_videogen_remix(handler: Any, app: Any) -> None:
         return
     if provider != "demo" and not api_key:
         handler.send_json({"ok": False, "error": "API key is required"}, HTTPStatus.BAD_REQUEST)
+        return
+    if provider != "demo" and not model:
+        handler.send_json({"ok": False, "error": "Video model is required"}, HTTPStatus.BAD_REQUEST)
         return
 
     vid_path = app.videogen_video_path(user["username"], source_id)
@@ -196,6 +210,7 @@ def handle_videogen_remix(handler: Any, app: Any) -> None:
             aspect_ratio=aspect_ratio,
             duration=duration,
             motion_preset=motion_preset,
+            base_url=base_url,
         )
     except Exception as exc:
         handler.send_json({"ok": False, "error": str(exc)})

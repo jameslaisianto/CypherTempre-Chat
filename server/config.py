@@ -10,6 +10,12 @@ DEFAULT_MODEL = "gemma-4-uncensored"
 DEFAULT_PROVIDER = "morpheus"
 
 PROVIDERS: dict[str, dict[str, Any]] = {
+    "surplusintelligence": {
+        "url": "https://api.surplusintelligence.ai/v1/chat/completions",
+        "needs_referer": False,
+        "needs_title": False,
+        "label": "SurplusIntelligence",
+    },
     "morpheus": {
         "url": "https://api.mor.org/api/v1/chat/completions",
         "needs_referer": False,
@@ -43,6 +49,13 @@ PROVIDERS: dict[str, dict[str, Any]] = {
 }
 
 IMAGE_PROVIDERS: dict[str, dict[str, Any]] = {
+    "surplusintelligence": {
+        "url": "https://api.surplusintelligence.ai/v1/chat/completions",
+        "needs_referer": False,
+        "needs_title": False,
+        "label": "SurplusIntelligence",
+        "default_model": "",
+    },
     "openrouter": {
         "url": "https://openrouter.ai/api/v1/chat/completions",
         "needs_referer": True,
@@ -67,6 +80,13 @@ IMAGE_PROVIDERS: dict[str, dict[str, Any]] = {
 }
 
 VIDEO_PROVIDERS: dict[str, dict[str, Any]] = {
+    "surplusintelligence": {
+        "url": "https://api.surplusintelligence.ai/v1/chat/completions",
+        "needs_referer": False,
+        "needs_title": False,
+        "label": "SurplusIntelligence",
+        "default_model": "",
+    },
     "openrouter": {
         "url": "https://openrouter.ai/api/v1/chat/completions",
         "needs_referer": True,
@@ -98,6 +118,13 @@ VIDEO_PROVIDERS: dict[str, dict[str, Any]] = {
 }
 
 AUDIO_PROVIDERS: dict[str, dict[str, Any]] = {
+    "surplusintelligence": {
+        "url": "https://api.surplusintelligence.ai/v1/audio/speech",
+        "needs_referer": False,
+        "needs_title": False,
+        "label": "SurplusIntelligence",
+        "default_model": "",
+    },
     "morpheus": {
         "url": "https://api.mor.org/api/v1/audio/speech",
         "needs_referer": False,
@@ -144,16 +171,23 @@ def default_provider_url(provider: str) -> str:
     return str(config.get("url", ""))
 
 
+def resolve_provider_endpoint(base_url: str, endpoint: str) -> str:
+    trimmed = (base_url or "").strip().rstrip("/")
+    suffix = endpoint.strip("/")
+    if not trimmed:
+        return ""
+    if trimmed.endswith(f"/{suffix}"):
+        return trimmed
+    if trimmed.endswith("/v1"):
+        return f"{trimmed}/{suffix}"
+    return trimmed
+
+
 def resolve_chat_completions_url(provider: str, base_url: str = "") -> str:
     url = (base_url or "").strip() or default_provider_url(provider)
     if not url:
         raise RuntimeError("Endpoint is required. Set it in Settings or BASE_URL.")
-    trimmed = url.rstrip("/")
-    if trimmed.endswith("/chat/completions"):
-        return trimmed
-    if trimmed.endswith("/v1"):
-        return f"{trimmed}/chat/completions"
-    return trimmed
+    return resolve_provider_endpoint(url, "chat/completions")
 
 
 CYPHER_TEMPRE_OPENCLAW_PROMPT = (

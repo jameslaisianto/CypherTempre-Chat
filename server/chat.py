@@ -406,11 +406,14 @@ def handle_save_user_config(handler: Any, app: Any) -> None:
         "base_url": str(payload.get("base_url", "")).strip(),
         "image_provider": str(payload.get("image_provider", "")).strip(),
         "image_model": str(payload.get("image_model", "")).strip(),
+        "image_edit_model": str(payload.get("image_edit_model", "")).strip(),
+        "image_base_url": str(payload.get("image_base_url", "")).strip(),
         "video_provider": str(payload.get("video_provider", "")).strip(),
         "video_model": str(payload.get("video_model", "")).strip(),
+        "video_base_url": str(payload.get("video_base_url", "")).strip(),
         "audio_provider": str(payload.get("audio_provider", "")).strip(),
         "audio_model": str(payload.get("audio_model", "")).strip(),
-        "audio_api_key": str(payload.get("audio_api_key", "")).strip(),
+        "audio_base_url": str(payload.get("audio_base_url", "")).strip(),
     }
     saved = app.save_user_settings(user["username"], settings)
     handler.send_json({"ok": True, "settings": saved})

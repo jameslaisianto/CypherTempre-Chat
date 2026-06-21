@@ -1,12 +1,49 @@
 import inspect
 import json
 import unittest
+from http import HTTPStatus
 from unittest import mock
 from types import SimpleNamespace
 
 import marketplace
 import server
+import server.audiogen as audiogen_handlers
+import server.imagegen as imagegen_handlers
+import server.videogen as videogen_handlers
 from server.trainer import Trainer
+
+
+TINY_PNG_B64 = "iVBORw0KGgo="
+
+
+class FakeHTTPResponse:
+    def __init__(self, body: dict | bytes):
+        self.body = body if isinstance(body, bytes) else json.dumps(body).encode("utf-8")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def read(self):
+        return self.body
+
+
+class FakeImagegenHandler:
+    def __init__(self, payload: dict, username: str = "tester"):
+        self.payload = payload
+        self.username = username
+        self.responses = []
+
+    def _auth_user(self):
+        return {"username": self.username}
+
+    def read_json(self):
+        return dict(self.payload)
+
+    def send_json(self, body, status=HTTPStatus.OK):
+        self.responses.append((status, body))
 
 
 class PoQGateTests(unittest.TestCase):
@@ -924,6 +961,213 @@ class PromptAssemblyTests(unittest.TestCase):
         path.mkdir()
         self.addCleanup(lambda: server.shutil.rmtree(path, ignore_errors=True))
         return path
+
+    def make_app(self):
+        return server.App(
+            self.make_workspace(),
+            server.pathlib.Path("timechain.py").resolve(),
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="sk-test",
+            base_url="",
+            timeout=5,
+        )
+
+    def test_image_generation_parses_openrouter_image_url_response_and_sends_config(self):
+        body = {
+            "choices": [{
+                "message": {
+                    "images": [{
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/png;base64,{TINY_PNG_B64}"},
+                    }]
+                }
+            }]
+        }
+        with mock.patch("urllib.request.urlopen", return_value=FakeHTTPResponse(body)) as urlopen:
+            images = server.call_image_generation(
+                provider="openrouter",
+                api_key="sk-test",
+                model="black-forest-labs/flux.2-pro",
+                messages=[{"role": "user", "content": "make a test image"}],
+                timeout=5,
+                modalities=["image"],
+                aspect_ratio="16:9",
+                image_size="2K",
+            )
+
+        self.assertEqual(images, [TINY_PNG_B64])
+        request = urlopen.call_args.args[0]
+        payload = json.loads(request.data.decode("utf-8"))
+        self.assertEqual(payload["modalities"], ["image"])
+        self.assertEqual(payload["image_config"], {"aspect_ratio": "16:9", "image_size": "2K"})
+
+    def test_image_generation_parses_camel_case_image_url_response(self):
+        body = {
+            "choices": [{
+                "message": {
+                    "images": [{
+                        "type": "image_url",
+                        "imageUrl": {"url": f"data:image/png;base64,{TINY_PNG_B64}"},
+                    }]
+                }
+            }]
+        }
+        with mock.patch("urllib.request.urlopen", return_value=FakeHTTPResponse(body)):
+            images = server.call_image_generation(
+                provider="openrouter",
+                api_key="sk-test",
+                model="google/gemini-2.5-flash-image-preview",
+                messages=[{"role": "user", "content": "make a test image"}],
+                timeout=5,
+                modalities=["image", "text"],
+            )
+
+        self.assertEqual(images, [TINY_PNG_B64])
+
+    def test_image_generation_parses_openai_compatible_data_response(self):
+        body = {"data": [{"b64_json": TINY_PNG_B64}]}
+        with mock.patch("urllib.request.urlopen", return_value=FakeHTTPResponse(body)):
+            images = server.call_image_generation(
+                provider="other",
+                api_key="sk-test",
+                model="custom-image-model",
+                messages=[{"role": "user", "content": "make a test image"}],
+                timeout=5,
+                base_url="https://example.test/v1/images/generations",
+            )
+
+        self.assertEqual(images, [TINY_PNG_B64])
+
+    def test_image_generation_downloads_https_image_url_as_base64(self):
+        body = {"choices": [{"message": {"images": [{"url": "https://cdn.example.test/image.png"}]}}]}
+        image_bytes = b"\x89PNG\r\n\x1a\n"
+        with mock.patch("urllib.request.urlopen", side_effect=[FakeHTTPResponse(body), FakeHTTPResponse(image_bytes)]):
+            images = server.call_image_generation(
+                provider="openrouter",
+                api_key="sk-test",
+                model="black-forest-labs/flux.2-pro",
+                messages=[{"role": "user", "content": "make a test image"}],
+                timeout=5,
+                modalities=["image"],
+            )
+
+        self.assertEqual(images, [server.base64.b64encode(image_bytes).decode("ascii")])
+
+    def test_image_generation_downloads_top_level_https_image_url_as_base64(self):
+        body = {"url": "https://cdn.example.test/image.png"}
+        image_bytes = b"\x89PNG\r\n\x1a\n"
+        with mock.patch("urllib.request.urlopen", side_effect=[FakeHTTPResponse(body), FakeHTTPResponse(image_bytes)]):
+            images = server.call_image_generation(
+                provider="other",
+                api_key="sk-test",
+                model="custom-image-model",
+                messages=[{"role": "user", "content": "make a test image"}],
+                timeout=5,
+                base_url="https://example.test/v1/images/generations",
+            )
+
+        self.assertEqual(images, [server.base64.b64encode(image_bytes).decode("ascii")])
+
+    def test_image_generation_returns_empty_list_when_response_has_no_images(self):
+        body = {"choices": [{"message": {"content": "No image here."}}]}
+        with mock.patch("urllib.request.urlopen", return_value=FakeHTTPResponse(body)):
+            images = server.call_image_generation(
+                provider="openrouter",
+                api_key="sk-test",
+                model="black-forest-labs/flux.2-pro",
+                messages=[{"role": "user", "content": "make a test image"}],
+                timeout=5,
+                modalities=["image"],
+            )
+
+        self.assertEqual(images, [])
+
+    def test_imagegen_generate_handler_passes_aspect_and_base_url_and_saves_image(self):
+        app = self.make_app()
+        handler = FakeImagegenHandler({
+            "prompt": "a reliable test image",
+            "model": "black-forest-labs/flux.2-pro",
+            "provider": "openrouter",
+            "aspect_ratio": "16:9",
+            "image_size": "2K",
+            "baseUrl": "https://image.example.test/v1/chat/completions",
+        })
+
+        with mock.patch("server.imagegen.call_image_generation", return_value=[TINY_PNG_B64]) as call_image:
+            imagegen_handlers.handle_imagegen_generate(handler, app)
+
+        status, body = handler.responses[-1]
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["image"]["mode"], "generate")
+        self.assertTrue(app.gallery_image_path("tester", body["image"]["id"]).exists())
+        self.assertEqual(app.load_gallery_index("tester")["images"][0]["id"], body["image"]["id"])
+        call_image.assert_called_once()
+        kwargs = call_image.call_args.kwargs
+        self.assertEqual(kwargs["aspect_ratio"], "16:9")
+        self.assertEqual(kwargs["image_size"], "2K")
+        self.assertEqual(kwargs["base_url"], "https://image.example.test/v1/chat/completions")
+
+    def test_imagegen_edit_handler_requires_image_and_records_edit_mode(self):
+        app = self.make_app()
+        missing = FakeImagegenHandler({"prompt": "make it brighter"})
+        imagegen_handlers.handle_imagegen_edit(missing, app)
+        self.assertEqual(missing.responses[-1][0], HTTPStatus.BAD_REQUEST)
+        self.assertEqual(missing.responses[-1][1]["error"], "image is required")
+
+        handler = FakeImagegenHandler({
+            "prompt": "make it brighter",
+            "image": f"data:image/webp;base64,{TINY_PNG_B64}",
+            "model": "google/gemini-2.5-flash-image-preview",
+            "provider": "openrouter",
+            "aspect_ratio": "1:1",
+            "baseUrl": "https://image.example.test/v1/chat/completions",
+        })
+        with mock.patch("server.imagegen.call_image_generation", return_value=[TINY_PNG_B64]) as call_image:
+            imagegen_handlers.handle_imagegen_edit(handler, app)
+
+        status, body = handler.responses[-1]
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["image"]["mode"], "edit")
+        kwargs = call_image.call_args.kwargs
+        self.assertEqual(kwargs["operation"], "edit")
+        self.assertEqual(kwargs["aspect_ratio"], "1:1")
+        self.assertEqual(kwargs["base_url"], "https://image.example.test/v1/chat/completions")
+        image_part = kwargs["messages"][0]["content"][0]["image_url"]["url"]
+        self.assertTrue(image_part.startswith("data:image/webp;base64,"))
+
+    def test_imagegen_redefine_handler_uses_existing_source_and_records_lineage(self):
+        app = self.make_app()
+        source = app.add_gallery_image(
+            "tester",
+            image_id="source-image",
+            prompt="source",
+            mode="generate",
+            model="black-forest-labs/flux.2-pro",
+            provider="openrouter",
+            aspect_ratio="1:1",
+            b64_data=TINY_PNG_B64,
+        )
+        handler = FakeImagegenHandler({
+            "source_id": source["id"],
+            "prompt": "refine it",
+            "model": "google/gemini-2.5-flash-image-preview",
+            "provider": "openrouter",
+            "aspect_ratio": "4:3",
+        })
+        with mock.patch("server.imagegen.call_image_generation", return_value=[TINY_PNG_B64]) as call_image:
+            imagegen_handlers.handle_imagegen_redefine(handler, app)
+
+        status, body = handler.responses[-1]
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["image"]["mode"], "redefine")
+        self.assertEqual(body["image"]["source_id"], source["id"])
+        self.assertEqual(body["image"]["supersedes_ring"], source["ring_n"])
+        self.assertGreater(body["image"]["ring_n"], source["ring_n"])
+        self.assertEqual(call_image.call_args.kwargs["operation"], "edit")
 
     def test_build_memory_context_uses_ring_metadata(self):
         rings = [
@@ -2941,6 +3185,247 @@ class PromptAssemblyTests(unittest.TestCase):
             "handle_forge",
         ]:
             self.assertNotIn(legacy, server.HTML + handler_source)
+
+    def test_imagegen_settings_expose_and_persist_image_base_url(self):
+        self.assertIn('id="image-base-url"', server.HTML)
+        self.assertIn("image_base_url", server.USER_SETTING_KEYS)
+        self.assertIn('"image_base_url": user_settings.get("image_base_url") or app.image_base_url', inspect.getsource(server.make_handler))
+        self.assertIn("ct_image_base_url", server.HTML)
+        self.assertIn("image_base_url: els.imageBaseUrl?.value?.trim() || ''", server.HTML)
+        self.assertIn("baseUrl: localStorage.getItem('ct_image_base_url') || ''", server.HTML)
+
+    def test_surplusintelligence_provider_registry_and_endpoints(self):
+        for registry in (
+            server.PROVIDERS,
+            server.IMAGE_PROVIDERS,
+            server.VIDEO_PROVIDERS,
+            server.AUDIO_PROVIDERS,
+        ):
+            self.assertIn("surplusintelligence", registry)
+            self.assertEqual(registry["surplusintelligence"]["label"], "SurplusIntelligence")
+        self.assertEqual(
+            server.resolve_chat_completions_url(
+                "surplusintelligence",
+                "https://api.surplusintelligence.ai/v1",
+            ),
+            "https://api.surplusintelligence.ai/v1/chat/completions",
+        )
+        self.assertEqual(
+            server.resolve_provider_endpoint(
+                "https://api.surplusintelligence.ai/v1",
+                "audio/speech",
+            ),
+            "https://api.surplusintelligence.ai/v1/audio/speech",
+        )
+
+    def test_app_accepts_surplusintelligence_modality_defaults(self):
+        app = server.App(
+            self.make_workspace(),
+            server.pathlib.Path("timechain.py").resolve(),
+            default_model="deepseek-v4-flash",
+            provider="surplusintelligence",
+            api_key="shared-test-key",
+            base_url="https://api.surplusintelligence.ai/v1",
+            timeout=5,
+            image_provider="surplusintelligence",
+            image_model="surplus-image-model",
+            image_edit_model="surplus-image-edit-model",
+            image_base_url="https://api.surplusintelligence.ai/v1",
+            video_provider="surplusintelligence",
+            video_model="surplus-video-model",
+            video_base_url="https://api.surplusintelligence.ai/v1",
+            audio_provider="surplusintelligence",
+            audio_model="surplus-audio-model",
+            audio_base_url="https://api.surplusintelligence.ai/v1",
+        )
+        self.assertEqual(app.image_provider, "surplusintelligence")
+        self.assertEqual(app.image_edit_model, "surplus-image-edit-model")
+        self.assertEqual(app.video_provider, "surplusintelligence")
+        self.assertEqual(app.audio_provider, "surplusintelligence")
+
+    def test_surplusintelligence_is_available_in_all_provider_selectors(self):
+        self.assertEqual(server.HTML.count('<option value="surplusintelligence">SurplusIntelligence</option>'), 4)
+        self.assertIn("surplusintelligence: 'https://api.surplusintelligence.ai/v1'", server.HTML)
+        self.assertIn('id="video-base-url"', server.HTML)
+        self.assertIn('id="audio-base-url"', server.HTML)
+
+    def test_categorize_provider_models_uses_declared_output_modalities(self):
+        catalog = server.categorize_provider_models([
+            {
+                "id": "chat-model",
+                "name": "Chat Model",
+                "architecture": {"input_modalities": ["text"], "output_modalities": ["text"]},
+            },
+            {
+                "id": "image-model",
+                "name": "Image Model",
+                "architecture": {"input_modalities": ["text"], "output_modalities": ["image"]},
+            },
+            {
+                "id": "image-edit-model",
+                "name": "Image Edit Model",
+                "architecture": {"input_modalities": ["text", "image"], "output_modalities": ["image"]},
+            },
+            {
+                "id": "vision-model",
+                "name": "Vision Model",
+                "architecture": {"input_modalities": ["text", "image"], "output_modalities": ["text"]},
+            },
+            {
+                "id": "video-model",
+                "name": "Video Model",
+                "architecture": {"input_modalities": ["text"], "output_modalities": ["video"]},
+            },
+            {
+                "id": "audio-model",
+                "name": "Audio Model",
+                "architecture": {"input_modalities": ["text"], "output_modalities": ["audio"]},
+            },
+            {
+                "id": "music-model",
+                "name": "Music Model",
+                "architecture": {"input_modalities": ["text"], "output_modalities": ["music"]},
+            },
+        ])
+
+        self.assertEqual([item["id"] for item in catalog["chat"]], ["chat-model", "vision-model"])
+        self.assertEqual([item["id"] for item in catalog["image"]], ["image-edit-model", "image-model"])
+        self.assertEqual([item["id"] for item in catalog["image_edit"]], ["image-edit-model", "image-model"])
+        self.assertEqual([item["id"] for item in catalog["vision"]], ["vision-model"])
+        self.assertEqual([item["id"] for item in catalog["video"]], ["video-model"])
+        self.assertEqual([item["id"] for item in catalog["audio"]], ["audio-model"])
+
+    def test_list_provider_models_fetches_models_endpoint_and_categorizes(self):
+        body = {
+            "data": [{
+                "id": "deepseek-v4-flash",
+                "name": "DeepSeek V4 Flash",
+                "architecture": {"input_modalities": ["text"], "output_modalities": ["text"]},
+            }]
+        }
+        with mock.patch("urllib.request.urlopen", return_value=FakeHTTPResponse(body)) as urlopen:
+            catalog = server.list_provider_models(
+                provider="surplusintelligence",
+                base_url="https://api.surplusintelligence.ai/v1",
+                api_key="",
+                timeout=5,
+                use_cache=False,
+            )
+
+        self.assertEqual(catalog["chat"][0]["id"], "deepseek-v4-flash")
+        request = urlopen.call_args.args[0]
+        self.assertEqual(request.full_url, "https://api.surplusintelligence.ai/v1/models")
+
+    def test_ui_loads_discovered_models_for_all_surplusintelligence_selectors(self):
+        self.assertIn('id="chat-model-options"', server.HTML)
+        self.assertIn('id="audio-model-options"', server.HTML)
+        self.assertIn("async function refreshProviderModels", server.HTML)
+        self.assertIn("catalog.image_edit", server.HTML)
+        self.assertIn("catalog.video", server.HTML)
+        self.assertIn("catalog.audio", server.HTML)
+        self.assertIn("'/api/models?'", server.HTML)
+
+    def test_discovered_models_replace_stale_browser_media_models(self):
+        ui_source = server.HTML
+        sync_start = ui_source.index("function syncCreativeStudioModelsFromSettings()")
+        sync_end = ui_source.index("function renderContent", sync_start)
+        sync_source = ui_source[sync_start:sync_end]
+        edit_start = ui_source.index("function updateImageEditModelOptions()")
+        edit_end = ui_source.index("function updateVideoModelOptions()", edit_start)
+        edit_source = ui_source[edit_start:edit_end]
+
+        self.assertNotIn("localStorage.getItem('ct_image_edit_model')", sync_source)
+        self.assertIn("localStorage.setItem('ct_image_edit_model', els.imagegenEditModel.value)", edit_source)
+        self.assertIn("localStorage.setItem('ct_image_model', els.imageModel.value)", ui_source)
+        self.assertIn("localStorage.setItem('ct_video_model', els.videoModel.value)", ui_source)
+        self.assertIn("Source-aware edit: analyzes the upload, then regenerates it", ui_source)
+
+    def test_image_edit_upload_uses_one_hidden_file_picker_and_bumps_shell_cache(self):
+        self.assertIn('.imagegen-dropzone input[type="file"]', server.HTML)
+        self.assertIn("pointer-events: none", server.HTML)
+        self.assertIn("const CACHE_NAME = 'cyphertempre-v3'", server.SW_JS)
+
+    def test_imagegen_creative_canvas_has_comparison_preview_and_download_controls(self):
+        for marker in (
+            'class="imagegen-compare-stage"',
+            'id="imagegen-source-stage"',
+            'id="imagegen-output-stage"',
+            'class="imagegen-control-dock"',
+            'id="imagegen-lightbox"',
+            "openImagePreview",
+            "downloadImage",
+            "Source-aware edit: analyzing your image, then rendering the final result",
+        ):
+            self.assertIn(marker, server.HTML)
+
+    def test_imagegen_edit_and_redefine_allow_ten_minute_provider_wait(self):
+        source = inspect.getsource(imagegen_handlers)
+        self.assertGreaterEqual(source.count("timeout=max(app.timeout, 600.0)"), 2)
+
+    def test_surplus_image_generation_uses_images_generations_endpoint(self):
+        body = {"data": [{"b64_json": TINY_PNG_B64}]}
+        with mock.patch("urllib.request.urlopen", return_value=FakeHTTPResponse(body)) as urlopen:
+            images = server.call_image_generation(
+                provider="surplusintelligence",
+                api_key="sk-test",
+                model="gpt-5-image",
+                messages=[{"role": "user", "content": "make this high definition"}],
+                timeout=5,
+                base_url="https://api.surplusintelligence.ai/v1",
+                operation="generate",
+            )
+
+        self.assertEqual(images, [TINY_PNG_B64])
+        request = urlopen.call_args.args[0]
+        self.assertEqual(request.full_url, "https://api.surplusintelligence.ai/v1/images/generations")
+        payload = json.loads(request.data.decode("utf-8"))
+        self.assertEqual(payload["prompt"], "make this high definition")
+        self.assertNotIn("messages", payload)
+
+    def test_surplus_image_edit_analyzes_source_then_regenerates(self):
+        body = {"data": [{"b64_json": TINY_PNG_B64}]}
+        messages = [{
+            "role": "user",
+            "content": [
+                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{TINY_PNG_B64}"}},
+                {"type": "text", "text": "make the image high definition"},
+            ],
+        }]
+        with mock.patch("server.llm.list_provider_models", return_value={
+            "vision": [{"id": "gemini-2.5-flash", "name": "Gemini 2.5 Flash"}],
+        }), mock.patch("server.llm.call_llm", return_value={
+            "content": "A high-definition faithful reconstruction of the source image.",
+            "model_used": "gemini-2.5-flash",
+            "usage": {},
+        }) as analyze, mock.patch("urllib.request.urlopen", return_value=FakeHTTPResponse(body)) as urlopen:
+            images = server.call_image_generation(
+                provider="surplusintelligence",
+                api_key="sk-test",
+                model="gpt-5-image",
+                messages=messages,
+                timeout=5,
+                base_url="https://api.surplusintelligence.ai/v1",
+                operation="edit",
+            )
+
+        self.assertEqual(images, [TINY_PNG_B64])
+        self.assertEqual(analyze.call_args.kwargs["model"], "gemini-2.5-flash")
+        payload = json.loads(urlopen.call_args.args[0].data.decode("utf-8"))
+        self.assertIn("faithful reconstruction", payload["prompt"])
+
+    def test_imagegen_generate_and_edit_models_do_not_overwrite_each_other(self):
+        ui_source = server.HTML
+        generate_handler_start = ui_source.index("els.imagegenModel.addEventListener('change'")
+        generate_handler_end = ui_source.index("if (els.imagegenEditModel)", generate_handler_start)
+        generate_handler = ui_source[generate_handler_start:generate_handler_end]
+        edit_handler_start = ui_source.index("els.imagegenEditModel.addEventListener('change'")
+        edit_handler_end = ui_source.index("}", edit_handler_start)
+        edit_handler = ui_source[edit_handler_start:edit_handler_end]
+
+        self.assertIn("ct_image_model", generate_handler)
+        self.assertNotIn("imagegenEditModel", generate_handler)
+        self.assertIn("ct_image_edit_model", edit_handler)
+        self.assertNotIn("imagegenModel", edit_handler)
 
     def test_imagegen_gallery_renders_lineage_badges_and_fetches_lineage(self):
         self.assertIn("imagegen-lineage", server.HTML)

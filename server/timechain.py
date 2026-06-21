@@ -363,8 +363,14 @@ USER_SETTING_KEYS = {
     "base_url",
     "image_provider",
     "image_model",
+    "image_edit_model",
+    "image_base_url",
     "video_provider",
     "video_model",
+    "video_base_url",
+    "audio_provider",
+    "audio_model",
+    "audio_base_url",
 }
 
 
@@ -1142,6 +1148,19 @@ class App:
         base_url: str,
         timeout: float,
         poq: dict[str, Any] | None = None,
+        image_provider: str = "",
+        image_model: str = "",
+        image_edit_model: str = "",
+        image_api_key: str = "",
+        image_base_url: str = "",
+        video_provider: str = "",
+        video_model: str = "",
+        video_api_key: str = "",
+        video_base_url: str = "",
+        audio_provider: str = "",
+        audio_model: str = "",
+        audio_api_key: str = "",
+        audio_base_url: str = "",
     ) -> None:
         self.root_workspace = workspace.resolve()
         self.root_workspace.mkdir(parents=True, exist_ok=True)
@@ -1151,6 +1170,19 @@ class App:
         self.api_key = api_key
         self.base_url = base_url
         self.timeout = timeout
+        self.image_provider = image_provider or provider
+        self.image_model = image_model
+        self.image_edit_model = image_edit_model
+        self.image_api_key = image_api_key or api_key
+        self.image_base_url = image_base_url or base_url
+        self.video_provider = video_provider or provider
+        self.video_model = video_model
+        self.video_api_key = video_api_key or api_key
+        self.video_base_url = video_base_url or base_url
+        self.audio_provider = audio_provider or provider
+        self.audio_model = audio_model
+        self.audio_api_key = audio_api_key or api_key
+        self.audio_base_url = audio_base_url or base_url
         raw_poq = poq or {}
         self.poq = {
             "enabled": bool(raw_poq.get("enabled", DEFAULT_POQ_ENABLED)),
