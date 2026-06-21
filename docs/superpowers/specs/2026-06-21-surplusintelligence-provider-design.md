@@ -121,8 +121,44 @@ Add tests before implementation for:
 - Video generation, image-to-video, and remix forwarding the configured base URL.
 - Audio generation resolving `/audio/speech`.
 - UI provider options and separate image generation/editing model persistence.
+- Empty or failed model discovery preserving configured image generation and edit model IDs.
+- SurplusIntelligence image-output models populating both generation and source-aware edit selectors.
+- Stale browser model values being replaced only when a successful discovery response proves they are unsupported.
 
 Run focused tests during development, then the complete unit-test suite.
+
+## Confirmed Image Model Repair
+
+Live model discovery on June 21, 2026 returned 254 SurplusIntelligence models. The configured
+`venice-lustify-v8` model was present and declared:
+
+```text
+input_modalities: ["text"]
+output_modalities: ["image"]
+```
+
+The provider and configured model are therefore available. The failure is local selection and
+fallback behavior:
+
+- The image-edit selector treats an empty discovery result as proof that editing is unsupported.
+- It disables the edit controls and deletes the configured `IMAGE_EDIT_MODEL` browser override.
+- A temporary discovery failure, missing browser credential, stale cache, or startup race can
+  therefore make every image model appear unavailable even when the provider advertises them.
+
+The repair will use successful provider discovery as the preferred catalog while preserving
+configured model IDs whenever discovery is empty or fails. All discovered image-output models
+are valid generation choices and source-aware edit choices because SurplusIntelligence editing
+is implemented by analyzing the source with a vision model and then regenerating through
+`/images/generations`.
+
+Generation requests will continue to call `/images/generations`. Edit and redefine requests will
+use the source-aware edit service: select a discovered vision model, analyze the source image and
+requested change, then submit the resulting prompt to `/images/generations` using the separately
+selected image edit model.
+
+The UI must not disable image editing or remove configured model values merely because discovery
+is temporarily unavailable. It may replace an unsupported selection only after a successful,
+non-empty image catalog is received.
 
 ## Scope Boundaries
 
