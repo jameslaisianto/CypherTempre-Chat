@@ -8,7 +8,13 @@ from http import HTTPStatus
 from typing import Any
 
 from server.config import IMAGE_PROVIDERS
+from server.image_prompt import enrich_generation_prompt, build_anchored_edit_prompt
 from server.llm import call_image_generation
+
+
+def _bypass_flag(payload: dict[str, Any]) -> bool:
+    """Read the 'send raw prompt, skip the prompt preprocessor' toggle from the request."""
+    return bool(payload.get("bypass_prompt") or payload.get("raw_prompt"))
 
 
 def handle_imagegen_generate(handler: Any, app: Any) -> None:
@@ -34,7 +40,15 @@ def handle_imagegen_generate(handler: Any, app: Any) -> None:
     if not model:
         handler.send_json({"ok": False, "error": "Image model is required"}, HTTPStatus.BAD_REQUEST)
         return
-    messages = [{"role": "user", "content": prompt}]
+    enriched_prompt = enrich_generation_prompt(
+        provider=provider,
+        api_key=api_key,
+        base_url=base_url,
+        prompt=prompt,
+        timeout=min(app.timeout, 60.0),
+        bypass=_bypass_flag(payload),
+    ) or prompt
+    messages = [{"role": "user", "content": enriched_prompt}]
     try:
         images = call_image_generation(
             provider=provider,
@@ -103,9 +117,19 @@ def handle_imagegen_edit(handler: Any, app: Any) -> None:
     if image_data.startswith("data:image"):
         header, image_data = image_data.split(",", 1)
         source_mime = header.split(";", 1)[0].replace("data:", "") or source_mime
+    image_part = {"type": "image_url", "image_url": {"url": f"data:{source_mime};base64,{image_data}"}}
+    anchored_prompt = build_anchored_edit_prompt(
+        provider=provider,
+        api_key=api_key,
+        base_url=base_url,
+        image_parts=[image_part],
+        user_prompt=prompt,
+        timeout=max(app.timeout, 120.0),
+        bypass=_bypass_flag(payload),
+    ) or prompt
     content: list[dict[str, Any]] = [
-        {"type": "image_url", "image_url": {"url": f"data:{source_mime};base64,{image_data}"}},
-        {"type": "text", "text": prompt},
+        image_part,
+        {"type": "text", "text": anchored_prompt},
     ]
     messages = [{"role": "user", "content": content}]
     try:
@@ -177,9 +201,19 @@ def handle_imagegen_redefine(handler: Any, app: Any) -> None:
         handler.send_json({"ok": False, "error": "Source image not found"}, HTTPStatus.NOT_FOUND)
         return
     b64_data = base64.b64encode(img_path.read_bytes()).decode("ascii")
+    image_part = {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64_data}"}}
+    anchored_prompt = build_anchored_edit_prompt(
+        provider=provider,
+        api_key=api_key,
+        base_url=base_url,
+        image_parts=[image_part],
+        user_prompt=prompt,
+        timeout=max(app.timeout, 120.0),
+        bypass=_bypass_flag(payload),
+    ) or prompt
     content: list[dict[str, Any]] = [
-        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64_data}"}},
-        {"type": "text", "text": prompt},
+        image_part,
+        {"type": "text", "text": anchored_prompt},
     ]
     messages = [{"role": "user", "content": content}]
     try:

@@ -1169,6 +1169,50 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertGreater(body["image"]["ring_n"], source["ring_n"])
         self.assertEqual(call_image.call_args.kwargs["operation"], "edit")
 
+    def test_imagegen_generate_bypass_skips_prompt_enrichment(self):
+        app = self.make_app()
+        handler = FakeImagegenHandler({
+            "prompt": "short prompt",
+            "model": "black-forest-labs/flux.2-pro",
+            "provider": "openrouter",
+            "bypass_prompt": True,
+        })
+        def fake_enrich(*, prompt, bypass=False, **kwargs):
+            return prompt if bypass else "rewritten prompt"
+
+        with (
+            mock.patch("server.imagegen.enrich_generation_prompt", side_effect=fake_enrich) as enrich,
+            mock.patch("server.imagegen.call_image_generation", return_value=[TINY_PNG_B64]) as call_image,
+        ):
+            imagegen_handlers.handle_imagegen_generate(handler, app)
+
+        enrich.assert_called_once()
+        self.assertTrue(enrich.call_args.kwargs["bypass"])
+        self.assertEqual(call_image.call_args.kwargs["messages"][0]["content"], "short prompt")
+
+    def test_imagegen_edit_bypass_skips_identity_anchoring(self):
+        app = self.make_app()
+        handler = FakeImagegenHandler({
+            "prompt": "change the background",
+            "image": f"data:image/png;base64,{TINY_PNG_B64}",
+            "model": "google/gemini-2.5-flash-image-preview",
+            "provider": "openrouter",
+            "raw_prompt": True,
+        })
+        def fake_anchor(*, user_prompt, bypass=False, **kwargs):
+            return user_prompt if bypass else "anchored prompt"
+
+        with (
+            mock.patch("server.imagegen.build_anchored_edit_prompt", side_effect=fake_anchor) as anchor,
+            mock.patch("server.imagegen.call_image_generation", return_value=[TINY_PNG_B64]) as call_image,
+        ):
+            imagegen_handlers.handle_imagegen_edit(handler, app)
+
+        anchor.assert_called_once()
+        self.assertTrue(anchor.call_args.kwargs["bypass"])
+        text_part = call_image.call_args.kwargs["messages"][0]["content"][1]["text"]
+        self.assertEqual(text_part, "change the background")
+
     def test_build_memory_context_uses_ring_metadata(self):
         rings = [
             SimpleNamespace(
@@ -3355,6 +3399,19 @@ class PromptAssemblyTests(unittest.TestCase):
             "openImagePreview",
             "downloadImage",
             "Source-aware edit: analyzing your image, then rendering the final result",
+        ):
+            self.assertIn(marker, server.HTML)
+
+    def test_imagegen_ui_exposes_raw_prompt_bypass_toggle(self):
+        for marker in (
+            'id="imagegen-bypass-generate"',
+            'id="imagegen-bypass-edit"',
+            'id="imagegen-bypass-redefine"',
+            'class="imagegen-raw-toggle"',
+            "Raw prompt (skip prompt engineering)",
+            "bypass_prompt",
+            "ct_imagegen_bypass_prompt",
+            "imagegenBypassPayload",
         ):
             self.assertIn(marker, server.HTML)
 

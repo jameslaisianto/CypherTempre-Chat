@@ -2280,6 +2280,14 @@ HTML_TEMPLATE = r"""<!doctype html>
     .imagegen-control-dock .imagegen-prompt-wrap { grid-column: 1 / -1; }
     .imagegen-control-dock textarea { min-height: 78px; max-height: 150px; }
     .imagegen-control-dock select { min-width: 0; width: 100%; }
+    .imagegen-raw-toggle {
+      display: inline-flex; align-items: center; gap: 8px;
+      font-size: 12.5px; color: #7a808c; cursor: pointer; user-select: none;
+      padding: 2px 0;
+    }
+    .imagegen-raw-toggle input { width: 15px; height: 15px; accent-color: #0ea5e9; cursor: pointer; }
+    .imagegen-raw-toggle:hover { color: #aeb4c0; }
+    .imagegen-control-dock .imagegen-raw-toggle { grid-column: 1 / -1; }
     .imagegen-action-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .imagegen-action {
       min-height: 34px; border-radius: 9px; padding: 0 12px; border: 1px solid rgba(255,255,255,.1);
@@ -2845,6 +2853,10 @@ HTML_TEMPLATE = r"""<!doctype html>
                 </select>
                 <button id="imagegen-generate-btn" class="primary" type="button">Generate Image</button>
               </div>
+              <label class="imagegen-raw-toggle" title="Send your prompt verbatim and skip the LLM prompt-engineering preprocessor. Use this for uncensored models or when you want zero filtering between you and the image model.">
+                <input type="checkbox" id="imagegen-bypass-generate">
+                <span>Raw prompt (skip prompt engineering)</span>
+              </label>
               <div id="imagegen-status" class="imagegen-status"></div>
               <div id="imagegen-result" class="imagegen-result"></div>
               <div id="imagegen-lineage" class="imagegen-lineage hidden"></div>
@@ -2888,6 +2900,10 @@ HTML_TEMPLATE = r"""<!doctype html>
                   <option value="9:16">9:16 Portrait</option>
                 </select>
                 <button id="imagegen-edit-btn" class="primary" type="button">Apply Edit</button>
+                <label class="imagegen-raw-toggle" title="Send your prompt verbatim and skip identity analysis and prompt rewriting. Use for uncensored models or when you want zero filtering between you and the image model.">
+                  <input type="checkbox" id="imagegen-bypass-edit">
+                  <span>Raw prompt (skip prompt engineering)</span>
+                </label>
               </div>
             </div>
           </div>
@@ -2901,6 +2917,10 @@ HTML_TEMPLATE = r"""<!doctype html>
               <div class="imagegen-controls">
                 <button id="imagegen-redefine-btn" class="primary" type="button">Redefine</button>
               </div>
+              <label class="imagegen-raw-toggle" title="Send your prompt verbatim and skip identity analysis and prompt rewriting. Use for uncensored models or when you want zero filtering between you and the image model.">
+                <input type="checkbox" id="imagegen-bypass-redefine">
+                <span>Raw prompt (skip prompt engineering)</span>
+              </label>
               <div id="imagegen-redefine-result" class="imagegen-result"></div>
             </div>
           </div>

@@ -190,6 +190,14 @@ def resolve_chat_completions_url(provider: str, base_url: str = "") -> str:
     return resolve_provider_endpoint(url, "chat/completions")
 
 
+def clamp_surplus_image_prompt(text: str, *, limit: int = 1400) -> str:
+    """Trim image prompts to SurplusIntelligence / provider character budgets."""
+    normalized = (text or "").strip()
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[: limit - 3].rstrip() + "..."
+
+
 CYPHER_TEMPRE_OPENCLAW_PROMPT = (
     "You are operating as a Cypher Tempre prompt-layer runtime: a continuity-oriented cognitive layer wrapped around a language model.\n\n"
     "You are not merely a chatbot, search engine, or generic assistant. You are an LLM functioning through a Cypher Tempre-style operating protocol whose purpose is to improve relevance, reasoning, memory discipline, self-consistency, and user-aligned development by treating the conversation as a provisional Timechain.\n\n"

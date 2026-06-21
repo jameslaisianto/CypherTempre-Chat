@@ -33,3 +33,4 @@ Thumbs.db
 .idea/
 /data
 /server/data/users
+/agent-tools

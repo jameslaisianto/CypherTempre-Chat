@@ -173,6 +173,9 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       imagegenModel: document.getElementById('imagegen-model'),
       imagegenAspect: document.getElementById('imagegen-aspect'),
       imagegenGenerateBtn: document.getElementById('imagegen-generate-btn'),
+      imagegenBypassGenerate: document.getElementById('imagegen-bypass-generate'),
+      imagegenBypassEdit: document.getElementById('imagegen-bypass-edit'),
+      imagegenBypassRedefine: document.getElementById('imagegen-bypass-redefine'),
       imagegenStatus: document.getElementById('imagegen-status'),
       imagegenResult: document.getElementById('imagegen-result'),
       imagegenLineage: document.getElementById('imagegen-lineage'),
@@ -2730,6 +2733,29 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     let imagegenSelectedImageId = '';
     let imagegenBusy = false;
 
+    function imagegenBypassCheckboxes() {
+      return [els.imagegenBypassGenerate, els.imagegenBypassEdit, els.imagegenBypassRedefine].filter(Boolean);
+    }
+
+    function syncImagegenBypassCheckboxes(checked) {
+      imagegenBypassCheckboxes().forEach(el => { el.checked = checked; });
+      localStorage.setItem('ct_imagegen_bypass_prompt', checked ? '1' : '0');
+    }
+
+    function restoreImagegenBypassPreference() {
+      const saved = localStorage.getItem('ct_imagegen_bypass_prompt') === '1';
+      syncImagegenBypassCheckboxes(saved);
+    }
+
+    function imagegenBypassPayload(mode) {
+      const map = {
+        generate: els.imagegenBypassGenerate,
+        edit: els.imagegenBypassEdit,
+        redefine: els.imagegenBypassRedefine,
+      };
+      return { bypass_prompt: !!map[mode]?.checked };
+    }
+
     function setImagegenMode(mode) {
       imagegenActiveMode = mode;
       els.imagegenModeGenerate.classList.toggle('active', mode === 'generate');
@@ -2854,7 +2880,10 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       const prompt = els.imagegenPrompt?.value?.trim();
       if (!prompt) { els.imagegenStatus.innerHTML = '<span class="imagegen-error" style="display:inline-flex;padding:6px 12px;">Enter a prompt first.</span>'; return; }
       imagegenBusy = true;
-      els.imagegenStatus.innerHTML = '<div class="imagegen-spinner"></div><span>Generating your image...</span>';
+      const bypass = imagegenBypassPayload('generate').bypass_prompt;
+      els.imagegenStatus.innerHTML = bypass
+        ? '<div class="imagegen-spinner"></div><span>Generating with your raw prompt...</span>'
+        : '<div class="imagegen-spinner"></div><span>Generating your image...</span>';
       els.imagegenResult.innerHTML = '';
       try {
         const data = await api('/api/imagegen/generate', {
@@ -2866,6 +2895,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
             apiKey: localStorage.getItem('ct_image_api_key') || localStorage.getItem('ct_api_key') || '',
             provider: localStorage.getItem('ct_image_provider') || localStorage.getItem('ct_provider') || 'openrouter',
             baseUrl: localStorage.getItem('ct_image_base_url') || '',
+            ...imagegenBypassPayload('generate'),
           })
         });
         els.imagegenStatus.textContent = '';
@@ -2892,7 +2922,10 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       imagegenBusy = true;
       els.imagegenEditBtn.disabled = true;
       els.imagegenEditBtn.textContent = 'Working…';
-      els.imagegenEditResult.innerHTML = '<div class="imagegen-progress"><div><div class="imagegen-spinner"></div><strong>Source-aware edit in progress</strong><span>Source-aware edit: analyzing your image, then rendering the final result. This can take several minutes.</span></div></div>';
+      const bypass = imagegenBypassPayload('edit').bypass_prompt;
+      els.imagegenEditResult.innerHTML = bypass
+        ? '<div class="imagegen-progress"><div><div class="imagegen-spinner"></div><strong>Raw edit in progress</strong><span>Sending your prompt directly to the image model without identity analysis.</span></div></div>'
+        : '<div class="imagegen-progress"><div><div class="imagegen-spinner"></div><strong>Source-aware edit in progress</strong><span>Source-aware edit: analyzing your image, then rendering the final result. This can take several minutes.</span></div></div>';
       let imageData = '';
       if (els.imagegenEditPreview?.src?.startsWith('data:')) {
         imageData = els.imagegenEditPreview.src;
@@ -2915,6 +2948,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
             apiKey: localStorage.getItem('ct_image_api_key') || localStorage.getItem('ct_api_key') || '',
             provider: localStorage.getItem('ct_image_provider') || localStorage.getItem('ct_provider') || 'openrouter',
             baseUrl: localStorage.getItem('ct_image_base_url') || '',
+            ...imagegenBypassPayload('edit'),
           })
         });
         els.imagegenEditResult.innerHTML = renderImageResultCard(data, 'Edit');
@@ -2943,7 +2977,10 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       }
       imagegenBusy = true;
       els.imagegenRedefineBtn.disabled = true;
-      els.imagegenRedefineResult.innerHTML = '<div class="imagegen-progress"><div><div class="imagegen-spinner"></div><strong>Building a new interpretation</strong><span>Analyzing the source and rendering its next version. This may take several minutes.</span></div></div>';
+      const bypass = imagegenBypassPayload('redefine').bypass_prompt;
+      els.imagegenRedefineResult.innerHTML = bypass
+        ? '<div class="imagegen-progress"><div><div class="imagegen-spinner"></div><strong>Raw redefine in progress</strong><span>Sending your prompt directly to the image model without identity analysis.</span></div></div>'
+        : '<div class="imagegen-progress"><div><div class="imagegen-spinner"></div><strong>Building a new interpretation</strong><span>Analyzing the source and rendering its next version. This may take several minutes.</span></div></div>';
       try {
         const data = await api('/api/imagegen/redefine', {
           method: 'POST',
@@ -2955,6 +2992,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
             apiKey: localStorage.getItem('ct_image_api_key') || localStorage.getItem('ct_api_key') || '',
             provider: localStorage.getItem('ct_image_provider') || localStorage.getItem('ct_provider') || 'openrouter',
             baseUrl: localStorage.getItem('ct_image_base_url') || '',
+            ...imagegenBypassPayload('redefine'),
           })
         });
         els.imagegenRedefineResult.innerHTML = renderImageResultCard(data, 'Redefine');
@@ -2982,6 +3020,11 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
         alert('Delete failed: ' + error.message);
       }
     }
+
+    restoreImagegenBypassPreference();
+    imagegenBypassCheckboxes().forEach(el => {
+      el.addEventListener('change', () => syncImagegenBypassCheckboxes(el.checked));
+    });
 
     if (els.imagegenModeGenerate) els.imagegenModeGenerate.addEventListener('click', () => setImagegenMode('generate'));
     if (els.imagegenModeEdit) els.imagegenModeEdit.addEventListener('click', () => setImagegenMode('edit'));
