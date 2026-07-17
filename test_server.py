@@ -3333,7 +3333,8 @@ class PromptAssemblyTests(unittest.TestCase):
         ])
 
         self.assertEqual([item["id"] for item in catalog["chat"]], ["chat-model", "vision-model"])
-        self.assertEqual([item["id"] for item in catalog["image"]], ["image-edit-model", "image-model"])
+        # Name-based *-edit / image-edit models stay in image_edit only.
+        self.assertEqual([item["id"] for item in catalog["image"]], ["image-model"])
         self.assertEqual([item["id"] for item in catalog["image_edit"]], ["image-edit-model"])
         self.assertEqual([item["id"] for item in catalog["vision"]], ["vision-model"])
         self.assertEqual([item["id"] for item in catalog["video"]], ["video-model"])
@@ -3391,9 +3392,10 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertIn('id="audio-model-options"', server.HTML)
         self.assertIn("async function refreshProviderModels", server.HTML)
         self.assertIn(
-            "imageEditModelsByProvider[provider] = (catalog.image_edit || []).map(model => model.id)",
+            "const discoveredEditModels = (catalog.image_edit || []).map(model => model.id)",
             server.HTML,
         )
+        self.assertIn("imageEditModelsByProvider[provider] = discoveredEditModels", server.HTML)
         self.assertIn("catalog.video", server.HTML)
         self.assertIn("catalog.audio", server.HTML)
         self.assertIn("'/api/models?'", server.HTML)
@@ -3412,17 +3414,18 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertIn("localStorage.setItem('ct_image_edit_model', els.imagegenEditModel.value)", edit_source)
         self.assertIn("localStorage.setItem('ct_image_model', els.imageModel.value)", ui_source)
         self.assertIn("localStorage.setItem('ct_video_model', els.videoModel.value)", ui_source)
-        self.assertIn("Source-aware edit: analyzes the upload, then regenerates it", ui_source)
+        self.assertIn("Native image-to-image edit via /v1/images/edits", ui_source)
 
-    def test_surplus_empty_edit_catalog_disables_fake_editing(self):
+    def test_surplus_edit_controls_stay_enabled_with_seeded_edit_models(self):
         ui_source = server.HTML
         start = ui_source.index("function updateImageEditModelOptions()")
         end = ui_source.index("function updateVideoModelOptions()", start)
         edit_source = ui_source[start:end]
 
-        self.assertIn("els.imagegenEditModel.disabled = nativeUnavailable", edit_source)
-        self.assertIn("els.imagegenEditBtn.disabled = nativeUnavailable", edit_source)
-        self.assertIn("Native image editing unavailable", edit_source)
+        self.assertIn("els.imagegenEditModel.disabled = false", edit_source)
+        self.assertIn("els.imagegenEditBtn.disabled = false", edit_source)
+        self.assertNotIn("Native image editing unavailable", edit_source)
+        self.assertIn("qwen-edit-uncensored", ui_source)
 
     def test_surplus_discovery_populates_generation_and_source_aware_edit_models(self):
         ui_source = server.HTML
@@ -3432,19 +3435,20 @@ class PromptAssemblyTests(unittest.TestCase):
             ui_source,
         )
         self.assertIn("imageModelsByProvider[provider] = discoveredImageModels", ui_source)
-        self.assertIn(
-            "imageEditModelsByProvider[provider] = (catalog.image_edit || []).map(model => model.id)",
-            ui_source,
-        )
+        self.assertIn("const discoveredEditModels = (catalog.image_edit || []).map(model => model.id)", ui_source)
+        self.assertIn("imageEditModelsByProvider[provider] = discoveredEditModels", ui_source)
         self.assertIn("if (discoveredImageModels.length)", ui_source)
+        self.assertIn("if (discoveredEditModels.length)", ui_source)
 
-    def test_surplus_ui_does_not_present_generation_models_as_true_edit_models(self):
+    def test_surplus_ui_uses_native_edit_models_for_edit_and_redefine(self):
         ui_source = server.HTML
-        self.assertIn("Native image editing is not available through SurplusIntelligence", ui_source)
-        self.assertIn("model: els.imagegenModel?.value", ui_source)
-        self.assertNotIn(
+        self.assertIn("Uses POST /v1/images/edits with your source image", ui_source)
+        self.assertIn("qwen-edit-uncensored", ui_source)
+        self.assertIn("Uncensored (exact prompt — no filter)", ui_source)
+        redefine_source = ui_source[ui_source.index("async function imagegenRedefine()"):]
+        self.assertIn(
             "model: els.imagegenEditModel?.value || els.imagegenModel?.value",
-            ui_source[ui_source.index("async function imagegenRedefine()"):],
+            redefine_source,
         )
 
     def test_image_edit_upload_uses_one_hidden_file_picker_and_bumps_shell_cache(self):
@@ -3461,9 +3465,12 @@ class PromptAssemblyTests(unittest.TestCase):
             'id="imagegen-lightbox"',
             "openImagePreview",
             "downloadImage",
-            "Source-aware edit in progress",
+            "Editing your image",
             "IMAGEGEN_EDIT_TIMEOUT_MS",
             "compressImageForEdit",
+            "useImageAsEditSource",
+            "Edit further",
+            "data-edit-chip",
         ):
             self.assertIn(marker, server.HTML)
 
@@ -3505,31 +3512,58 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertEqual(payload["prompt"], "make this high definition")
         self.assertNotIn("messages", payload)
 
-    def test_surplus_call_image_edit_rejects_regeneration_as_fake_editing(self):
+    def test_surplus_call_image_edit_uses_images_edits_endpoint(self):
+        body = {"data": [{"b64_json": TINY_PNG_B64}]}
+        data_url = f"data:image/png;base64,{TINY_PNG_B64}"
         messages = [{
             "role": "user",
             "content": [
-                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{TINY_PNG_B64}"}},
-                {"type": "text", "text": "make the image high definition"},
+                {"type": "image_url", "image_url": {"url": data_url}},
+                {"type": "text", "text": "make the background blue"},
             ],
         }]
-        with (
-            mock.patch("server.image_edit._native_image_edit") as native_edit,
-            mock.patch("server.image_edit._surplus_regenerate_fallback") as surplus_edit,
-        ):
-            with self.assertRaisesRegex(RuntimeError, "does not expose a native image-edit endpoint"):
-                image_edit_handlers.call_image_edit(
-                    provider="surplusintelligence",
-                    api_key="sk-test",
-                    model="gpt-5-image",
-                    messages=messages,
-                    timeout=5,
-                    base_url="https://api.surplusintelligence.ai/v1",
-                )
-        native_edit.assert_not_called()
-        surplus_edit.assert_not_called()
+        with mock.patch("urllib.request.urlopen", return_value=FakeHTTPResponse(body)) as urlopen:
+            images = image_edit_handlers.call_image_edit(
+                provider="surplusintelligence",
+                api_key="sk-test",
+                model="gpt-image-2-edit",
+                messages=messages,
+                timeout=5,
+                base_url="https://api.surplusintelligence.ai/v1",
+            )
 
-    def test_surplus_redefine_explicitly_uses_regeneration(self):
+        self.assertEqual(images, [TINY_PNG_B64])
+        request = urlopen.call_args.args[0]
+        self.assertEqual(request.full_url, "https://api.surplusintelligence.ai/v1/images/edits")
+        payload = json.loads(request.data.decode("utf-8"))
+        self.assertEqual(payload["model"], "gpt-image-2-edit")
+        self.assertEqual(payload["image_url"], data_url)
+        self.assertEqual(payload["response_format"], "b64_json")
+        self.assertIn("make the background blue", payload["prompt"])
+        self.assertNotIn("messages", payload)
+
+    def test_surplus_normalizes_generation_model_to_edit_model(self):
+        self.assertEqual(
+            image_edit_handlers.normalize_surplus_edit_model("gpt-image-2"),
+            "gpt-image-2-edit",
+        )
+        self.assertEqual(
+            image_edit_handlers.normalize_surplus_edit_model("grok-imagine-image"),
+            "grok-imagine-edit",
+        )
+
+    def test_prepare_native_edit_prompt_is_uncensored_passthrough(self):
+        from server.image_prompt import prepare_native_edit_prompt
+
+        prompt = prepare_native_edit_prompt("make the sky purple, keep the outfit exactly")
+        self.assertEqual(prompt, "make the sky purple, keep the outfit exactly")
+        # No policy/safety soft-filter language injected.
+        self.assertNotIn("policy", prompt.lower())
+        self.assertNotIn("appropriate", prompt.lower())
+        raw = prepare_native_edit_prompt("explicit artistic nude portrait edit", bypass=True)
+        self.assertEqual(raw, "explicit artistic nude portrait edit")
+
+    def test_surplus_redefine_uses_native_image_edit(self):
         messages = [{
             "role": "user",
             "content": [
@@ -3538,22 +3572,22 @@ class PromptAssemblyTests(unittest.TestCase):
             ],
         }]
         with mock.patch(
-            "server.image_edit._surplus_regenerate_fallback",
+            "server.image_edit._surplus_native_image_edit",
             return_value=[TINY_PNG_B64],
-        ) as regenerate:
+        ) as native_edit:
             images = image_edit_handlers.call_image_redefine(
                 provider="surplusintelligence",
                 api_key="sk-test",
-                model="venice-lustify-v8",
+                model="grok-imagine-edit",
                 messages=messages,
                 timeout=5,
                 base_url="https://api.surplusintelligence.ai/v1",
             )
         self.assertEqual(images, [TINY_PNG_B64])
-        regenerate.assert_called_once()
+        native_edit.assert_called_once()
+        self.assertEqual(native_edit.call_args.kwargs["model"], "grok-imagine-edit")
 
-    def test_surplus_image_edit_analyzes_source_then_regenerates(self):
-        body = {"data": [{"b64_json": TINY_PNG_B64}]}
+    def test_surplus_call_image_generation_rejects_edit_operation(self):
         messages = [{
             "role": "user",
             "content": [
@@ -3561,27 +3595,31 @@ class PromptAssemblyTests(unittest.TestCase):
                 {"type": "text", "text": "make the image high definition"},
             ],
         }]
-        with mock.patch("server.llm.list_provider_models", return_value={
-            "vision": [{"id": "gemini-2.5-flash", "name": "Gemini 2.5 Flash"}],
-        }), mock.patch("server.llm.call_llm", return_value={
-            "content": "A high-definition faithful reconstruction of the source image.",
-            "model_used": "gemini-2.5-flash",
-            "usage": {},
-        }) as analyze, mock.patch("urllib.request.urlopen", return_value=FakeHTTPResponse(body)) as urlopen:
-            images = server.call_image_generation(
+        with self.assertRaisesRegex(RuntimeError, r"/v1/images/edits"):
+            server.call_image_generation(
                 provider="surplusintelligence",
                 api_key="sk-test",
-                model="gpt-5-image",
+                model="gpt-image-2-edit",
                 messages=messages,
                 timeout=5,
                 base_url="https://api.surplusintelligence.ai/v1",
                 operation="edit",
             )
 
-        self.assertEqual(images, [TINY_PNG_B64])
-        self.assertEqual(analyze.call_args.kwargs["model"], "gemini-2.5-flash")
-        payload = json.loads(urlopen.call_args.args[0].data.decode("utf-8"))
-        self.assertIn("faithful reconstruction", payload["prompt"])
+    def test_categorize_provider_models_infers_surplus_edit_models(self):
+        catalog = server.categorize_provider_models([
+            {"id": "gpt-image-2", "name": "GPT Image 2"},
+            {"id": "gpt-image-2-edit", "name": "GPT Image 2 Edit"},
+            {"id": "qwen-edit-uncensored", "name": "Qwen Edit Uncensored"},
+            {"id": "deepseek-v4-flash", "name": "DeepSeek V4 Flash"},
+        ])
+        self.assertEqual([item["id"] for item in catalog["image"]], ["gpt-image-2"])
+        # Uncensored edit models sort first.
+        self.assertEqual(
+            [item["id"] for item in catalog["image_edit"]],
+            ["qwen-edit-uncensored", "gpt-image-2-edit"],
+        )
+        self.assertEqual([item["id"] for item in catalog["chat"]], ["deepseek-v4-flash"])
 
     def test_imagegen_generate_and_edit_models_do_not_overwrite_each_other(self):
         ui_source = server.HTML

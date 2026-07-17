@@ -289,7 +289,8 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     };
 
     const imageEditProviderDefaults = {
-      surplusintelligence: '',
+      // Default uncensored Surplus edit model — exact user prompt, no policy filter.
+      surplusintelligence: 'qwen-edit-uncensored',
       openrouter: 'google/gemini-2.5-flash-image-preview',
       morpheus: 'nano-banana-2',
       other: ''
@@ -320,7 +321,26 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     };
 
     const imageEditModelsByProvider = {
-      surplusintelligence: [],
+      // Seed known Surplus /v1/images/edits models (uncensored first). Discovery replaces when available.
+      surplusintelligence: [
+        'qwen-edit-uncensored',
+        'qwen-image-2-edit',
+        'qwen-image-2-pro-edit',
+        'grok-imagine-edit',
+        'grok-imagine-quality-edit',
+        'flux-2-max-edit',
+        'gpt-image-2-edit',
+        'gpt-image-1-5-edit',
+        'seedream-v4-edit',
+        'seedream-v5-lite-edit',
+        'firered-image-edit',
+        'wan-2-7-pro-edit',
+        'nano-banana-2-edit',
+        'nano-banana-pro-edit',
+        'nano-banana-2-lite-edit',
+        'luma-uni-1-edit',
+        'luma-uni-1-max-edit'
+      ],
       openrouter: [
         'google/gemini-2.5-flash-image-preview',
         'google/gemini-2.5-flash-image',
@@ -590,8 +610,35 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     }
 
     const IMAGEGEN_EDIT_TIMEOUT_MS = 10 * 60 * 1000;
+    let imagegenEditSourceId = '';
 
-    async function compressImageForEdit(dataUrl, maxDim = 1536, quality = 0.86) {
+    function aspectRatioFromDimensions(width, height) {
+      const w = Number(width) || 1;
+      const h = Number(height) || 1;
+      const r = w / h;
+      if (Math.abs(r - 1) < 0.08) return '1:1';
+      if (r >= 1.6) return '16:9';
+      if (r >= 1.2) return '4:3';
+      if (r <= 0.7) return '9:16';
+      if (r < 1) return '9:16';
+      return '4:3';
+    }
+
+    async function loadImageAsDataUrl(src) {
+      if (!src) return '';
+      if (src.startsWith('data:image')) return src;
+      const response = await fetch(src, { credentials: 'same-origin' });
+      if (!response.ok) throw new Error('Could not load the source image.');
+      const blob = await response.blob();
+      return await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error('Could not read the source image.'));
+        reader.readAsDataURL(blob);
+      });
+    }
+
+    async function compressImageForEdit(dataUrl, maxDim = 2048, quality = 0.92) {
       if (!dataUrl || !dataUrl.startsWith('data:image')) return dataUrl;
       try {
         const image = await new Promise((resolve, reject) => {
@@ -600,7 +647,15 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
           img.onerror = () => reject(new Error('Could not read the uploaded image.'));
           img.src = dataUrl;
         });
+        if (els.imagegenEditAspect) {
+          const detected = aspectRatioFromDimensions(image.width, image.height);
+          if ([...els.imagegenEditAspect.options].some(opt => opt.value === detected)) {
+            els.imagegenEditAspect.value = detected;
+          }
+        }
         const scale = Math.min(1, maxDim / Math.max(image.width, image.height));
+        // Keep small images untouched for fidelity.
+        if (scale === 1 && dataUrl.length < 1_500_000) return dataUrl;
         const width = Math.max(1, Math.round(image.width * scale));
         const height = Math.max(1, Math.round(image.height * scale));
         const canvas = document.createElement('canvas');
@@ -609,10 +664,26 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
         const ctx = canvas.getContext('2d');
         if (!ctx) return dataUrl;
         ctx.drawImage(image, 0, 0, width, height);
-        const mime = dataUrl.includes('image/png') && scale === 1 ? 'image/png' : 'image/jpeg';
-        return canvas.toDataURL(mime, quality);
+        const preferPng = dataUrl.includes('image/png') && scale === 1;
+        return canvas.toDataURL(preferPng ? 'image/png' : 'image/jpeg', quality);
       } catch {
         return dataUrl;
+      }
+    }
+
+    async function useImageAsEditSource(src, { sourceId = '', alt = 'Edit source' } = {}) {
+      if (!src) return;
+      setImagegenMode('edit');
+      const dataUrl = await loadImageAsDataUrl(src);
+      const compressed = await compressImageForEdit(dataUrl);
+      if (!els.imagegenEditPreview) return;
+      els.imagegenEditPreview.src = compressed;
+      els.imagegenEditPreview.classList.remove('hidden');
+      els.imagegenSourceStage?.classList.add('has-source');
+      els.imagegenEditPreview.onclick = () => openImagePreview(compressed, alt);
+      imagegenEditSourceId = sourceId || '';
+      if (els.imagegenEditResult && !els.imagegenEditResult.querySelector('.imagegen-result-card, .imagegen-progress')) {
+        els.imagegenEditResult.innerHTML = '<div class="imagegen-stage-empty"><strong>Ready to edit</strong>Describe a change below — like ChatGPT or Grok.</div>';
       }
     }
 
@@ -982,6 +1053,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       }
       const src = data.data_url || `/api/imagegen/image/${encodeURIComponent(data.image.id)}`;
       const filename = `cyphertempre-${operation}-${data.image.id}.png`;
+      const imageId = data.image.id;
       return `
         <div class="imagegen-result-card">
           <img src="${esc(src)}" alt="${esc(operation)} image" data-preview-src="${esc(src)}">
@@ -991,6 +1063,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
             <div class="imagegen-action-row">
               <button class="imagegen-action" type="button" data-image-preview="${esc(src)}">Preview</button>
               <button class="imagegen-action" type="button" data-image-download="${esc(src)}" data-filename="${esc(filename)}">Download</button>
+              <button class="imagegen-action primary-ish" type="button" data-use-as-edit-source="${esc(src)}" data-source-id="${esc(imageId)}">Edit further</button>
             </div>
           </div>
         </div>`;
@@ -1004,6 +1077,18 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       container.querySelectorAll('[data-image-download]').forEach(button => {
         button.addEventListener('click', () => downloadImage(button.dataset.imageDownload, button.dataset.filename));
       });
+      container.querySelectorAll('[data-use-as-edit-source]').forEach(button => {
+        button.addEventListener('click', () => {
+          useImageAsEditSource(button.dataset.useAsEditSource, {
+            sourceId: button.dataset.sourceId || '',
+            alt: 'Edit source',
+          }).catch(error => {
+            if (els.imagegenEditResult) {
+              els.imagegenEditResult.innerHTML = `<div class="imagegen-error">${esc(error.message || 'Could not load image for editing.')}</div>`;
+            }
+          });
+        });
+      });
       container.querySelectorAll('img[data-preview-src]').forEach(image => {
         image.addEventListener('click', () => openImagePreview(image.dataset.previewSrc, image.alt));
       });
@@ -1013,6 +1098,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       if (!file || !file.type.startsWith('image/')) return;
       const reader = new FileReader();
       reader.onload = async () => {
+        imagegenEditSourceId = '';
         const compressed = await compressImageForEdit(reader.result);
         els.imagegenEditPreview.src = compressed;
         els.imagegenEditPreview.classList.remove('hidden');
@@ -1057,7 +1143,20 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       if (discoveredImageModels.length) {
         imageModelsByProvider[provider] = discoveredImageModels;
       }
-      imageEditModelsByProvider[provider] = (catalog.image_edit || []).map(model => model.id);
+      const discoveredEditModels = (catalog.image_edit || []).map(model => model.id);
+      if (discoveredEditModels.length) {
+        // Prefer uncensored / least-filtered edit models at the top of the selector.
+        imageEditModelsByProvider[provider] = discoveredEditModels.slice().sort((a, b) => {
+          const rank = (id) => {
+            const l = String(id || '').toLowerCase();
+            if (l.includes('uncensored')) return 0;
+            if (l.includes('qwen-edit') || l.includes('lustify') || l.includes('venice') || l.includes('firered')) return 1;
+            if (l.includes('grok-imagine') || l.includes('flux')) return 2;
+            return 3;
+          };
+          return rank(a) - rank(b) || String(a).localeCompare(String(b));
+        });
+      }
       videoModelsByProvider[provider] = (catalog.video || []).map(model => model.id);
 
       if (els.provider?.value === provider) {
@@ -1120,27 +1219,22 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       const current = els.imagegenEditModel.value || localStorage.getItem('ct_image_edit_model') || '';
 
       els.imagegenEditModel.innerHTML = '';
+      els.imagegenEditModel.disabled = false;
+      if (els.imagegenEditBtn) els.imagegenEditBtn.disabled = false;
 
       if (list.length === 0) {
         const opt = document.createElement('option');
-        const nativeUnavailable = prov === 'surplusintelligence';
-        const fallback = nativeUnavailable ? '' : (current || imageEditProviderDefaults[prov] || '');
+        const fallback = current || imageEditProviderDefaults[prov] || '';
         opt.value = fallback;
-        opt.textContent = nativeUnavailable
-          ? 'Native image editing unavailable'
-          : (fallback || 'Enter custom edit model');
+        opt.textContent = fallback || 'Enter custom edit model';
         els.imagegenEditModel.appendChild(opt);
-        els.imagegenEditModel.disabled = nativeUnavailable;
-        if (els.imagegenEditBtn) els.imagegenEditBtn.disabled = nativeUnavailable;
         if (fallback) localStorage.setItem('ct_image_edit_model', fallback);
-        els.imagegenEditModel.title = nativeUnavailable
-          ? 'Native image editing is not available through SurplusIntelligence. Use Redefine for a new interpretation.'
+        els.imagegenEditModel.title = prov === 'surplusintelligence'
+          ? 'Uses POST /v1/images/edits with your source image. Prefer *-edit models (e.g. gpt-image-2-edit).'
           : '';
         return;
       }
 
-      els.imagegenEditModel.disabled = false;
-      if (els.imagegenEditBtn) els.imagegenEditBtn.disabled = false;
       list.forEach(m => {
         const opt = document.createElement('option');
         opt.value = m;
@@ -1154,9 +1248,9 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
         els.imagegenEditModel.value = imageEditProviderDefaults[prov] || list[0];
       }
       localStorage.setItem('ct_image_edit_model', els.imagegenEditModel.value);
-      if (prov === 'surplusintelligence' && els.imagegenEditResult) {
-        els.imagegenEditModel.title = 'Source-aware edit: analyzes the upload, then regenerates it with the selected image model.';
-      }
+      els.imagegenEditModel.title = prov === 'surplusintelligence'
+        ? 'Native image-to-image edit via /v1/images/edits. Requires a source image and an edit model.'
+        : '';
     }
 
     function updateVideoModelOptions() {
@@ -2832,6 +2926,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     let imagegenActiveMode = 'generate';
     let imagegenSelectedImageId = '';
     let imagegenBusy = false;
+    // imagegenEditSourceId is declared near compressImageForEdit
 
     function imagegenBypassCheckboxes() {
       return [els.imagegenBypassGenerate, els.imagegenBypassEdit, els.imagegenBypassRedefine].filter(Boolean);
@@ -2843,8 +2938,11 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     }
 
     function restoreImagegenBypassPreference() {
-      const saved = localStorage.getItem('ct_imagegen_bypass_prompt') === '1';
-      syncImagegenBypassCheckboxes(saved);
+      // Default ON for uncensored editing: exact user prompt, no helper rewrite/filter.
+      // Only turn off when the user has explicitly saved '0'.
+      const saved = localStorage.getItem('ct_imagegen_bypass_prompt');
+      const enabled = saved === null ? true : saved === '1';
+      syncImagegenBypassCheckboxes(enabled);
     }
 
     function imagegenBypassPayload(mode) {
@@ -2928,6 +3026,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
         <div class="thumb" data-id="${esc(img.id)}" data-ring="${esc(img.ring_n || '')}" title="${esc(img.prompt)}">
           <img src="/api/imagegen/image/${esc(img.id)}" loading="lazy" alt="${esc(img.prompt)}" data-preview-src="/api/imagegen/image/${esc(img.id)}">
           ${img.ring_n ? `<span class="ring">v${esc(img.ring_n)}</span>` : ''}
+          <button class="edit-src" data-id="${esc(img.id)}" title="Edit this image">✎</button>
           <button class="download" data-id="${esc(img.id)}" title="Download">↓</button>
           <button class="del" data-id="${esc(img.id)}" title="Delete">&times;</button>
         </div>
@@ -2942,6 +3041,13 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
           if (e.target.classList.contains('download')) {
             e.stopPropagation();
             downloadImage(`/api/imagegen/image/${thumb.dataset.id}`, `cyphertempre-${thumb.dataset.id}.png`);
+            return;
+          }
+          if (e.target.classList.contains('edit-src')) {
+            e.stopPropagation();
+            const src = `/api/imagegen/image/${thumb.dataset.id}`;
+            useImageAsEditSource(src, { sourceId: thumb.dataset.id, alt: 'Archive image' })
+              .catch(error => alert(error.message || 'Could not open image for editing.'));
             return;
           }
           if (e.target.tagName === 'IMG') {
@@ -3015,17 +3121,17 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       if (imagegenBusy) return;
       const prompt = els.imagegenEditPrompt?.value?.trim();
       const fileInput = els.imagegenEditFile;
-      if (!prompt) { els.imagegenEditResult.innerHTML = '<div class="imagegen-error">Enter a prompt first.</div>'; return; }
+      if (!prompt) { els.imagegenEditResult.innerHTML = '<div class="imagegen-error">Describe the change — e.g. “make the background blue” or “add soft rim light”.</div>'; return; }
       if (!fileInput?.files?.length && !els.imagegenEditPreview?.src?.startsWith('data:')) {
-        els.imagegenEditResult.innerHTML = '<div class="imagegen-error">Upload an image first.</div>'; return;
+        els.imagegenEditResult.innerHTML = '<div class="imagegen-error">Upload an image, or pick one from the archive (✎).</div>'; return;
       }
       imagegenBusy = true;
       els.imagegenEditBtn.disabled = true;
-      els.imagegenEditBtn.textContent = 'Working…';
+      els.imagegenEditBtn.textContent = 'Editing…';
       const bypass = imagegenBypassPayload('edit').bypass_prompt;
       els.imagegenEditResult.innerHTML = bypass
-        ? '<div class="imagegen-progress"><div><div class="imagegen-spinner"></div><strong>Raw edit in progress</strong><span>Sending your prompt directly to the image model. This may take a few minutes on mobile.</span></div></div>'
-        : '<div class="imagegen-progress"><div><div class="imagegen-spinner"></div><strong>Source-aware edit in progress</strong><span>Analyzing your image, then rendering the result. This can take several minutes — keep this tab open.</span></div></div>';
+        ? '<div class="imagegen-progress"><div><div class="imagegen-spinner"></div><strong>Editing with your exact prompt</strong><span>Sending the source image + your words to the native edit model…</span></div></div>'
+        : '<div class="imagegen-progress"><div><div class="imagegen-spinner"></div><strong>Editing your image</strong><span>Applying your change to the source pixels — like ChatGPT or Grok. Keep this tab open.</span></div></div>';
       try {
         let imageData = '';
         if (els.imagegenEditPreview?.src?.startsWith('data:')) {
@@ -3046,6 +3152,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
             image: imageData,
             model: els.imagegenEditModel?.value,
             aspect_ratio: els.imagegenEditAspect?.value || els.imagegenAspect?.value,
+            source_id: imagegenEditSourceId || '',
             apiKey: localStorage.getItem('ct_image_api_key') || localStorage.getItem('ct_api_key') || '',
             provider: localStorage.getItem('ct_image_provider') || localStorage.getItem('ct_provider') || 'openrouter',
             baseUrl: localStorage.getItem('ct_image_base_url') || '',
@@ -3054,7 +3161,25 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
         }, IMAGEGEN_EDIT_TIMEOUT_MS);
         els.imagegenEditResult.innerHTML = renderImageResultCard(data, 'Edit');
         wireImageActions(els.imagegenEditResult);
-        if (data.image) renderImagegenLineage({ ok: true, chain: [data.image] });
+        // Seamless iterative edit: result becomes the next source (ChatGPT/Grok style).
+        if (data.data_url || data.image?.id) {
+          const nextSrc = data.data_url || `/api/imagegen/image/${data.image.id}`;
+          try {
+            const nextData = data.data_url || await loadImageAsDataUrl(nextSrc);
+            const compressed = await compressImageForEdit(nextData);
+            els.imagegenEditPreview.src = compressed;
+            els.imagegenEditPreview.classList.remove('hidden');
+            els.imagegenSourceStage?.classList.add('has-source');
+            els.imagegenEditPreview.onclick = () => openImagePreview(compressed, 'Edited image');
+            imagegenEditSourceId = data.image?.id || imagegenEditSourceId;
+          } catch {
+            /* keep previous source if promote fails */
+          }
+        }
+        if (data.image) {
+          renderImagegenLineage({ ok: true, chain: [data.image] });
+          loadImagegenLineage(data.image.id);
+        }
         loadImagegen();
         els.imagegenEditResult.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       } catch (error) {
@@ -3082,15 +3207,15 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       els.imagegenRedefineBtn.disabled = true;
       const bypass = imagegenBypassPayload('redefine').bypass_prompt;
       els.imagegenRedefineResult.innerHTML = bypass
-        ? '<div class="imagegen-progress"><div><div class="imagegen-spinner"></div><strong>Raw redefine in progress</strong><span>Sending your prompt directly to the image model without identity analysis.</span></div></div>'
-        : '<div class="imagegen-progress"><div><div class="imagegen-spinner"></div><strong>Building a new interpretation</strong><span>Analyzing the source and rendering its next version. This may take several minutes.</span></div></div>';
+        ? '<div class="imagegen-progress"><div><div class="imagegen-spinner"></div><strong>Raw redefine in progress</strong><span>Sending your prompt and source image to the edit endpoint.</span></div></div>'
+        : '<div class="imagegen-progress"><div><div class="imagegen-spinner"></div><strong>Building a new interpretation</strong><span>Re-interpreting the source image via native image-to-image edit. This may take several minutes.</span></div></div>';
       try {
         const data = await api('/api/imagegen/redefine', {
           method: 'POST',
           body: JSON.stringify({
             source_id: imagegenSelectedImageId,
             prompt,
-            model: els.imagegenModel?.value,
+            model: els.imagegenEditModel?.value || els.imagegenModel?.value,
             aspect_ratio: els.imagegenAspect?.value,
             apiKey: localStorage.getItem('ct_image_api_key') || localStorage.getItem('ct_api_key') || '',
             provider: localStorage.getItem('ct_image_provider') || localStorage.getItem('ct_provider') || 'openrouter',
@@ -3136,6 +3261,18 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     if (els.imagegenModeRedefine) els.imagegenModeRedefine.addEventListener('click', () => setImagegenMode('redefine'));
 
     // ImageGen inspiration chips (creative prompt helpers)
+    const editInspo = document.getElementById('imagegen-edit-inspiration');
+    if (editInspo) {
+      editInspo.querySelectorAll('button[data-edit-chip]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const ta = els.imagegenEditPrompt;
+          if (!ta) return;
+          const chip = btn.dataset.editChip || btn.textContent || '';
+          ta.value = ta.value?.trim() ? `${ta.value.trim()}, ${chip}` : chip;
+          ta.focus();
+        });
+      });
+    }
     const imgInspo = document.getElementById('imagegen-inspiration');
     if (imgInspo) {
       imgInspo.querySelectorAll('button').forEach(btn => {

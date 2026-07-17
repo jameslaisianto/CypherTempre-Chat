@@ -5,11 +5,11 @@ Brings ImageGen closer to Grok Imagine / ChatGPT image / Nano Banana quality by:
 1. Rewriting short user prompts into detailed, structured image-generation prompts
    via a vision-capable LLM (subject, identity, composition, lighting, lens, palette,
    mood, style, quality).
-2. Anchoring subject identity when editing/redefining: extract facial features, hair,
-   attire, pose, and distinguishing marks from the source image with a vision LLM,
-   then embed those anchors into the regeneration prompt so the same person comes back.
-3. Reusing the same vision analysis even on the native-edit path when the model can
-   accept reference images, so identity-locked language accompanies the image.
+2. For native image-to-image edit endpoints (Surplus /images/edits, Grok Imagine edit),
+   keep short conversational edit requests in natural language — like ChatGPT/Grok —
+   so the model edits the source pixels instead of regenerating from a text rewrite.
+3. For chat-modality image models without a true edit endpoint, anchor identity via a
+   vision LLM and embed those anchors into a regeneration-style prompt.
 
 Design principles for this layer:
 - It NEVER touches the final image-generation model you pick. You keep full control of
@@ -325,6 +325,26 @@ def analyze_source_identity(
         return ""
 
 
+def prepare_native_edit_prompt(
+    user_prompt: str,
+    *,
+    bypass: bool = False,
+    limit: int = 1400,
+) -> str:
+    """Uncensored ChatGPT/Grok-style prompt for native image-to-image edit models.
+
+    Native edit models already see the source pixels. We never rewrite, sanitize,
+    refuse, or soft-filter the user's request — only normalize whitespace and clamp
+    length for provider budgets. ``bypass`` is accepted for API compatibility and
+    does not change behavior (the native path is always exact-intent).
+    """
+    del bypass  # native I2I is always unfiltered exact-intent
+    prompt = re.sub(r"\s+", " ", str(user_prompt or "")).strip()
+    if not prompt:
+        return "Improve clarity and detail while keeping the subject and composition."
+    return clamp_surplus_image_prompt(prompt, limit=limit)
+
+
 def build_anchored_edit_prompt(
     *,
     provider: str,
@@ -336,15 +356,24 @@ def build_anchored_edit_prompt(
     vision_model: str = "",
     identity_analysis: str = "",
     bypass: bool = False,
+    native_i2i: bool = False,
 ) -> str:
-    """Produce an identity-anchored edit prompt from a source image and a change request.
+    """Produce an edit prompt from a source image and a change request.
 
-    When bypass=True, returns the user's prompt unchanged (raw path, no analysis).
+    For native image-to-image models (``native_i2i=True`` / Surplus), use a
+    ChatGPT/Grok-style natural-language instruction — do not vision-rewrite into
+    a full generation brief.
+
+    For chat-modality image models that regenerate from text, identity-anchor via vision.
+    When bypass=True, returns the user's prompt unchanged (raw path).
     On refusal or failure, returns the user's prompt unchanged.
     """
     user_prompt = (user_prompt or "").strip()
     if bypass or not image_parts:
         return user_prompt
+    # Native I2I path (Surplus /images/edits, Grok Imagine edit, etc.): keep it natural.
+    if native_i2i or provider == "surplusintelligence":
+        return prepare_native_edit_prompt(user_prompt, bypass=False)
     if not identity_analysis:
         identity_analysis = analyze_source_identity(
             provider=provider,
@@ -387,3 +416,4 @@ def build_anchored_edit_prompt(
         return anchored or user_prompt
     except Exception:
         return user_prompt
+

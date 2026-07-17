@@ -2217,6 +2217,16 @@ HTML_TEMPLATE = r"""<!doctype html>
       justify-content: center; font-size: 15px; cursor: pointer;
     }
     .imagegen-gallery-grid .thumb:hover .download { display: flex; }
+    .imagegen-gallery-grid .thumb .edit-src {
+      position: absolute; top: 8px; left: 40px; width: 26px; height: 26px; border-radius: 8px;
+      background: rgba(14,165,233,.85); color: #fff; border: 0; display: none; align-items: center;
+      justify-content: center; font-size: 13px; cursor: pointer;
+    }
+    .imagegen-gallery-grid .thumb:hover .edit-src { display: flex; }
+    .imagegen-action.primary-ish {
+      border-color: rgba(14,165,233,.45);
+      color: #7dd3fc;
+    }
 
     /* ImageGen Creative Canvas */
     .imagegen {
@@ -2412,7 +2422,8 @@ HTML_TEMPLATE = r"""<!doctype html>
         width: 112px; flex: 0 0 112px; aspect-ratio: 4/3;
       }
       .imagegen-gallery-grid .thumb .del,
-      .imagegen-gallery-grid .thumb .download {
+      .imagegen-gallery-grid .thumb .download,
+      .imagegen-gallery-grid .thumb .edit-src {
         display: flex; opacity: 1;
       }
       .imagegen-mini-gallery .thumb { width: 72px; height: 72px; }
@@ -2958,7 +2969,7 @@ HTML_TEMPLATE = r"""<!doctype html>
                     <div>
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
                       <p>Drop an image here, or click to browse</p>
-                      <div class="hint">PNG, JPG or WEBP · one click to select</div>
+                      <div class="hint">PNG, JPG or WEBP · or pick ✎ from the archive</div>
                     </div>
                   </div>
                   <img id="imagegen-edit-preview" class="imagegen-preview hidden" alt="Edit preview">
@@ -2967,16 +2978,24 @@ HTML_TEMPLATE = r"""<!doctype html>
                 <div id="imagegen-output-stage" class="imagegen-media-stage">
                   <span class="imagegen-stage-label">Result</span>
                   <div id="imagegen-edit-result" class="imagegen-result">
-                    <div class="imagegen-stage-empty"><strong>Your edited image appears here</strong>Source and result stay side-by-side for comparison.</div>
+                    <div class="imagegen-stage-empty"><strong>Your edited image appears here</strong>Talk naturally like ChatGPT/Grok — uncensored, unfiltered. Results become the next source for iterative edits.</div>
                   </div>
                 </div>
               </div>
               <div class="imagegen-control-dock">
+                <div class="imagegen-inspiration" id="imagegen-edit-inspiration">
+                  <button type="button" data-edit-chip="make the background a soft gradient blue">blue background</button>
+                  <button type="button" data-edit-chip="add dramatic cinematic rim lighting">rim light</button>
+                  <button type="button" data-edit-chip="enhance detail and sharpness while keeping the same face">enhance detail</button>
+                  <button type="button" data-edit-chip="change the lighting to golden hour">golden hour</button>
+                  <button type="button" data-edit-chip="convert to watercolor painting style">watercolor</button>
+                  <button type="button" data-edit-chip="remove distractions from the background">clean background</button>
+                </div>
                 <div class="imagegen-prompt-wrap">
-                  <textarea id="imagegen-edit-prompt" placeholder="Describe the change — enhance detail, restore color, change lighting..."></textarea>
+                  <textarea id="imagegen-edit-prompt" placeholder="Describe the change in plain language — like ChatGPT/Grok, uncensored. e.g. make the background blue…"></textarea>
                 </div>
                 <select id="imagegen-edit-model">
-                  <option value="google/gemini-2.5-flash-image-preview">Gemini Flash Image (Edit)</option>
+                  <option value="qwen-edit-uncensored">qwen-edit-uncensored</option>
                 </select>
                 <select id="imagegen-edit-aspect">
                   <option value="1:1">1:1 Square</option>
@@ -2985,9 +3004,9 @@ HTML_TEMPLATE = r"""<!doctype html>
                   <option value="9:16">9:16 Portrait</option>
                 </select>
                 <button id="imagegen-edit-btn" class="primary" type="button">Apply Edit</button>
-                <label class="imagegen-raw-toggle" title="Send your prompt verbatim and skip identity analysis and prompt rewriting. Use for uncensored models or when you want zero filtering between you and the image model.">
-                  <input type="checkbox" id="imagegen-bypass-edit">
-                  <span>Raw prompt (skip prompt engineering)</span>
+                <label class="imagegen-raw-toggle" title="Uncensored path: your exact prompt is sent to the edit model with no helper rewrite, policy softening, or content filter. Leave on for ChatGPT/Grok-like control without censorship.">
+                  <input type="checkbox" id="imagegen-bypass-edit" checked>
+                  <span>Uncensored (exact prompt — no filter)</span>
                 </label>
               </div>
             </div>
@@ -3002,9 +3021,9 @@ HTML_TEMPLATE = r"""<!doctype html>
               <div class="imagegen-controls">
                 <button id="imagegen-redefine-btn" class="primary" type="button">Redefine</button>
               </div>
-              <label class="imagegen-raw-toggle" title="Send your prompt verbatim and skip identity analysis and prompt rewriting. Use for uncensored models or when you want zero filtering between you and the image model.">
-                <input type="checkbox" id="imagegen-bypass-redefine">
-                <span>Raw prompt (skip prompt engineering)</span>
+              <label class="imagegen-raw-toggle" title="Uncensored path: exact prompt to the model with no helper rewrite or content filter.">
+                <input type="checkbox" id="imagegen-bypass-redefine" checked>
+                <span>Uncensored (exact prompt — no filter)</span>
               </label>
               <div id="imagegen-redefine-result" class="imagegen-result"></div>
             </div>

@@ -4,40 +4,134 @@ from __future__ import annotations
 
 import base64
 import json
+import mimetypes
 import re
 import urllib.error
 import urllib.request
 from typing import Any
 
 from server.config import IMAGE_PROVIDERS, clamp_surplus_image_prompt, resolve_provider_endpoint
-from server.llm import call_llm, list_provider_models
 
-_EDIT_IDENTITY_RULES = (
-    "Preserve exact facial features, identity, pose, wardrobe, lighting, and composition "
-    "unless the request explicitly changes them. Apply only the requested change."
+_SURPLUS_EDIT_PROMPT_BUDGET = 1400
+
+# Known SurplusIntelligence /v1/images/edits models (advertised via /v1/models).
+# Uncensored / least-filtered models first — default edit experience is unfiltered.
+SURPLUS_EDIT_MODELS: tuple[str, ...] = (
+    "qwen-edit-uncensored",
+    "qwen-image-2-edit",
+    "qwen-image-2-pro-edit",
+    "grok-imagine-edit",
+    "grok-imagine-quality-edit",
+    "flux-2-max-edit",
+    "gpt-image-2-edit",
+    "gpt-image-1-5-edit",
+    "seedream-v4-edit",
+    "seedream-v5-lite-edit",
+    "firered-image-edit",
+    "wan-2-7-pro-edit",
+    "nano-banana-2-edit",
+    "nano-banana-pro-edit",
+    "nano-banana-2-lite-edit",
+    "luma-uni-1-edit",
+    "luma-uni-1-max-edit",
 )
 
-_FALLBACK_VISION_PROMPT = (
-    "Analyze the supplied image and write one concise image-generation prompt that preserves "
-    "subject identity, facial features, pose, colors, and important details while applying "
-    "this change: {prompt}. Return only the final prompt. Maximum 1400 characters."
-)
+DEFAULT_SURPLUS_EDIT_MODEL = SURPLUS_EDIT_MODELS[0]
 
-_SURPLUS_VISION_USER_PROMPT_BUDGET = 500
+# Map common generation / base model ids onto their edit counterparts.
+_SURPLUS_EDIT_MODEL_ALIASES: dict[str, str] = {
+    "gpt-image-2": "gpt-image-2-edit",
+    "gpt-image-1-5": "gpt-image-1-5-edit",
+    "gpt-image-1.5": "gpt-image-1-5-edit",
+    "flux-2-max": "flux-2-max-edit",
+    "grok-imagine": "grok-imagine-edit",
+    "grok-imagine-image": "grok-imagine-edit",
+    "grok-imagine-quality": "grok-imagine-quality-edit",
+    "seedream-v4": "seedream-v4-edit",
+    "seedream-v5-lite": "seedream-v5-lite-edit",
+    "firered-image": "firered-image-edit",
+    "qwen-image-2": "qwen-image-2-edit",
+    "qwen-image-2-pro": "qwen-image-2-pro-edit",
+    "nano-banana-2": "nano-banana-2-edit",
+    "nano-banana-pro": "nano-banana-pro-edit",
+    "nano-banana-2-lite": "nano-banana-2-lite-edit",
+    "luma-uni-1": "luma-uni-1-edit",
+    "luma-uni-1-max": "luma-uni-1-max-edit",
+    "wan-2-7-pro": "wan-2-7-pro-edit",
+}
 
 
-def build_edit_instruction(user_prompt: str, *, provider: str = "") -> str:
-    """Wrap the user's edit request with identity-preservation constraints."""
+def looks_like_edit_model(model_id: str) -> bool:
+    """True when a model id is an image-to-image / edit model rather than text-to-image."""
+    lowered = (model_id or "").strip().lower()
+    if not lowered:
+        return False
+    return (
+        lowered.endswith("-edit")
+        or lowered.endswith("_edit")
+        or "-edit-" in lowered
+        or "_edit_" in lowered
+        or "image-edit" in lowered
+    )
+
+
+def prefer_uncensored_edit_models(model_ids: list[str] | tuple[str, ...]) -> list[str]:
+    """Stable-sort so uncensored / least-filtered edit models appear first."""
+
+    def rank(model_id: str) -> tuple[int, str]:
+        lowered = (model_id or "").lower()
+        if "uncensored" in lowered:
+            return (0, lowered)
+        if any(token in lowered for token in ("qwen-edit", "lustify", "venice", "firered")):
+            return (1, lowered)
+        if "grok-imagine" in lowered or "flux" in lowered:
+            return (2, lowered)
+        return (3, lowered)
+
+    return sorted((m for m in model_ids if m), key=rank)
+
+
+def normalize_surplus_edit_model(model: str) -> str:
+    """Coerce generation / base model names onto Surplus edit models when possible."""
+    raw = (model or "").strip()
+    if not raw:
+        return DEFAULT_SURPLUS_EDIT_MODEL
+    if looks_like_edit_model(raw):
+        return raw
+    lowered = raw.lower()
+    if lowered in _SURPLUS_EDIT_MODEL_ALIASES:
+        return _SURPLUS_EDIT_MODEL_ALIASES[lowered]
+    # Prefer known catalog match by stripping trailing generation tokens.
+    for base, edit in _SURPLUS_EDIT_MODEL_ALIASES.items():
+        if lowered == base or lowered.startswith(base + "-") or lowered.startswith(base + "_"):
+            return edit
+    candidate = f"{raw}-edit"
+    if candidate in SURPLUS_EDIT_MODELS:
+        return candidate
+    return raw
+
+
+def build_edit_instruction(user_prompt: str, *, provider: str = "", native_i2i: bool = False) -> str:
+    """Build the text instruction sent with a source image.
+
+    Native I2I (Surplus /images/edits and similar): pass the user's request through
+    uncensored — no safety rewrites, no wardrobe/identity soft-filters, no policy text.
+
+    Chat-modality edit models: light edit framing only (still no content filtering).
+    """
     prompt = str(user_prompt or "").strip()
-    if provider == "surplusintelligence":
-        prompt = clamp_surplus_image_prompt(prompt, limit=_SURPLUS_VISION_USER_PROMPT_BUDGET)
+    use_native = native_i2i or provider == "surplusintelligence"
+    if use_native:
+        if not prompt:
+            prompt = "Improve clarity and detail while keeping the subject and composition."
+        if provider == "surplusintelligence":
+            return clamp_surplus_image_prompt(prompt, limit=_SURPLUS_EDIT_PROMPT_BUDGET)
+        return prompt
+
     if not prompt:
-        instruction = _EDIT_IDENTITY_RULES
-    else:
-        instruction = f"Edit the source image. Change: {prompt}. {_EDIT_IDENTITY_RULES}"
-    if provider == "surplusintelligence":
-        return clamp_surplus_image_prompt(instruction)
-    return instruction
+        return "Apply the requested edit to the source image. Follow the user's intent exactly."
+    # No policy/safety language — only operational framing for chat-modality models.
+    return f"Edit the source image according to this request: {prompt}"
 
 
 def _provider_config(provider: str, base_url: str) -> dict[str, Any]:
@@ -54,17 +148,23 @@ def _provider_config(provider: str, base_url: str) -> dict[str, Any]:
 
 def _api_root(provider_url: str) -> str:
     api_root = (provider_url or "").strip().rstrip("/")
-    for suffix in ("/chat/completions", "/audio/speech", "/images/generations"):
+    for suffix in (
+        "/chat/completions",
+        "/audio/speech",
+        "/images/generations",
+        "/images/edits",
+    ):
         if api_root.endswith(suffix):
             api_root = api_root[: -len(suffix)].rstrip("/")
     return api_root
 
 
-def _request_headers(config: dict[str, Any], provider: str, api_key: str) -> dict[str, str]:
+def _request_headers(config: dict[str, Any], provider: str, api_key: str, *, json_body: bool = True) -> dict[str, str]:
     headers = {
         "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
     }
+    if json_body:
+        headers["Content-Type"] = "application/json"
     if config.get("needs_referer"):
         headers["HTTP-Referer"] = "http://127.0.0.1:8765"
     if config.get("needs_title"):
@@ -97,6 +197,37 @@ def _extract_user_prompt(messages: list[dict[str, Any]]) -> str:
     return "\n".join(part.strip() for part in parts if part.strip())
 
 
+def _image_url_from_part(part: dict[str, Any]) -> str:
+    """Normalize an OpenAI-style image_url content part into a usable image_url string."""
+    image_url = part.get("image_url")
+    if isinstance(image_url, dict):
+        return str(image_url.get("url") or "").strip()
+    if isinstance(image_url, str):
+        return image_url.strip()
+    return str(part.get("url") or "").strip()
+
+
+def _source_image_urls(messages: list[dict[str, Any]]) -> list[str]:
+    urls: list[str] = []
+    for part in _extract_image_parts(messages):
+        url = _image_url_from_part(part)
+        if url:
+            urls.append(url)
+    return urls
+
+
+def _decode_data_url(data_url: str) -> tuple[bytes, str]:
+    """Return (bytes, mime) from a data: URL."""
+    if not data_url.startswith("data:"):
+        raise ValueError("Not a data URL")
+    header, _, payload = data_url.partition(",")
+    mime = "image/png"
+    if header.startswith("data:") and ";" in header:
+        mime = header[5:].split(";", 1)[0] or mime
+    raw = base64.b64decode(payload)
+    return raw, mime
+
+
 def _build_native_edit_messages(messages: list[dict[str, Any]], *, provider: str = "") -> list[dict[str, Any]]:
     image_parts = _extract_image_parts(messages)
     if not image_parts:
@@ -118,18 +249,22 @@ def _parse_image_response(body: dict[str, Any], *, timeout: float, label: str) -
         if not value:
             return
         if isinstance(value, dict):
-            for key in ("b64_json", "data", "url", "image_url", "imageUrl"):
+            for key in ("b64_json", "b64", "base64", "data", "url", "image_url", "imageUrl", "image"):
                 before = len(results)
                 append_image_value(value.get(key))
                 if len(results) > before:
                     break
+            return
+        if isinstance(value, list):
+            for item in value:
+                append_image_value(item)
             return
         text = str(value).strip()
         if not text:
             return
         if text.startswith("data:image"):
             results.append(text.split(",", 1)[1] if "," in text else text)
-        elif text.startswith("https://"):
+        elif text.startswith("https://") or text.startswith("http://"):
             request = urllib.request.Request(text, method="GET")
             try:
                 with urllib.request.urlopen(request, timeout=timeout) as response:
@@ -140,6 +275,7 @@ def _parse_image_response(body: dict[str, Any], *, timeout: float, label: str) -
             except urllib.error.URLError as exc:
                 raise RuntimeError(f"{label} image download failed: {exc.reason}") from exc
         else:
+            # Assume raw base64.
             results.append(text)
 
     choices = body.get("choices") or []
@@ -148,8 +284,12 @@ def _parse_image_response(body: dict[str, Any], *, timeout: float, label: str) -
         for img in message.get("images") or []:
             append_image_value(img)
         if not results:
-            content = (message.get("content") or "").strip()
-            if content.startswith("data:image"):
+            content = message.get("content")
+            if isinstance(content, list):
+                for part in content:
+                    if isinstance(part, dict):
+                        append_image_value(part)
+            elif isinstance(content, str) and content.strip().startswith("data:image"):
                 append_image_value(content)
 
     if not results:
@@ -157,7 +297,10 @@ def _parse_image_response(body: dict[str, Any], *, timeout: float, label: str) -
             append_image_value(item)
 
     if not results:
-        append_image_value(body.get("url") or body.get("image_url") or body.get("imageUrl"))
+        append_image_value(body.get("url") or body.get("image_url") or body.get("imageUrl") or body.get("image"))
+
+    if not results:
+        append_image_value(body.get("output") or body.get("result") or body.get("images"))
 
     return results
 
@@ -189,6 +332,63 @@ def _post_json(
         raise RuntimeError(f"{label} HTTP {exc.code}: {message}") from exc
     except urllib.error.URLError as exc:
         raise RuntimeError(f"{label} request failed: {exc.reason}") from exc
+
+
+def _post_multipart(
+    *,
+    url: str,
+    fields: dict[str, str],
+    files: list[tuple[str, str, bytes, str]],
+    headers: dict[str, str],
+    timeout: float,
+    label: str,
+) -> dict[str, Any]:
+    """Minimal multipart/form-data POST for OpenAI-style image edits."""
+    boundary = "----CypherTempreBoundary7MA4YWxkTrZu0gW"
+    body = bytearray()
+    for name, value in fields.items():
+        body.extend(f"--{boundary}\r\n".encode("utf-8"))
+        body.extend(f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode("utf-8"))
+        body.extend(str(value).encode("utf-8"))
+        body.extend(b"\r\n")
+    for field_name, filename, content, mime in files:
+        body.extend(f"--{boundary}\r\n".encode("utf-8"))
+        body.extend(
+            f'Content-Disposition: form-data; name="{field_name}"; filename="{filename}"\r\n'.encode("utf-8")
+        )
+        body.extend(f"Content-Type: {mime}\r\n\r\n".encode("utf-8"))
+        body.extend(content)
+        body.extend(b"\r\n")
+    body.extend(f"--{boundary}--\r\n".encode("utf-8"))
+
+    req_headers = dict(headers)
+    req_headers["Content-Type"] = f"multipart/form-data; boundary={boundary}"
+    request = urllib.request.Request(url, data=bytes(body), headers=req_headers, method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        try:
+            parsed = json.loads(detail)
+            message = parsed.get("error", {}).get("message") or parsed.get("message") or detail
+        except json.JSONDecodeError:
+            message = detail
+        raise RuntimeError(f"{label} HTTP {exc.code}: {message}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"{label} request failed: {exc.reason}") from exc
+
+
+def _size_for_aspect(aspect_ratio: str, image_size: str) -> str:
+    if re.fullmatch(r"\d+x\d+", image_size or ""):
+        return image_size
+    size_map = {
+        "1:1": "1024x1024",
+        "16:9": "1536x1024",
+        "4:3": "1536x1024",
+        "9:16": "1024x1536",
+    }
+    return size_map.get(aspect_ratio or "", "")
 
 
 def _native_image_edit(
@@ -234,7 +434,122 @@ def _native_image_edit(
     return images
 
 
-def _surplus_regenerate_fallback(
+def _surplus_payload_variants(
+    *,
+    model: str,
+    prompt: str,
+    source_urls: list[str],
+    aspect_ratio: str,
+    image_size: str,
+) -> list[dict[str, Any]]:
+    """Ordered Surplus /images/edits JSON payload strategies."""
+    size = _size_for_aspect(aspect_ratio, image_size)
+    primary = source_urls[0]
+    base: dict[str, Any] = {
+        "model": model,
+        "prompt": prompt,
+        "n": 1,
+        "response_format": "b64_json",
+    }
+    variants: list[dict[str, Any]] = []
+
+    # 1) Docs-preferred: image_url (+ optional size)
+    v1 = {**base, "image_url": primary}
+    if size:
+        v1["size"] = size
+    variants.append(v1)
+
+    # 2) image_url without size (let model preserve source dimensions)
+    if size:
+        variants.append({**base, "image_url": primary})
+
+    # 3) input_images array (multi-ref friendly)
+    v3 = {**base, "input_images": source_urls, "image_url": primary}
+    if size:
+        v3["size"] = size
+    variants.append(v3)
+
+    # 4) response_format url (some gateways only return URLs cleanly)
+    variants.append({**base, "image_url": primary, "response_format": "url"})
+
+    # Deduplicate while preserving order.
+    seen: set[str] = set()
+    unique: list[dict[str, Any]] = []
+    for payload in variants:
+        key = json.dumps(payload, sort_keys=True)
+        if key not in seen:
+            seen.add(key)
+            unique.append(payload)
+    return unique
+
+
+def _surplus_multipart_edit(
+    *,
+    url: str,
+    model: str,
+    prompt: str,
+    source_urls: list[str],
+    size: str,
+    headers: dict[str, str],
+    timeout: float,
+    label: str,
+) -> dict[str, Any]:
+    """Fallback: multipart image upload when JSON image_url is rejected."""
+    data_url = next((u for u in source_urls if u.startswith("data:")), "")
+    if not data_url:
+        raise RuntimeError("Multipart edit requires a local data-URL source image.")
+    raw, mime = _decode_data_url(data_url)
+    ext = mimetypes.guess_extension(mime) or ".png"
+    fields = {
+        "model": model,
+        "prompt": prompt,
+        "n": "1",
+        "response_format": "b64_json",
+    }
+    if size:
+        fields["size"] = size
+    return _post_multipart(
+        url=url,
+        fields=fields,
+        files=[("image", f"source{ext}", raw, mime)],
+        headers=headers,
+        timeout=timeout,
+        label=label,
+    )
+
+
+def _friendly_surplus_error(message: str, *, model: str) -> str:
+    lowered = (message or "").lower()
+    if "payment" in lowered or "402" in lowered or "x402" in lowered:
+        return (
+            f"{message} "
+            "Surplus billing is required for image edits — top up or complete SIWE settlement, then retry."
+        )
+    if "model" in lowered and ("not found" in lowered or "invalid" in lowered or "unsupported" in lowered):
+        return (
+            f"{message} "
+            f"Pick a Surplus edit model such as {SURPLUS_EDIT_MODELS[0]} or grok-imagine-edit "
+            "(not a /images/generations model)."
+        )
+    if "image" in lowered and any(tok in lowered for tok in ("required", "missing", "invalid", "format", "decode")):
+        return (
+            f"{message} "
+            "Upload a clear PNG/JPG source image. Large files are auto-compressed before send."
+        )
+    if "generations" in lowered:
+        return (
+            f"{message} "
+            "Image editing uses POST /v1/images/edits with an input image, not /v1/images/generations."
+        )
+    if model and not looks_like_edit_model(model):
+        return (
+            f"{message} "
+            f"Current model '{model}' may not be an edit model — try {normalize_surplus_edit_model(model)}."
+        )
+    return message
+
+
+def _surplus_native_image_edit(
     *,
     provider: str,
     api_key: str,
@@ -245,75 +560,85 @@ def _surplus_regenerate_fallback(
     aspect_ratio: str,
     image_size: str,
 ) -> list[str]:
-    """Last-resort SurplusIntelligence path when native multimodal edit is unavailable."""
+    """SurplusIntelligence native edit via POST /v1/images/edits.
+
+    Accepts JSON ``image_url`` (data URL or https URL), ``input_images``, or multipart
+    image upload. Do not use /v1/images/generations for edits.
+    """
     config = _provider_config(provider, base_url)
-    user_prompt = clamp_surplus_image_prompt(
+    url = resolve_provider_endpoint(config["api_root"], "images/edits")
+    if not url:
+        raise RuntimeError("No URL configured for SurplusIntelligence image edits.")
+
+    source_urls = _source_image_urls(messages)
+    if not source_urls:
+        raise RuntimeError(
+            "Source image is required for image editing. "
+            "Use POST /v1/images/edits with an input image (not /v1/images/generations)."
+        )
+
+    # Trust the handler-prepared text (native prepare / raw bypass). Only clamp length.
+    # Re-wrapping here would fight ChatGPT/Grok-style short conversational edits.
+    prompt = clamp_surplus_image_prompt(
         _extract_user_prompt(messages),
-        limit=_SURPLUS_VISION_USER_PROMPT_BUDGET,
+        limit=_SURPLUS_EDIT_PROMPT_BUDGET,
     )
-    image_parts = _extract_image_parts(messages)
-    if not image_parts:
-        raise RuntimeError("Source image is required for image editing.")
-
-    catalog = list_provider_models(
-        provider=provider,
-        base_url=config["provider_url"],
-        api_key=api_key,
-        timeout=min(timeout, 20.0),
-    )
-    vision_models = catalog.get("vision") or []
-    if not vision_models:
-        raise RuntimeError("SurplusIntelligence returned no vision model for source-aware image editing.")
-    vision_ids = [item["id"] for item in vision_models]
-    preferred_vision_ids = ("gemini-2.5-flash", "gpt-5.4-nano", "gemma-4-uncensored")
-    vision_model = next(
-        (candidate for candidate in preferred_vision_ids if candidate in vision_ids),
-        vision_ids[0],
-    )
-    analysis = call_llm(
-        provider=provider,
-        api_key=api_key,
-        model=vision_model,
-        messages=[{
-            "role": "user",
-            "content": [
-                *image_parts,
-                {"type": "text", "text": _FALLBACK_VISION_PROMPT.format(prompt=user_prompt)},
-            ],
-        }],
-        timeout=timeout,
-        base_url=config["provider_url"],
-        max_tokens=900,
-    )
-    prompt = clamp_surplus_image_prompt(str(analysis.get("content") or "").strip())
     if not prompt:
-        raise RuntimeError("SurplusIntelligence vision analysis returned an empty edit prompt.")
+        raise RuntimeError("Edit prompt is required.")
 
-    size_map = {
-        "1:1": "1024x1024",
-        "16:9": "1536x1024",
-        "4:3": "1536x1024",
-        "9:16": "1024x1536",
-    }
-    url = resolve_provider_endpoint(config["api_root"], "images/generations")
-    payload = {
-        "model": model or config.get("default_model", ""),
-        "prompt": prompt,
-        "n": 1,
-        "response_format": "b64_json",
-        "size": image_size if re.fullmatch(r"\d+x\d+", image_size or "") else size_map.get(aspect_ratio, "1024x1024"),
-    }
-    body = _post_json(
-        url=url,
-        payload=payload,
-        headers=_request_headers(config, provider, api_key),
-        timeout=timeout,
-        label=config.get("label", provider),
-    )
-    images = _parse_image_response(body, timeout=timeout, label=config.get("label", provider))
-    if not images:
-        raise RuntimeError(f"{config.get('label', provider)} returned no edited image.")
-    return images
+    edit_model = normalize_surplus_edit_model(model)
+    label = config.get("label", provider)
+    headers = _request_headers(config, provider, api_key)
+    last_error: Exception | None = None
+
+    for payload in _surplus_payload_variants(
+        model=edit_model,
+        prompt=prompt,
+        source_urls=source_urls,
+        aspect_ratio=aspect_ratio,
+        image_size=image_size,
+    ):
+        try:
+            body = _post_json(
+                url=url,
+                payload=payload,
+                headers=headers,
+                timeout=timeout,
+                label=label,
+            )
+            images = _parse_image_response(body, timeout=timeout, label=label)
+            if images:
+                return images
+            last_error = RuntimeError(f"{label} returned no edited image from /images/edits.")
+        except RuntimeError as exc:
+            last_error = exc
+            # Hard stop on auth/payment — retrying the same wallet error is useless.
+            msg = str(exc).lower()
+            if any(tok in msg for tok in ("401", "403", "402", "payment", "unauthorized", "forbidden", "api key")):
+                raise RuntimeError(_friendly_surplus_error(str(exc), model=edit_model)) from exc
+            continue
+
+    # Final fallback: multipart upload for gateways that reject JSON data URLs.
+    try:
+        body = _surplus_multipart_edit(
+            url=url,
+            model=edit_model,
+            prompt=prompt,
+            source_urls=source_urls,
+            size=_size_for_aspect(aspect_ratio, image_size),
+            headers=_request_headers(config, provider, api_key, json_body=False),
+            timeout=timeout,
+            label=label,
+        )
+        images = _parse_image_response(body, timeout=timeout, label=label)
+        if images:
+            return images
+    except Exception as exc:  # noqa: BLE001 — fall through to last JSON error
+        last_error = last_error or exc
+
+    if last_error:
+        raise RuntimeError(_friendly_surplus_error(str(last_error), model=edit_model)) from last_error
+    raise RuntimeError(f"{label} returned no edited image from /images/edits.")
 
 
 def call_image_edit(
@@ -339,10 +664,15 @@ def call_image_edit(
         raise RuntimeError("API key is still the example placeholder.")
 
     if provider == "surplusintelligence":
-        raise RuntimeError(
-            "SurplusIntelligence does not expose a native image-edit endpoint. "
-            "Use Redefine for a new interpretation, or configure an image provider/model "
-            "that accepts the source image as edit input."
+        return _surplus_native_image_edit(
+            provider=provider,
+            api_key=api_key,
+            model=model,
+            messages=messages,
+            timeout=timeout,
+            base_url=base_url,
+            aspect_ratio=aspect_ratio,
+            image_size=image_size,
         )
 
     return _native_image_edit(
@@ -368,22 +698,7 @@ def call_image_redefine(
     aspect_ratio: str = "",
     image_size: str = "",
 ) -> list[str]:
-    """Create a new interpretation from a source image.
-
-    SurplusIntelligence has generation but no native edit endpoint, so Redefine is
-    the explicit place where describe-then-regenerate behavior is allowed.
-    """
-    if provider == "surplusintelligence":
-        return _surplus_regenerate_fallback(
-            provider=provider,
-            api_key=api_key,
-            model=model,
-            messages=messages,
-            timeout=timeout,
-            base_url=base_url,
-            aspect_ratio=aspect_ratio,
-            image_size=image_size,
-        )
+    """Create a new interpretation from a source image via native image-to-image edit."""
     return call_image_edit(
         provider=provider,
         api_key=api_key,

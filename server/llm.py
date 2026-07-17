@@ -23,6 +23,7 @@ from server.config import (
     ACTIVE_CONTEXT_DAYS, SESSION_PAUSE_NOTICE_DAYS,
     default_provider_url, resolve_chat_completions_url, resolve_provider_endpoint,
 )
+from server.image_edit import looks_like_edit_model
 
 MEMORY_ACCEPTED_STATUSES = {"accepted", "known", "uncertain"}
 FRAME_DECLARATION_START = "[CT_FRAME_DECLARATION]"
@@ -41,9 +42,12 @@ def _infer_modalities_from_model_id(model_id: str) -> tuple[list[str], list[str]
     image_tokens = (
         "image", "flux", "dall", "lustify", "imagine", "banana", "riverflow",
         "gpt-5-image", "nano-banana", "midjourney", "stable-diffusion", "sdxl",
+        "seedream", "firered", "qwen-edit", "luma-uni",
     )
-    if any(token in lowered for token in image_tokens):
+    if looks_like_edit_model(model_id) or any(token in lowered for token in image_tokens):
         outputs.append("image")
+    if looks_like_edit_model(model_id) and "image" not in inputs:
+        inputs.append("image")
     if "video" in lowered:
         outputs.append("video")
     if any(token in lowered for token in ("tts", "audio", "speech", "kokoro")):
@@ -78,6 +82,12 @@ def categorize_provider_models(models: list[dict[str, Any]]) -> dict[str, list[d
         outputs = [str(value).lower() for value in architecture.get("output_modalities") or []]
         if not inputs and not outputs:
             inputs, outputs = _infer_modalities_from_model_id(model_id)
+        # Name-based edit models (e.g. gpt-image-2-edit) always accept image input.
+        if looks_like_edit_model(model_id):
+            if "image" not in inputs:
+                inputs.append("image")
+            if "image" not in outputs:
+                outputs.append("image")
         item = {
             "id": model_id,
             "name": str(raw.get("name") or model_id).strip(),
@@ -88,16 +98,34 @@ def categorize_provider_models(models: list[dict[str, Any]]) -> dict[str, list[d
             catalog["chat"].append(item)
             if "image" in inputs:
                 catalog["vision"].append(item)
-        if "image" in outputs:
+        # Pure *-edit models belong in image_edit only; generation models stay in image.
+        if "image" in outputs and not looks_like_edit_model(model_id):
             catalog["image"].append(item)
-        if "image" in inputs and "image" in outputs:
+        if ("image" in inputs and "image" in outputs) or looks_like_edit_model(model_id):
             catalog["image_edit"].append(item)
         if "video" in outputs:
             catalog["video"].append(item)
         if "audio" in outputs:
             catalog["audio"].append(item)
-    for items in catalog.values():
-        items.sort(key=lambda item: (item["name"].lower(), item["id"].lower()))
+    for key, items in catalog.items():
+        if key == "image_edit":
+            # Uncensored / least-filtered edit models first for the default experience.
+            def _edit_rank(item: dict[str, Any]) -> tuple[int, str, str]:
+                mid = str(item.get("id") or "").lower()
+                name = str(item.get("name") or "").lower()
+                if "uncensored" in mid or "uncensored" in name:
+                    bucket = 0
+                elif any(tok in mid for tok in ("qwen-edit", "lustify", "venice", "firered")):
+                    bucket = 1
+                elif any(tok in mid for tok in ("grok-imagine", "flux")):
+                    bucket = 2
+                else:
+                    bucket = 3
+                return (bucket, name, mid)
+
+            items.sort(key=_edit_rank)
+        else:
+            items.sort(key=lambda item: (item["name"].lower(), item["id"].lower()))
     return catalog
 
 
@@ -1195,9 +1223,15 @@ def call_image_generation(
         config = {"url": "", "needs_referer": False, "needs_title": False, "label": "Custom"}
     provider_url = base_url or config.get("url", "")
     surplus_images_api = provider == "surplusintelligence"
+    if surplus_images_api and operation in {"edit", "redefine"}:
+        raise RuntimeError(
+            "SurplusIntelligence image editing uses POST /v1/images/edits with an input image, "
+            "not /v1/images/generations. Use call_image_edit with an edit model "
+            "(e.g. gpt-image-2-edit)."
+        )
     if surplus_images_api:
         api_root = provider_url.rstrip("/")
-        for suffix in ("/chat/completions", "/audio/speech", "/images/generations"):
+        for suffix in ("/chat/completions", "/audio/speech", "/images/generations", "/images/edits"):
             if api_root.endswith(suffix):
                 api_root = api_root[: -len(suffix)].rstrip("/")
         url = resolve_provider_endpoint(api_root, "images/generations")
@@ -1216,51 +1250,6 @@ def call_image_generation(
                     if isinstance(part, dict) and part.get("type") == "text":
                         prompt_parts.append(str(part.get("text", "")))
         prompt = "\n".join(part.strip() for part in prompt_parts if part.strip())
-        if operation == "edit":
-            catalog = list_provider_models(
-                provider=provider,
-                base_url=provider_url,
-                api_key=api_key,
-                timeout=min(timeout, 20.0),
-            )
-            vision_models = catalog.get("vision") or []
-            if not vision_models:
-                raise RuntimeError("SurplusIntelligence returned no vision model for source-aware image editing.")
-            vision_ids = [item["id"] for item in vision_models]
-            preferred_vision_ids = ("gemini-2.5-flash", "gpt-5.4-nano", "gemma-4-uncensored")
-            vision_model = next(
-                (candidate for candidate in preferred_vision_ids if candidate in vision_ids),
-                vision_ids[0],
-            )
-            analysis_messages = [{
-                "role": "user",
-                "content": [
-                    *[
-                        part
-                        for message in messages
-                        for part in (message.get("content") if isinstance(message.get("content"), list) else [])
-                        if isinstance(part, dict) and part.get("type") == "image_url"
-                    ],
-                    {
-                        "type": "text",
-                        "text": (
-                            "Analyze the supplied image and write one detailed image-generation prompt that "
-                            "faithfully preserves its subject, identity, composition, pose, colors, and important "
-                            f"details while applying this requested change: {prompt}. Return only the final prompt."
-                        ),
-                    },
-                ],
-            }]
-            analysis = call_llm(
-                provider=provider,
-                api_key=api_key,
-                model=vision_model,
-                messages=analysis_messages,
-                timeout=timeout,
-                base_url=provider_url,
-                max_tokens=1200,
-            )
-            prompt = analysis["content"]
         size_map = {
             "1:1": "1024x1024",
             "16:9": "1536x1024",
