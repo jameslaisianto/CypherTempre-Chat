@@ -302,7 +302,34 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       other: ''
     };
 
-    // Recommended default models for the new Image / Video provider sections
+    // Per-provider model catalogs. Seeded with curated defaults; /api/models discovery replaces when available.
+    const chatProviderDefaults = {
+      surplusintelligence: '',
+      morpheus: 'gemma-4-uncensored',
+      openrouter: 'cognitivecomputations/dolphin-mistral-24b-venice-edition:free',
+      kimi: 'kimi-k2.6',
+      'kimi-code': 'kimi-for-coding',
+      other: ''
+    };
+    const chatModelsByProvider = {
+      surplusintelligence: [],
+      morpheus: ['gemma-4-uncensored', 'llama-3.3-70b', 'qwen3-32b', 'mistral-small-3.1-24b'],
+      openrouter: [
+        'cognitivecomputations/dolphin-mistral-24b-venice-edition:free',
+        'openrouter/auto',
+        'anthropic/claude-sonnet-4',
+        'openai/gpt-4.1-mini',
+        'google/gemini-2.5-flash',
+        'meta-llama/llama-3.3-70b-instruct',
+        'qwen/qwen3-32b',
+        'mistralai/mistral-small-3.1-24b-instruct',
+      ],
+      kimi: ['kimi-k2.6', 'moonshot-v1-8k', 'moonshot-v1-32k', 'moonshot-v1-128k'],
+      'kimi-code': ['kimi-for-coding'],
+      other: []
+    };
+    const chatDiscoverable = new Set(['surplusintelligence', 'morpheus', 'openrouter', 'kimi', 'kimi-code']);
+
     const imageProviderDefaults = {
       surplusintelligence: '',
       openrouter: 'black-forest-labs/flux.2-pro',
@@ -326,7 +353,14 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       other: ''
     };
 
-    // Curated model lists for Image and Video providers (used to populate the selects)
+    const audioProviderDefaults = {
+      surplusintelligence: '',
+      morpheus: 'tts-kokoro',
+      openrouter: 'openrouter-audio',
+      other: ''
+    };
+
+    // Curated model lists for Image / Video / Audio (used to populate the selects)
     const imageModelsByProvider = {
       surplusintelligence: [],
       openrouter: [
@@ -389,6 +423,34 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       other: []
     };
 
+    const audioModelsByProvider = {
+      surplusintelligence: [],
+      morpheus: ['tts-kokoro'],
+      openrouter: ['openrouter-audio'],
+      other: []
+    };
+
+    function applyProviderCatalogs(catalogs) {
+      if (!catalogs || typeof catalogs !== 'object') return;
+      const applyModality = (bucket, modelsMap, defaultsMap, discoverSet) => {
+        const table = catalogs[bucket];
+        if (!table || typeof table !== 'object') return;
+        Object.entries(table).forEach(([provider, cfg]) => {
+          if (!cfg || typeof cfg !== 'object') return;
+          if (Array.isArray(cfg.models)) modelsMap[provider] = cfg.models.slice();
+          if (cfg.default_model !== undefined) defaultsMap[provider] = cfg.default_model || '';
+          if (discoverSet) {
+            if (cfg.discover) discoverSet.add(provider);
+            else discoverSet.delete(provider);
+          }
+        });
+      };
+      applyModality('chat', chatModelsByProvider, chatProviderDefaults, chatDiscoverable);
+      applyModality('image', imageModelsByProvider, imageProviderDefaults, null);
+      applyModality('video', videoModelsByProvider, videoProviderDefaults, null);
+      applyModality('audio', audioModelsByProvider, audioProviderDefaults, null);
+    }
+
     function esc(value) {
       return String(value ?? '').replace(/[&<>"']/g, ch => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -409,23 +471,24 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       selectEl.value = next;
     }
 
-    function providerDiscoveryCredentials(provider) {
+    function providerDiscoveryCredentials(provider, modality = '') {
       const prov = String(provider || '').trim();
+      const mode = String(modality || '').trim().toLowerCase();
       const chatKey = localStorage.getItem('ct_api_key') || '';
       const chatBase = localStorage.getItem('ct_base_url') || els.baseUrl?.value?.trim() || '';
-      if (prov === (els.imageProvider?.value || localStorage.getItem('ct_image_provider') || '')) {
+      if (mode === 'image') {
         return {
           apiKey: localStorage.getItem('ct_image_api_key') || chatKey,
           baseUrl: localStorage.getItem('ct_image_base_url') || '',
         };
       }
-      if (prov === (els.videoProvider?.value || localStorage.getItem('ct_video_provider') || '')) {
+      if (mode === 'video') {
         return {
           apiKey: localStorage.getItem('ct_video_api_key') || chatKey,
           baseUrl: localStorage.getItem('ct_video_base_url') || '',
         };
       }
-      if (prov === (els.audioProvider?.value || localStorage.getItem('ct_audio_provider') || '')) {
+      if (mode === 'audio') {
         return {
           apiKey: localStorage.getItem('ct_audio_api_key') || chatKey,
           baseUrl: localStorage.getItem('ct_audio_base_url') || '',
@@ -752,10 +815,18 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
         return body;
       } catch (error) {
         if (error?.name === 'AbortError') {
-          throw new Error('Request timed out. Image edits can take several minutes — try Raw prompt mode or a smaller image.');
+          throw new Error(
+            timeoutMs >= 60000
+              ? 'Request timed out. Image edits can take several minutes — try Raw prompt mode or a smaller image.'
+              : `Request timed out after ${Math.round(timeoutMs / 1000)}s.`
+          );
         }
         if (error instanceof TypeError && /fetch/i.test(error.message || '')) {
-          throw new Error('Network error — connection dropped before the edit finished. Try Raw prompt mode or a smaller image.');
+          throw new Error(
+            timeoutMs >= 60000
+              ? 'Network error — connection dropped before the edit finished. Try Raw prompt mode or a smaller image.'
+              : 'Network error — could not reach the server.'
+          );
         }
         throw error;
       } finally {
@@ -869,8 +940,17 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     async function switchSession(sessionId) {
       activeSession = sessionId || 'default';
       localStorage.setItem('ct_active_session', activeSession);
-      await Promise.all([refreshSummary(), refreshMemories(), refreshWorkbench(), verifyChain(), restoreHistory(), refreshTrustStrip()]);
-      await loadSessions();
+      if (els.workspace) els.workspace.textContent = `Workspace: ${activeSession}…`;
+      // Don't let one slow panel block the whole session switch (or freeze nav).
+      await Promise.allSettled([
+        refreshSummary(),
+        refreshMemories(),
+        refreshWorkbench(),
+        verifyChain(),
+        restoreHistory(),
+        refreshTrustStrip(),
+      ]);
+      await loadSessions().catch(() => null);
       applySessionPersonaLock();
     }
 
@@ -1084,10 +1164,13 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       marketplacePersonas = config.marketplace_personas || {};
       saveCustomPersonas();
       renderPersonaOptions();
+      // Server-side curated catalogs (provider -> supported models / defaults).
+      applyProviderCatalogs(config.provider_catalogs);
       // Browser settings should win so user-selected values persist across reloads.
       els.provider.value = localStorage.getItem('ct_provider') || config.provider || 'morpheus';
       els.baseUrl.value = localStorage.getItem('ct_base_url') || config.base_url || providerEndpoints[els.provider.value] || '';
-      els.model.value = localStorage.getItem('ct_model') || config.default_model || 'gemma-4-uncensored';
+      // Temporary value; updateChatModelOptions() rebinds to a model supported by the provider.
+      els.model.value = localStorage.getItem('ct_model') || config.default_model || chatProviderDefaults[els.provider.value] || 'gemma-4-uncensored';
       els.apiKey.value = '';
       els.persona.value = localStorage.getItem('ct_persona') || 'companion';
 
@@ -1155,6 +1238,12 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       window.__recommendedProfile = config.recommended_profile || null;
       window.__skillVersion = config.skill_version || '';
       window.__appVersion = config.app_version || 'Forge/0.1';
+      // Rebind chat/image/video/audio model pickers to the selected providers.
+      updateChatModelOptions();
+      updateImageModelOptions();
+      updateImageEditModelOptions();
+      updateVideoModelOptions();
+      updateAudioModelOptions();
       updateProviderHint();
       updatePersonaText();
       updateSetup(config.has_env_key);
@@ -1230,19 +1319,59 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     }
 
     function updateProviderHint() {
-      const provider = els.provider.value;
-      if (provider === 'kimi-code') {
-        els.modelHint.textContent = 'Use model: kimi-for-coding';
-      } else if (provider === 'kimi') {
-        els.modelHint.textContent = 'Example: kimi-k2.6, moonshot-v1-8k, moonshot-v1-32k';
-      } else if (provider === 'morpheus') {
-        els.modelHint.textContent = 'Use model: gemma-4-uncensored';
-      } else if (provider === 'other') {
-        els.modelHint.textContent = 'Enter the model name your custom provider expects';
-      } else {
-        els.modelHint.textContent = 'Example: cognitivecomputations/dolphin-mistral-24b-venice-edition:free';
+      const provider = els.provider?.value || 'morpheus';
+      const list = chatModelsByProvider[provider] || [];
+      const fallback = chatProviderDefaults[provider] || '';
+      if (els.modelHint) {
+        if (provider === 'other') {
+          els.modelHint.textContent = 'Enter the model name your custom provider expects.';
+        } else if (list.length) {
+          els.modelHint.textContent = `${list.length} model${list.length === 1 ? '' : 's'} for ${provider}`
+            + (fallback ? ` · default: ${fallback}` : '')
+            + '. Pick from the list or type a provider-supported id.';
+        } else if (chatDiscoverable.has(provider)) {
+          els.modelHint.textContent = 'Fetching models supported by this provider…';
+        } else {
+          els.modelHint.textContent = fallback
+            ? `Use model: ${fallback}`
+            : 'Enter a model id supported by this provider.';
+        }
       }
-      if (!els.baseUrl.value.trim() && providerEndpoints[provider]) els.baseUrl.value = providerEndpoints[provider];
+      if (els.baseUrl && !els.baseUrl.value.trim() && providerEndpoints[provider]) {
+        els.baseUrl.value = providerEndpoints[provider];
+      }
+    }
+
+    function updateChatModelOptions({ forceDefault = false } = {}) {
+      if (!els.model) return;
+      const prov = els.provider?.value || 'morpheus';
+      const list = chatModelsByProvider[prov] || [];
+      const preferred = chatProviderDefaults[prov] || list[0] || '';
+      const current = (els.model.value || '').trim();
+
+      // Datalist suggestions = models this provider actually supports (curated and/or discovered).
+      populateModelDatalist(
+        els.chatModelOptions,
+        list.map(id => ({ id, name: id }))
+      );
+
+      if (prov === 'other') {
+        updateProviderHint();
+        return;
+      }
+
+      const supported = current && list.includes(current);
+      if (forceDefault || !current || (list.length > 0 && !supported)) {
+        // Always land on a model the selected provider supports.
+        els.model.value = preferred || (list[0] || current);
+        localStorage.setItem('ct_model', els.model.value.trim());
+      } else if (!list.length && preferred && forceDefault) {
+        els.model.value = preferred;
+        localStorage.setItem('ct_model', els.model.value.trim());
+      }
+
+      updateProviderHint();
+      updateSetup();
     }
 
     function openImagePreview(src, alt = 'Image preview') {
@@ -1347,27 +1476,90 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       element.value = ids.includes(current) ? current : ids[0];
     }
 
-    async function refreshProviderModels(provider = 'surplusintelligence', force = false) {
-      if (provider !== 'surplusintelligence') return;
-      if (!force && discoveredModelProviders.has(provider)) return;
-      const creds = providerDiscoveryCredentials(provider);
-      const params = new URLSearchParams({ provider });
+    function providerSupportsDiscovery(provider) {
+      const prov = String(provider || '').trim().toLowerCase();
+      if (!prov || prov === 'other' || prov === 'demo') return false;
+      // Chat providers use the discover set; image/video/audio use OpenAI-compatible /models.
+      return true;
+    }
+
+    async function refreshProviderModels(provider = 'surplusintelligence', force = false, modality = '') {
+      const prov = String(provider || '').trim().toLowerCase() || 'surplusintelligence';
+      if (!providerSupportsDiscovery(prov)) {
+        // Still refresh UI from curated catalogs for demo/other.
+        if (els.provider?.value === prov) updateChatModelOptions({ forceDefault: true });
+        if (els.imageProvider?.value === prov) {
+          updateImageModelOptions();
+          updateImageEditModelOptions();
+        }
+        if (els.videoProvider?.value === prov) updateVideoModelOptions();
+        if (els.audioProvider?.value === prov) updateAudioModelOptions();
+        return null;
+      }
+      if (!force && discoveredModelProviders.has(prov)) return null;
+
+      let resolvedModality = String(modality || '').trim().toLowerCase();
+      if (!resolvedModality) {
+        if (els.provider?.value === prov) resolvedModality = 'chat';
+        else if (els.imageProvider?.value === prov) resolvedModality = 'image';
+        else if (els.videoProvider?.value === prov) resolvedModality = 'video';
+        else if (els.audioProvider?.value === prov) resolvedModality = 'audio';
+        else resolvedModality = 'chat';
+      }
+      const creds = providerDiscoveryCredentials(prov, resolvedModality);
+      const params = new URLSearchParams({ provider: prov, modality: resolvedModality });
       if (creds.apiKey) params.set('apiKey', creds.apiKey);
       if (creds.baseUrl) params.set('baseUrl', creds.baseUrl);
-      const data = await api('/api/models?' + params);
-      const catalog = data.catalog || {};
-      discoveredModelProviders.add(provider);
 
-      populateModelDatalist(els.chatModelOptions, catalog.chat);
-      populateModelDatalist(els.audioModelOptions, catalog.audio);
-      const discoveredImageModels = (catalog.image || []).map(model => model.id);
-      if (discoveredImageModels.length) {
-        imageModelsByProvider[provider] = discoveredImageModels;
+      let data;
+      try {
+        // Hard timeout: discovery must never hang app boot / workspace load.
+        data = await api('/api/models?' + params, {}, 8000);
+      } catch (error) {
+        // Discovery failed — keep curated lists so the selector still shows valid options.
+        if (els.provider?.value === prov) {
+          updateChatModelOptions();
+          if (els.modelHint) {
+            const n = (chatModelsByProvider[prov] || []).length;
+            els.modelHint.textContent = n
+              ? `Using ${n} curated model${n === 1 ? '' : 's'} (live catalog unavailable: ${error.message || error}).`
+              : `Could not load live models: ${error.message || error}`;
+          }
+        }
+        if (els.imageProvider?.value === prov) {
+          updateImageModelOptions();
+          updateImageEditModelOptions();
+        }
+        if (els.videoProvider?.value === prov) updateVideoModelOptions();
+        if (els.audioProvider?.value === prov) updateAudioModelOptions();
+        throw error;
       }
-      const discoveredEditModels = (catalog.image_edit || []).map(model => model.id);
+
+      const catalog = data.catalog || {};
+      discoveredModelProviders.add(prov);
+
+      const chatIds = (catalog.chat || []).map(model => model.id).filter(Boolean);
+      if (chatIds.length) {
+        chatModelsByProvider[prov] = chatIds;
+        if (!chatProviderDefaults[prov]) chatProviderDefaults[prov] = chatIds[0];
+      }
+
+      const audioIds = (catalog.audio || []).map(model => model.id).filter(Boolean);
+      if (audioIds.length) {
+        audioModelsByProvider[prov] = audioIds;
+        if (!audioProviderDefaults[prov]) audioProviderDefaults[prov] = audioIds[0];
+      }
+      populateModelDatalist(els.audioModelOptions, catalog.audio);
+
+      const discoveredImageModels = (catalog.image || []).map(model => model.id).filter(Boolean);
+      if (discoveredImageModels.length) {
+        imageModelsByProvider[prov] = discoveredImageModels;
+        if (!imageProviderDefaults[prov]) imageProviderDefaults[prov] = discoveredImageModels[0];
+      }
+      const discoveredEditModels = (catalog.image_edit || []).map(model => model.id).filter(Boolean);
       if (discoveredEditModels.length) {
         // Prefer uncensored / least-filtered edit models at the top of the selector.
-        imageEditModelsByProvider[provider] = discoveredEditModels.slice().sort((a, b) => {
+        imageEditModelsByProvider[prov] = discoveredEditModels.slice().sort((a, b) => {
           const rank = (id) => {
             const l = String(id || '').toLowerCase();
             if (l.includes('uncensored')) return 0;
@@ -1377,39 +1569,77 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
           };
           return rank(a) - rank(b) || String(a).localeCompare(String(b));
         });
+        if (!imageEditProviderDefaults[prov]) imageEditProviderDefaults[prov] = imageEditModelsByProvider[prov][0];
       }
-      videoModelsByProvider[provider] = (catalog.video || []).map(model => model.id);
+      const discoveredVideoModels = (catalog.video || []).map(model => model.id).filter(Boolean);
+      if (discoveredVideoModels.length) {
+        videoModelsByProvider[prov] = discoveredVideoModels;
+        if (!videoProviderDefaults[prov]) videoProviderDefaults[prov] = discoveredVideoModels[0];
+      }
 
-      if (els.provider?.value === provider) {
-        chooseSupportedModel(els.model, catalog.chat, localStorage.getItem('ct_model') || '');
-        if (els.modelHint) els.modelHint.textContent = `${catalog.chat?.length || 0} supported chat models detected.`;
+      if (els.provider?.value === prov) {
+        updateChatModelOptions();
+        if (els.modelHint && chatIds.length) {
+          els.modelHint.textContent = `${chatIds.length} supported chat model${chatIds.length === 1 ? '' : 's'} detected for ${prov}.`;
+        }
       }
-      if (els.imageProvider?.value === provider) {
+      if (els.imageProvider?.value === prov) {
         updateImageModelOptions();
         updateImageEditModelOptions();
       }
-      if (els.videoProvider?.value === provider) updateVideoModelOptions();
-      if (els.audioProvider?.value === provider) {
-        chooseSupportedModel(els.audioModel, catalog.audio, localStorage.getItem('ct_audio_model') || '');
+      if (els.videoProvider?.value === prov) updateVideoModelOptions();
+      if (els.audioProvider?.value === prov) {
+        updateAudioModelOptions();
+        chooseSupportedModel(els.audioModel, catalog.audio, localStorage.getItem('ct_audio_model') || audioProviderDefaults[prov] || '');
       }
       syncCreativeStudioModelsFromSettings();
       updateEffectiveProviderSummary();
+      return catalog;
     }
 
-    function updateImageModelOptions() {
+    function updateAudioModelOptions() {
+      if (!els.audioProvider || !els.audioModel) return;
+      const prov = els.audioProvider.value;
+      const list = audioModelsByProvider[prov] || [];
+      const current = (els.audioModel.value || '').trim();
+      populateModelDatalist(
+        els.audioModelOptions,
+        list.map(id => ({ id, name: id }))
+      );
+      if (prov === 'other') return;
+      if (!current || (list.length && !list.includes(current))) {
+        const next = audioProviderDefaults[prov] || list[0] || current;
+        if (next) {
+          els.audioModel.value = next;
+          localStorage.setItem('ct_audio_model', next);
+        }
+      }
+    }
+
+    function updateImageModelOptions({ forceDefault = false } = {}) {
       if (!els.imageProvider || !els.imageModel) return;
       const prov = els.imageProvider.value;
       const list = imageModelsByProvider[prov] || [];
-      const current = els.imageModel.value;
+      const preferred = imageProviderDefaults[prov] || list[0] || '';
+      const current = (els.imageModel.value || '').trim();
 
       els.imageModel.innerHTML = '';
 
       if (list.length === 0) {
         const opt = document.createElement('option');
-        opt.value = current || '';
-        opt.textContent = current || 'Enter custom model';
+        const fallback = (!forceDefault && current) ? current : (preferred || current || '');
+        opt.value = fallback;
+        opt.textContent = fallback || 'Enter custom model';
         els.imageModel.appendChild(opt);
-        if (els.imageModelHint) els.imageModelHint.textContent = 'Enter the exact model name your provider expects.';
+        if (fallback) {
+          els.imageModel.value = fallback;
+          localStorage.setItem('ct_image_model', fallback);
+        }
+        if (els.imageModelHint) {
+          els.imageModelHint.textContent = prov === 'other'
+            ? 'Enter the exact model name your provider expects.'
+            : (preferred ? Default:  : 'No curated models — enter a provider-supported model id.');
+        }
         return;
       }
 
@@ -1420,24 +1650,25 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
         els.imageModel.appendChild(opt);
       });
 
-      // Restore previous selection if it exists in the list, otherwise pick the default
-      if (current && list.includes(current)) {
+      if (!forceDefault && current && list.includes(current)) {
         els.imageModel.value = current;
       } else {
-        els.imageModel.value = imageProviderDefaults[prov] || list[0];
+        els.imageModel.value = preferred || list[0];
       }
       localStorage.setItem('ct_image_model', els.imageModel.value);
 
       if (els.imageModelHint) {
-        els.imageModelHint.textContent = prov === 'other' ? 'Enter the exact model name your provider expects.' : 'Recommended models for this provider.';
+        els.imageModelHint.textContent = prov === 'other'
+          ? 'Enter the exact model name your provider expects.'
+          : ${list.length} model(s) for  + (preferred ?  · default:  : '');
       }
     }
 
-    function updateImageEditModelOptions() {
+    function updateImageEditModelOptions({ forceDefault = false } = {}) {
       if (!els.imageProvider || !els.imagegenEditModel) return;
       const prov = els.imageProvider.value;
       const list = imageEditModelsByProvider[prov] || [];
-      const current = els.imagegenEditModel.value || localStorage.getItem('ct_image_edit_model') || '';
+      const current = forceDefault ? '' : (els.imagegenEditModel.value || localStorage.getItem('ct_image_edit_model') || '');
 
       els.imagegenEditModel.innerHTML = '';
       els.imagegenEditModel.disabled = false;
@@ -1474,20 +1705,30 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
         : '';
     }
 
-    function updateVideoModelOptions() {
+    function updateVideoModelOptions({ forceDefault = false } = {}) {
       if (!els.videoProvider || !els.videoModel) return;
       const prov = els.videoProvider.value;
       const list = videoModelsByProvider[prov] || [];
-      const current = els.videoModel.value;
+      const preferred = videoProviderDefaults[prov] || list[0] || '';
+      const current = (els.videoModel.value || '').trim();
 
       els.videoModel.innerHTML = '';
 
       if (list.length === 0) {
         const opt = document.createElement('option');
-        opt.value = current || '';
-        opt.textContent = current || 'Enter custom model';
+        const fallback = (!forceDefault && current) ? current : (preferred || current || '');
+        opt.value = fallback;
+        opt.textContent = fallback || 'Enter custom model';
         els.videoModel.appendChild(opt);
-        if (els.videoModelHint) els.videoModelHint.textContent = 'Enter the exact model name your provider expects.';
+        if (fallback) {
+          els.videoModel.value = fallback;
+          localStorage.setItem('ct_video_model', fallback);
+        }
+        if (els.videoModelHint) {
+          els.videoModelHint.textContent = prov === 'other'
+            ? 'Enter the exact model name your provider expects.'
+            : (preferred ? Default:  : 'No curated models — enter a provider-supported model id.');
+        }
         return;
       }
 
@@ -1498,16 +1739,19 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
         els.videoModel.appendChild(opt);
       });
 
-      if (current && list.includes(current)) {
+      if (!forceDefault && current && list.includes(current)) {
         els.videoModel.value = current;
       } else {
-        els.videoModel.value = videoProviderDefaults[prov] || list[0];
+        els.videoModel.value = preferred || list[0];
       }
       localStorage.setItem('ct_video_model', els.videoModel.value);
 
       if (els.videoModelHint) {
-        els.videoModelHint.textContent = prov === 'demo' ? 'Built-in demo clip. No API key required.' :
-          (prov === 'other' ? 'Enter the exact model name your provider expects.' : 'Recommended models for this provider.');
+        els.videoModelHint.textContent = prov === 'demo'
+          ? 'Built-in demo clip. No API key required.'
+          : (prov === 'other'
+            ? 'Enter the exact model name your provider expects.'
+            : ${list.length} model(s) for  + (preferred ?  · default:  : ''));
       }
     }
 
@@ -1727,9 +1971,14 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     }
 
     async function restoreHistory() {
-      const data = await api(`/api/history${sessionQuery()}`);
+      const data = await api(`/api/history${sessionQuery()}`, {}, 30000);
       clearRenderedMessages();
-      if (!data.history.length) return;
+      if (!data.history?.length) {
+        if (els.setup && /loading/i.test(els.setup.textContent || '')) {
+          els.setup.textContent = 'Ready';
+        }
+        return;
+      }
       els.empty?.remove();
       data.history.forEach(item => {
         if (item.role === 'user') {
@@ -1783,8 +2032,23 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     }
 
     async function refreshSummary() {
-      const data = await api(`/api/self-model${sessionQuery()}`);
-      renderSummary(data.model);
+      try {
+        const data = await api(`/api/self-model${sessionQuery()}`, {}, 20000);
+        if (data?.model) {
+          renderSummary(data.model);
+          return data;
+        }
+      } catch (error) {
+        if (els.workspace) {
+          els.workspace.textContent = `Workspace: ${activeSession || 'default'} (summary unavailable)`;
+        }
+        if (els.ringsBadge) els.ringsBadge.textContent = 'rings: —';
+        throw error;
+      }
+      if (els.workspace) {
+        els.workspace.textContent = `Workspace: ${activeSession || 'default'}`;
+      }
+      return null;
     }
 
     function renderRings(rings) {
@@ -1838,9 +2102,9 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
 
     async function refreshWorkbench() {
       const [rings, cambium, overlays] = await Promise.all([
-        api(`/api/rings${sessionQuery()}&limit=24`),
-        api(`/api/cambium${sessionQuery()}`),
-        api(`/api/overlays${sessionQuery()}`)
+        api(`/api/rings${sessionQuery()}&limit=24`, {}, 20000),
+        api(`/api/cambium${sessionQuery()}`, {}, 20000),
+        api(`/api/overlays${sessionQuery()}`, {}, 20000)
       ]);
       renderRings(rings.rings || []);
       renderCambium(cambium);
@@ -2042,7 +2306,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     }
 
     async function refreshMemories() {
-      const data = await api(`/api/memories${sessionQuery()}`);
+      const data = await api(`/api/memories${sessionQuery()}`, {}, 20000);
       renderMemories(data);
     }
 
@@ -2059,10 +2323,24 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     }
 
     async function verifyChain() {
-      const data = await api(`/api/verify${sessionQuery()}`);
-      els.verifyResult.textContent = `${data.ok ? 'OK' : 'FAILED'}: ${data.status} | rings=${data.rings}`;
-      els.verifyBadge.textContent = data.ok ? 'verify: ok' : 'verify: failed';
-      els.verifyBadge.className = `badge ${data.ok ? 'ok' : 'bad'}`;
+      try {
+        const data = await api(`/api/verify${sessionQuery()}`, {}, 20000);
+        if (els.verifyResult) {
+          els.verifyResult.textContent = `${data.ok ? 'OK' : 'FAILED'}: ${data.status} | rings=${data.rings}`;
+        }
+        if (els.verifyBadge) {
+          els.verifyBadge.textContent = data.ok ? 'verify: ok' : 'verify: failed';
+          els.verifyBadge.className = `badge ${data.ok ? 'ok' : 'bad'}`;
+        }
+      } catch (error) {
+        if (els.verifyBadge) {
+          els.verifyBadge.textContent = 'verify: —';
+          els.verifyBadge.className = 'badge';
+        }
+        if (els.verifyResult) {
+          els.verifyResult.textContent = `Verify unavailable: ${error.message || error}`;
+        }
+      }
     }
 
     async function resetChainMemory() {
@@ -2702,10 +2980,13 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     els.persona.addEventListener('change', () => { updatePersonaText(); saveLocalConfig(); validatePersonaModel(); });
     els.provider.addEventListener('change', () => {
       if (providerEndpoints[els.provider.value]) els.baseUrl.value = providerEndpoints[els.provider.value];
-      updateProviderHint();
+      // Immediately switch model list + default to what this provider supports.
+      updateChatModelOptions({ forceDefault: true });
       updateSetup();
       saveLocalConfig();
-      refreshProviderModels(els.provider.value).catch(error => setStatusDetail(error.message));
+      refreshProviderModels(els.provider.value, true, 'chat')
+        .then(() => updateChatModelOptions())
+        .catch(error => setStatusDetail(error.message));
     });
     els.model.addEventListener('input', () => { updateSetup(); saveLocalConfig(); validatePersonaModel(); });
     els.apiKey.addEventListener('input', () => { updateSetup(); saveLocalConfig(); });
@@ -2724,16 +3005,25 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
 
     if (els.imageProvider) {
       els.imageProvider.addEventListener('change', () => {
-        refreshProviderModels(els.imageProvider.value)
+        updateImageModelOptions({ forceDefault: true });
+        updateImageEditModelOptions({ forceDefault: true });
+        saveLocalConfig();
+        refreshProviderSummary();
+        refreshProviderModels(els.imageProvider.value, true, 'image')
           .then(() => {
             updateImageModelOptions();
             updateImageEditModelOptions();
           })
           .catch(error => {
-            if (els.imageModelHint) els.imageModelHint.textContent = error.message;
+            updateImageModelOptions();
+            updateImageEditModelOptions();
+            if (els.imageModelHint) {
+              const n = (imageModelsByProvider[els.imageProvider.value] || []).length;
+              els.imageModelHint.textContent = n
+                ? Using  curated image model(s). Live catalog: 
+                : (error.message || String(error));
+            }
           });
-        saveLocalConfig();
-        refreshProviderSummary();
       });
     }
     if (els.imageModel) {
@@ -2758,7 +3048,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       imageModelDiscoveryTimer = setTimeout(() => {
         imageModelDiscoveryTimer = null;
         discoveredModelProviders.delete(els.imageProvider?.value || 'surplusintelligence');
-        refreshProviderModels(els.imageProvider?.value || 'surplusintelligence', true).catch(() => null);
+        refreshProviderModels(els.imageProvider?.value || 'surplusintelligence', true, 'image').catch(() => null);
       }, 500);
     });
     if (els.imageBaseUrl) els.imageBaseUrl.addEventListener('input', () => {
@@ -2768,13 +3058,21 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
 
     if (els.videoProvider) {
       els.videoProvider.addEventListener('change', () => {
-        refreshProviderModels(els.videoProvider.value)
-          .then(updateVideoModelOptions)
-          .catch(error => {
-            if (els.videoModelHint) els.videoModelHint.textContent = error.message;
-          });
+        // Always rebind the model select to this provider first (curated/default).
+        updateVideoModelOptions({ forceDefault: true });
         saveLocalConfig();
         refreshProviderSummary();
+        refreshProviderModels(els.videoProvider.value, true, 'video')
+          .then(() => updateVideoModelOptions())
+          .catch(error => {
+            updateVideoModelOptions();
+            if (els.videoModelHint) {
+              const n = (videoModelsByProvider[els.videoProvider.value] || []).length;
+              els.videoModelHint.textContent = n
+                ? Using  curated video model(s). Live catalog: 
+                : (error.message || String(error));
+            }
+          });
       });
     }
     if (els.videoModel) {
@@ -2789,55 +3087,39 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       refreshProviderSummary();
     });
     if (els.audioProvider) els.audioProvider.addEventListener('change', () => {
-      refreshProviderModels(els.audioProvider.value).catch(error => setStatusDetail(error.message));
+      updateAudioModelOptions();
       saveLocalConfig();
       refreshProviderSummary();
+      refreshProviderModels(els.audioProvider.value, true, 'audio')
+        .then(() => updateAudioModelOptions())
+        .catch(error => {
+          updateAudioModelOptions();
+          setStatusDetail(error.message);
+        });
     });
 
     // Also refresh summary when main chat provider changes
     if (els.provider) els.provider.addEventListener('change', refreshProviderSummary);
     if (els.model) els.model.addEventListener('input', refreshProviderSummary);
 
-    // Auto-suggest good default models when user changes the Image/Video provider
-    if (els.imageProvider && els.imageModel) {
-      els.imageProvider.addEventListener('change', () => {
-        const current = els.imageModel.value.trim();
-        const suggested = imageProviderDefaults[els.imageProvider.value];
-        if (suggested && !current) {
-          els.imageModel.value = suggested;
-          saveLocalConfig();
-        }
-      });
-    }
-
-    if (els.videoProvider && els.videoModel) {
-      els.videoProvider.addEventListener('change', () => {
-        const current = els.videoModel.value.trim();
-        const suggested = videoProviderDefaults[els.videoProvider.value];
-        if (suggested && !current) {
-          els.videoModel.value = suggested;
-          saveLocalConfig();
-        }
-      });
-    }
 
     if (els.navChat) els.navChat.addEventListener('click', () => setMainView('chat'));
     if (els.navGuide) els.navGuide.addEventListener('click', () => setMainView('guide'));
     if (els.navSettings) els.navSettings.addEventListener('click', () => setMainView('settings'));
-    els.settingsProviderTab.addEventListener('click', () => setSettingsSection('provider'));
-    els.settingsPersonaTab.addEventListener('click', () => setSettingsSection('persona'));
-    els.settingsManageTab.addEventListener('click', () => setSettingsSection('manage'));
-    els.settingsWorkbenchTab.addEventListener('click', () => setSettingsSection('workbench'));
+    if (els.settingsProviderTab) els.settingsProviderTab.addEventListener('click', () => setSettingsSection('provider'));
+    if (els.settingsPersonaTab) els.settingsPersonaTab.addEventListener('click', () => setSettingsSection('persona'));
+    if (els.settingsManageTab) els.settingsManageTab.addEventListener('click', () => setSettingsSection('manage'));
+    if (els.settingsWorkbenchTab) els.settingsWorkbenchTab.addEventListener('click', () => setSettingsSection('workbench'));
     if (els.mobChat) els.mobChat.addEventListener('click', () => setMainView('chat'));
     if (els.mobGuide) els.mobGuide.addEventListener('click', () => setMainView('guide'));
     if (els.mobSettings) els.mobSettings.addEventListener('click', () => setMainView('settings'));
-    els.guideSimple.addEventListener('click', () => setGuideDepth('simple'));
-    els.guideComprehensive.addEventListener('click', () => setGuideDepth('comprehensive'));
-    els.generatePersona.addEventListener('click', () => {
-      createPersona().catch(error => { els.setup.textContent = error.message; });
+    if (els.guideSimple) els.guideSimple.addEventListener('click', () => setGuideDepth('simple'));
+    if (els.guideComprehensive) els.guideComprehensive.addEventListener('click', () => setGuideDepth('comprehensive'));
+    if (els.generatePersona) els.generatePersona.addEventListener('click', () => {
+      createPersona().catch(error => { if (els.setup) els.setup.textContent = error.message; });
     });
-    els.sessionList.addEventListener('change', () => {
-      switchSession(els.sessionList.value).catch(error => { els.setup.textContent = error.message; });
+    if (els.sessionList) els.sessionList.addEventListener('change', () => {
+      switchSession(els.sessionList.value).catch(error => { if (els.setup) els.setup.textContent = error.message; });
     });
     if (els.sessionChips) {
       els.sessionChips.addEventListener('click', (event) => {
@@ -2957,8 +3239,8 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
         hideAuth();
         els.authLoginUser.value = '';
         els.authLoginPass.value = '';
-        loadMarketplace();
-        loadCreatorPersonas();
+        // Full app boot — login previously skipped this, leaving "Workspace loading..." stuck.
+        await bootAuthenticatedApp();
       } catch (error) {
         if (els.authMessage) els.authMessage.textContent = error.message;
       }
@@ -2981,8 +3263,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
         els.authRegUser.value = '';
         els.authRegDisplay.value = '';
         els.authRegPass.value = '';
-        loadMarketplace();
-        loadCreatorPersonas();
+        await bootAuthenticatedApp();
       } catch (error) {
         if (els.authMessage) els.authMessage.textContent = error.message;
       }
@@ -4347,37 +4628,107 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     if (els.densityToggle) els.densityToggle.addEventListener('click', toggleDensity);
     if (els.railCollapse) els.railCollapse.addEventListener('click', toggleRailCollapse);
 
-    checkAuth().then((authenticated) => {
-      if (!authenticated) return;
-      return api('/api/config')
-        .then(async config => {
+    let bootInFlight = null;
+    async function bootAuthenticatedApp() {
+      // Serialize boots so login + page load don't race.
+      if (bootInFlight) return bootInFlight;
+      bootInFlight = (async () => {
+        try {
+          if (els.workspace) {
+            els.workspace.textContent = `Workspace: ${activeSession || 'default'}…`;
+          }
+          setStatus('Loading workspace…', '');
+
+          const config = await api('/api/config', {}, 15000);
           applyLocalConfig(config);
-          const startupProviders = new Set([
+
+          // Curated models first so Settings never looks empty while discovery runs.
+          updateChatModelOptions();
+          updateImageModelOptions();
+          updateImageEditModelOptions();
+          updateVideoModelOptions();
+          updateAudioModelOptions();
+          updateEffectiveProviderSummary();
+
+          // Non-blocking persona sync + live model discovery (must not stall UI).
+          syncCustomPersonasToServer(config).catch(() => null);
+          const startupProviders = [...new Set([
             els.provider?.value,
             els.imageProvider?.value,
             els.videoProvider?.value,
             els.audioProvider?.value,
-          ].filter(Boolean));
-          const discoveryResults = await Promise.allSettled(
-            [...startupProviders].map(provider => refreshProviderModels(provider))
-          );
-          const discoveryFailure = discoveryResults.find(result => result.status === 'rejected');
-          if (discoveryFailure) setStatusDetail(`Model discovery: ${discoveryFailure.reason?.message || discoveryFailure.reason}`);
-          // Populate Image/Video model selects with curated options based on chosen providers
-          updateImageModelOptions();
-          updateImageEditModelOptions();
-          updateVideoModelOptions();
-          updateEffectiveProviderSummary();
-          return syncCustomPersonasToServer(config).then(() => {
-            setMainView(localStorage.getItem('ct_view') || 'chat');
-            setSettingsSection(localStorage.getItem('ct_settings_section') || 'provider');
-            return loadGuideTopics().then(() => loadSessions().then(() => Promise.all([refreshSummary(), refreshMemories(), refreshWorkbench(), verifyChain(), restoreHistory(), refreshTrustStrip()])));
+          ].filter(Boolean))];
+          Promise.allSettled(
+            startupProviders.map(provider => refreshProviderModels(provider, true))
+          ).then(results => {
+            updateChatModelOptions();
+            updateImageModelOptions();
+            updateImageEditModelOptions();
+            updateVideoModelOptions();
+            updateAudioModelOptions();
+            updateEffectiveProviderSummary();
+            const discoveryFailure = results.find(result => result.status === 'rejected');
+            if (discoveryFailure) {
+              setStatusDetail(`Model discovery: ${discoveryFailure.reason?.message || discoveryFailure.reason}`);
+            }
+          }).catch(() => null);
+
+          setMainView(localStorage.getItem('ct_view') || 'chat');
+          setSettingsSection(localStorage.getItem('ct_settings_section') || 'provider');
+
+          await loadGuideTopics().catch(() => null);
+          await loadSessions().catch(error => {
+            if (els.workspace) els.workspace.textContent = `Workspace: ${activeSession || 'default'}`;
+            throw error;
           });
-        })
-        .catch(error => {
-          setStatus(error.message, '#6b3c3c');
-          appendMessage('CypherTempre', error.message, { accepted: false }, true);
-        });
+
+          // Session chrome loads independently so one slow endpoint can't freeze the shell.
+          const sessionLoads = await Promise.allSettled([
+            refreshSummary(),
+            refreshMemories(),
+            refreshWorkbench(),
+            verifyChain(),
+            restoreHistory(),
+            refreshTrustStrip(),
+          ]);
+          const failed = sessionLoads.filter(r => r.status === 'rejected');
+          if (failed.length) {
+            const msg = failed[0].reason?.message || String(failed[0].reason || 'session load failed');
+            setStatusDetail(`Some session panels failed: ${msg}`);
+          }
+
+          if (els.workspace && /loading/i.test(els.workspace.textContent || '')) {
+            els.workspace.textContent = `Workspace: ${activeSession || 'default'}`;
+          }
+          setStatus('Ready', 'ok');
+          updateSetup(Boolean(config.has_env_key));
+
+          loadMarketplace().catch(() => null);
+          loadCreatorPersonas().catch(() => null);
+        } catch (error) {
+          if (els.workspace) {
+            els.workspace.textContent = `Workspace: ${activeSession || 'default'} (error)`;
+          }
+          setStatus(error.message || 'Boot failed', 'error');
+          try {
+            appendMessage('CypherTempre', error.message || 'Boot failed', { accepted: false }, true);
+          } catch (_) { /* ignore */ }
+          throw error;
+        } finally {
+          bootInFlight = null;
+        }
+      })();
+      return bootInFlight;
+    }
+
+    checkAuth().then((authenticated) => {
+      if (!authenticated) {
+        if (els.workspace) els.workspace.textContent = 'Workspace: sign in to load';
+        return null;
+      }
+      return bootAuthenticatedApp();
+    }).catch(error => {
+      setStatus(error.message || 'Startup failed', 'error');
     });
 
     if ('serviceWorker' in navigator) {

@@ -14,8 +14,10 @@ import os
 import pathlib
 import shutil
 import sys
+import threading
+from contextlib import contextmanager
 from types import SimpleNamespace
-from typing import Any, Iterable, Sequence
+from typing import Any, Iterable, Iterator, Sequence
 
 
 DEFAULT_COVENANT = (
@@ -164,8 +166,70 @@ def forge_chain_path(root: pathlib.Path) -> pathlib.Path:
     return root / ".timechain" / "chain.jsonl"
 
 
+# Product/host metadata that must survive forge → skill ledger migration.
+_FORGE_HOST_FILES = (
+    "session.json",
+    "memory_model.json",
+    "cambium_events.json",
+    "overlays.json",
+    "config.json",
+)
+
+_session_root_locks: dict[str, threading.Lock] = {}
+_session_root_locks_guard = threading.Lock()
+
+
+def _session_lock(root: pathlib.Path) -> threading.Lock:
+    key = str(root.resolve())
+    with _session_root_locks_guard:
+        lock = _session_root_locks.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _session_root_locks[key] = lock
+        return lock
+
+
+@contextmanager
+def _locked_session_root(root: pathlib.Path) -> Iterator[None]:
+    lock = _session_lock(root)
+    lock.acquire()
+    try:
+        yield
+    finally:
+        lock.release()
+
+
+def list_forge_archives(root: pathlib.Path) -> list[pathlib.Path]:
+    """Newest forge archive first (by directory name stamp / mtime)."""
+    root = pathlib.Path(root)
+    if not root.exists():
+        return []
+    archives = [p for p in root.iterdir() if p.is_dir() and p.name.startswith(".timechain_forge_archive_")]
+    return sorted(archives, key=lambda p: (p.name, p.stat().st_mtime), reverse=True)
+
+
+def _restore_host_files_from_archive(archive: pathlib.Path, forge_dir: pathlib.Path) -> list[str]:
+    restored: list[str] = []
+    forge_dir.mkdir(parents=True, exist_ok=True)
+    for name in _FORGE_HOST_FILES:
+        src = archive / name
+        dest = forge_dir / name
+        if src.exists() and not dest.exists():
+            try:
+                shutil.copy2(src, dest)
+                restored.append(name)
+            except OSError:
+                continue
+    return restored
+
+
 def archive_forge_ledger(root: pathlib.Path) -> pathlib.Path | None:
-    """Move legacy Forge `.timechain/chain.jsonl` aside when migrating."""
+    """Move legacy Forge `.timechain/chain.jsonl` aside when migrating.
+
+    Restores host product metadata (including session persona lock) into a
+    fresh `.timechain/` so sessions keep their bound persona after the skill
+    ledger takes over.
+    """
     forge_dir = root / ".timechain"
     forge_chain = forge_dir / "chain.jsonl"
     if not forge_chain.exists():
@@ -176,16 +240,398 @@ def archive_forge_ledger(root: pathlib.Path) -> pathlib.Path | None:
     archive = root / f".timechain_forge_archive_{stamp}"
     try:
         shutil.move(str(forge_dir), str(archive))
-        # Restore app-only product files that may have lived under .timechain
-        # (memory model etc.) — re-create .timechain for host product state.
-        forge_dir.mkdir(parents=True, exist_ok=True)
-        for name in ("memory_model.json", "cambium_events.json", "overlays.json", "config.json"):
-            src = archive / name
-            if src.exists():
-                shutil.copy2(src, forge_dir / name)
+        # Restore app-only product files that lived under .timechain
+        # (session persona, memory model, etc.).
+        _restore_host_files_from_archive(archive, forge_dir)
         return archive
     except OSError:
         return None
+
+
+def restore_session_metadata_from_archives(root: pathlib.Path) -> dict[str, Any]:
+    """If `.timechain/session.json` is missing, copy it from the newest archive."""
+    root = pathlib.Path(root)
+    forge_dir = root / ".timechain"
+    session_path = forge_dir / "session.json"
+    if session_path.exists():
+        return {"restored": False, "reason": "already_present"}
+    restored_any: list[str] = []
+    for archive in list_forge_archives(root):
+        names = _restore_host_files_from_archive(archive, forge_dir)
+        restored_any.extend(names)
+        if session_path.exists():
+            return {"restored": True, "files": restored_any, "archive": archive.name}
+    if restored_any:
+        return {"restored": True, "files": restored_any, "session_json": False}
+    return {"restored": False, "reason": "no_archive_metadata"}
+
+
+def _load_jsonl(path: pathlib.Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    rows: list[dict[str, Any]] = []
+    try:
+        # errors=replace: some legacy forge archives were written with mixed encodings.
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(row, dict):
+                    rows.append(row)
+    except OSError:
+        return []
+    return rows
+
+
+def _is_degenerate_skill_chain(rings: Sequence[dict[str, Any]]) -> bool:
+    """True when the skill ledger has no real history (empty / multi-genesis only)."""
+    if not rings:
+        return True
+    for ring in rings:
+        ring_type = str(ring.get("ring_type") or "").lower()
+        if ring_type and ring_type != "genesis":
+            return False
+    return True
+
+
+def _chain_needs_repair(root: pathlib.Path, skill: SkillModules) -> bool:
+    rings_path = skill_rings_path(root)
+    if not rings_path.exists():
+        return False
+    rings = _load_jsonl(rings_path)
+    if _is_degenerate_skill_chain(rings):
+        # Degenerate alone is only "needs repair" when archives exist or multi-genesis.
+        if len(rings) > 1 and all(str(r.get("ring_type") or "").lower() == "genesis" for r in rings):
+            return True
+        if list_forge_archives(root) and any((a / "chain.jsonl").exists() for a in list_forge_archives(root)):
+            return True
+        return False
+    ok, _status = skill.timechain.Timechain(root).verify()
+    if ok:
+        return False
+    # Broken verify with no real interactions → repairable.
+    return _is_degenerate_skill_chain(rings)
+
+
+def _pick_best_forge_archive(root: pathlib.Path) -> pathlib.Path | None:
+    best: pathlib.Path | None = None
+    best_count = -1
+    for archive in list_forge_archives(root):
+        chain = archive / "chain.jsonl"
+        if not chain.exists():
+            continue
+        count = 0
+        try:
+            with chain.open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    if line.strip():
+                        count += 1
+        except OSError:
+            continue
+        if count > best_count:
+            best = archive
+            best_count = count
+    return best
+
+
+def _reset_skill_chain_files(root: pathlib.Path) -> None:
+    """Remove skill chain ledger files so genesis can be recreated cleanly."""
+    chain_dir = skill_chain_dir(root)
+    rings = chain_dir / "rings.jsonl"
+    if rings.exists():
+        stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        backup = chain_dir / f"rings.broken_{stamp}.jsonl"
+        try:
+            rings.replace(backup)
+        except OSError:
+            try:
+                rings.unlink()
+            except OSError:
+                pass
+    for name in ("checkpoints.jsonl", "LOCKED", "PAUSED", "FROZEN"):
+        path = chain_dir / name
+        if path.exists():
+            try:
+                path.unlink()
+            except OSError:
+                pass
+
+
+def _forge_scores_to_poq(scores: Any) -> dict[str, int]:
+    if not isinstance(scores, dict):
+        return default_pass_scores()
+    converted = scores_to_skill_255(scores)
+    return converted or default_pass_scores()
+
+
+def import_forge_chain(
+    root: pathlib.Path,
+    forge_chain: pathlib.Path,
+    *,
+    name: str = "CypherTempre",
+    skill: SkillModules | None = None,
+) -> dict[str, Any]:
+    """Reseal a legacy Forge chain.jsonl into the skill Timechain format.
+
+    Preserves chat history (query/content/domain/tags/epistemic/scores) with
+    forge provenance markers. Recomputes skill ring hashes so verify passes.
+    """
+    skill = skill or bootstrap()
+    root = root.resolve()
+    ensure_base_registries(root, skill)
+    forge_rings = _load_jsonl(forge_chain)
+    if not forge_rings:
+        return {"imported": False, "reason": "empty_forge_chain", "rings": 0}
+
+    prev_autoindex = os.environ.get("CT_AUTOINDEX")
+    os.environ["CT_AUTOINDEX"] = "0"
+    try:
+        _reset_skill_chain_files(root)
+        tc = skill.timechain.Timechain(root)
+        # Prefer forge genesis agent name when available.
+        genesis_name = name
+        for fr in forge_rings:
+            if str(fr.get("kind") or "").lower() == "genesis":
+                content = str(fr.get("content") or "")
+                try:
+                    parsed = json.loads(content) if content.startswith("{") else None
+                except json.JSONDecodeError:
+                    parsed = None
+                if isinstance(parsed, dict) and parsed.get("agent_id"):
+                    genesis_name = str(parsed.get("core") or name)
+                break
+        if tc.height() == 0:
+            tc.genesis(name=genesis_name)
+
+        imported = 0
+        skipped = 0
+        for fr in forge_rings:
+            kind = str(fr.get("kind") or "interaction").strip().lower() or "interaction"
+            if kind == "genesis":
+                skipped += 1
+                continue
+            scores = _forge_scores_to_poq(fr.get("scores"))
+            brightness = fr.get("brightness")
+            if isinstance(brightness, (int, float)):
+                if float(brightness) <= 1.5:
+                    scores = {**scores, "brightness": round(float(brightness) * 255.0, 3)}
+                else:
+                    scores = {**scores, "brightness": round(float(brightness), 3)}
+            payload = {
+                "summary": str(fr.get("content") or fr.get("summary") or "")[:20000],
+                "content": str(fr.get("content") or fr.get("summary") or "")[:20000],
+                "query": str(fr.get("query") or fr.get("context") or "")[:20000],
+                "context": str(fr.get("query") or fr.get("context") or "")[:20000],
+                "domain": str(fr.get("domain") or "chat"),
+                "tags": list(fr.get("tags") or [kind]),
+                "epistemic": str(fr.get("epistemic") or ""),
+                "retrieved": list(fr.get("retrieved") or []),
+                "used_rings": list(fr.get("retrieved") or []),
+                "importance": fr.get("importance"),
+                "neuro": fr.get("neuro") if isinstance(fr.get("neuro"), dict) else {},
+                "supersedes": fr.get("supersedes"),
+                "source": fr.get("source"),
+                "forge_import": True,
+                "forge_n": fr.get("n"),
+                "forge_hash": fr.get("hash"),
+                "forge_ts": fr.get("ts"),
+                "forge_kind": kind,
+            }
+            ring_type = kind if kind not in {"", "genesis"} else "interaction"
+            if ring_type == "chat":
+                ring_type = "interaction"
+            tc.seal(ring_type, payload, poq=scores)
+            imported += 1
+
+        ok, status = tc.verify()
+        # Rebuild hippocampus once at the end for recall.
+        try:
+            from hippocampus import Hippocampus  # type: ignore
+
+            Hippocampus(root).ensure_current()
+        except Exception:
+            pass
+        marker = root / ".timechain" / "forge_import.json"
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(
+            json.dumps(
+                {
+                    "imported_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+                    "source": str(forge_chain),
+                    "imported_rings": imported,
+                    "skipped_genesis": skipped,
+                    "verify_ok": bool(ok),
+                    "verify_status": status if isinstance(status, str) else "; ".join(str(x) for x in (status or [])[:6]),
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        return {
+            "imported": True,
+            "rings": imported,
+            "skipped_genesis": skipped,
+            "verify_ok": bool(ok),
+            "height": tc.height(),
+            "source": str(forge_chain),
+        }
+    finally:
+        if prev_autoindex is None:
+            os.environ.pop("CT_AUTOINDEX", None)
+        else:
+            os.environ["CT_AUTOINDEX"] = prev_autoindex
+
+
+def repair_multi_genesis_chain(
+    root: pathlib.Path,
+    *,
+    name: str = "CypherTempre",
+    skill: SkillModules | None = None,
+) -> dict[str, Any]:
+    """Collapse a racey multi-genesis skill chain to a single valid genesis."""
+    skill = skill or bootstrap()
+    root = root.resolve()
+    rings = _load_jsonl(skill_rings_path(root))
+    if not rings:
+        return {"repaired": False, "reason": "empty"}
+    if not all(str(r.get("ring_type") or "").lower() == "genesis" for r in rings):
+        return {"repaired": False, "reason": "not_all_genesis"}
+    if len(rings) <= 1:
+        return {"repaired": False, "reason": "already_single"}
+    _reset_skill_chain_files(root)
+    tc = skill.timechain.Timechain(root)
+    ring = tc.genesis(name=name)
+    ok, status = tc.verify()
+    return {
+        "repaired": True,
+        "previous_rings": len(rings),
+        "genesis_hash": ring.get("ring_hash"),
+        "verify_ok": bool(ok),
+        "verify_status": status if isinstance(status, str) else "; ".join(str(x) for x in (status or [])[:4]),
+    }
+
+
+def migrate_session_root(
+    root: pathlib.Path,
+    *,
+    name: str = "CypherTempre",
+    skill: SkillModules | None = None,
+    force: bool = False,
+) -> dict[str, Any]:
+    """Idempotent fix for sessions broken by forge→skill cutover.
+
+    - Restores `.timechain/session.json` (persona lock) from archives
+    - Imports forge chat history when the skill chain is empty/degenerate
+    - Collapses multi-genesis verify failures when no forge history exists
+    """
+    skill = skill or bootstrap()
+    root = pathlib.Path(root).resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    result: dict[str, Any] = {"root": str(root), "actions": []}
+
+    meta = restore_session_metadata_from_archives(root)
+    if meta.get("restored"):
+        result["actions"].append({"restore_metadata": meta})
+
+    marker = root / ".timechain" / "forge_import.json"
+    if marker.exists() and not force:
+        # Already imported once; still repair multi-genesis if verify is bad.
+        rings = _load_jsonl(skill_rings_path(root))
+        if rings and all(str(r.get("ring_type") or "").lower() == "genesis" for r in rings) and len(rings) > 1:
+            repaired = repair_multi_genesis_chain(root, name=name, skill=skill)
+            result["actions"].append({"repair_multi_genesis": repaired})
+        result["skipped"] = "already_imported"
+        return result
+
+    rings = _load_jsonl(skill_rings_path(root))
+    archive = _pick_best_forge_archive(root)
+    forge_chain = (archive / "chain.jsonl") if archive else None
+    has_forge_history = bool(forge_chain and forge_chain.exists())
+
+    degenerate = _is_degenerate_skill_chain(rings)
+    multi_genesis = bool(rings) and len(rings) > 1 and all(
+        str(r.get("ring_type") or "").lower() == "genesis" for r in rings
+    )
+
+    if has_forge_history and (degenerate or force or multi_genesis or not rings):
+        # Only import when skill side has no real conversation yet (or forced).
+        if force or degenerate or multi_genesis or not rings:
+            imported = import_forge_chain(root, forge_chain, name=name, skill=skill)
+            result["actions"].append({"import_forge": imported})
+            return result
+
+    if multi_genesis:
+        repaired = repair_multi_genesis_chain(root, name=name, skill=skill)
+        result["actions"].append({"repair_multi_genesis": repaired})
+        return result
+
+    if not result["actions"]:
+        result["skipped"] = "healthy_or_nothing_to_do"
+    return result
+
+
+def migrate_workspace_sessions(
+    workspace_root: pathlib.Path,
+    *,
+    skill: SkillModules | None = None,
+) -> list[dict[str, Any]]:
+    """Scan user/session trees under a Forge workspace and migrate each root."""
+    skill = skill or bootstrap()
+    workspace_root = pathlib.Path(workspace_root).resolve()
+    results: list[dict[str, Any]] = []
+    candidates: list[pathlib.Path] = []
+
+    # Top-level default workspace (legacy single-user).
+    if (workspace_root / ".timechain").exists() or list_forge_archives(workspace_root) or skill_rings_path(workspace_root).exists():
+        candidates.append(workspace_root)
+
+    sessions_root = workspace_root / "sessions"
+    if sessions_root.exists():
+        for path in sessions_root.iterdir():
+            if path.is_dir():
+                candidates.append(path)
+
+    users_root = workspace_root / "data" / "users"
+    if users_root.exists():
+        for user_dir in users_root.iterdir():
+            if not user_dir.is_dir():
+                continue
+            user_sessions = user_dir / "sessions"
+            if not user_sessions.exists():
+                continue
+            for path in user_sessions.iterdir():
+                if path.is_dir():
+                    candidates.append(path)
+
+    seen: set[str] = set()
+    for root in candidates:
+        key = str(root.resolve())
+        if key in seen:
+            continue
+        seen.add(key)
+        # Cheap gate: only touch roots that look migrated/broken.
+        has_archive = bool(list_forge_archives(root))
+        has_session_meta = (root / ".timechain" / "session.json").exists()
+        rings = _load_jsonl(skill_rings_path(root)) if skill_rings_path(root).exists() else []
+        multi_genesis = bool(rings) and len(rings) > 1 and all(
+            str(r.get("ring_type") or "").lower() == "genesis" for r in rings
+        )
+        if not has_archive and not multi_genesis and has_session_meta:
+            continue
+        if not has_archive and not multi_genesis and not rings:
+            continue
+        try:
+            with _locked_session_root(root):
+                results.append(migrate_session_root(root, skill=skill))
+        except Exception as exc:
+            results.append({"root": str(root), "error": f"{type(exc).__name__}: {exc}"})
+    return results
 
 
 def ensure_base_registries(root: pathlib.Path, skill: SkillModules) -> None:
@@ -210,21 +656,28 @@ def ensure_session_root(
     skill = skill or bootstrap()
     root = root.resolve()
     root.mkdir(parents=True, exist_ok=True)
-    archive_forge_ledger(root)
-    ensure_base_registries(root, skill)
-    tc = skill.timechain.Timechain(root)
-    info: dict[str, Any] = {"root": str(root), "created": False, "height": tc.height()}
-    if tc.height() == 0:
-        ring = tc.genesis(name=name)
-        info["created"] = True
-        info["genesis_hash"] = ring.get("ring_hash")
-        info["height"] = 1
-    else:
-        head = tc.head()
-        info["genesis_hash"] = _genesis_hash(tc)
-        info["height"] = tc.height()
-        info["head_hash"] = (head or {}).get("ring_hash")
-    return info
+    with _locked_session_root(root):
+        archive_forge_ledger(root)
+        # Retroactively restore persona locks and repair broken skill ledgers.
+        try:
+            migrate_session_root(root, name=name, skill=skill)
+        except Exception:
+            # Migration is best-effort; never block session open.
+            pass
+        ensure_base_registries(root, skill)
+        tc = skill.timechain.Timechain(root)
+        info: dict[str, Any] = {"root": str(root), "created": False, "height": tc.height()}
+        if tc.height() == 0:
+            ring = tc.genesis(name=name)
+            info["created"] = True
+            info["genesis_hash"] = ring.get("ring_hash")
+            info["height"] = 1
+        else:
+            head = tc.head()
+            info["genesis_hash"] = _genesis_hash(tc)
+            info["height"] = tc.height()
+            info["head_hash"] = (head or {}).get("ring_hash")
+        return info
 
 
 def open_chain(root: pathlib.Path, skill: SkillModules | None = None):
@@ -371,7 +824,7 @@ def count_rings(root: pathlib.Path) -> int:
     if not path.exists():
         return 0
     try:
-        with path.open("r", encoding="utf-8") as handle:
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
             return sum(1 for line in handle if line.strip())
     except OSError:
         return 0

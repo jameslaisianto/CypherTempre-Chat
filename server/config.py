@@ -15,36 +15,76 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         "needs_referer": False,
         "needs_title": False,
         "label": "SurplusIntelligence",
+        "default_model": "",
+        # Live catalog from GET /v1/models replaces this when discovery succeeds.
+        "models": [],
+        "discover": True,
     },
     "morpheus": {
         "url": "https://api.mor.org/api/v1/chat/completions",
         "needs_referer": False,
         "needs_title": False,
         "label": "Morpheus",
+        "default_model": "gemma-4-uncensored",
+        "models": [
+            "gemma-4-uncensored",
+            "llama-3.3-70b",
+            "qwen3-32b",
+            "mistral-small-3.1-24b",
+        ],
+        "discover": True,
     },
     "openrouter": {
         "url": "https://openrouter.ai/api/v1/chat/completions",
         "needs_referer": True,
         "needs_title": True,
         "label": "OpenRouter",
+        "default_model": "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
+        "models": [
+            "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
+            "openrouter/auto",
+            "anthropic/claude-sonnet-4",
+            "openai/gpt-4.1-mini",
+            "google/gemini-2.5-flash",
+            "meta-llama/llama-3.3-70b-instruct",
+            "qwen/qwen3-32b",
+            "mistralai/mistral-small-3.1-24b-instruct",
+        ],
+        "discover": True,
     },
     "kimi": {
         "url": "https://api.moonshot.ai/v1/chat/completions",
         "needs_referer": False,
         "needs_title": False,
         "label": "Kimi",
+        "default_model": "kimi-k2.6",
+        "models": [
+            "kimi-k2.6",
+            "moonshot-v1-8k",
+            "moonshot-v1-32k",
+            "moonshot-v1-128k",
+        ],
+        "discover": True,
     },
     "kimi-code": {
         "url": "https://api.kimi.com/coding/v1/chat/completions",
         "needs_referer": False,
         "needs_title": False,
         "label": "Kimi Code",
+        "default_model": "kimi-for-coding",
+        "models": [
+            "kimi-for-coding",
+        ],
+        "discover": True,
     },
     "other": {
         "url": "",
         "needs_referer": False,
         "needs_title": False,
         "label": "Other",
+        "default_model": "",
+        "models": [],
+        "discover": False,
     },
 }
 
@@ -55,6 +95,8 @@ IMAGE_PROVIDERS: dict[str, dict[str, Any]] = {
         "needs_title": False,
         "label": "SurplusIntelligence",
         "default_model": "",
+        "models": [],
+        "discover": True,
     },
     "openrouter": {
         "url": "https://openrouter.ai/api/v1/chat/completions",
@@ -62,6 +104,12 @@ IMAGE_PROVIDERS: dict[str, dict[str, Any]] = {
         "needs_title": True,
         "label": "OpenRouter",
         "default_model": "black-forest-labs/flux.2-pro",
+        "models": [
+            "black-forest-labs/flux.2-pro",
+            "google/gemini-2.5-flash-image-preview",
+            "sourceful/riverflow-v2-pro",
+        ],
+        "discover": True,
     },
     "morpheus": {
         "url": "https://api.mor.org/api/v1/chat/completions",
@@ -69,6 +117,12 @@ IMAGE_PROVIDERS: dict[str, dict[str, Any]] = {
         "needs_title": False,
         "label": "Morpheus",
         "default_model": "grok-imagine-image",
+        "models": [
+            "grok-imagine-image",
+            "nano-banana-2",
+            "lustify-v8",
+        ],
+        "discover": True,
     },
     "other": {
         "url": "",
@@ -76,6 +130,8 @@ IMAGE_PROVIDERS: dict[str, dict[str, Any]] = {
         "needs_title": False,
         "label": "Other",
         "default_model": "",
+        "models": [],
+        "discover": False,
     },
 }
 
@@ -86,6 +142,8 @@ VIDEO_PROVIDERS: dict[str, dict[str, Any]] = {
         "needs_title": False,
         "label": "SurplusIntelligence",
         "default_model": "",
+        "models": [],
+        "discover": True,
     },
     "openrouter": {
         "url": "https://openrouter.ai/api/v1/chat/completions",
@@ -93,6 +151,10 @@ VIDEO_PROVIDERS: dict[str, dict[str, Any]] = {
         "needs_title": True,
         "label": "OpenRouter Video",
         "default_model": "black-forest-labs/flux-video-pro",
+        "models": [
+            "black-forest-labs/flux-video-pro",
+        ],
+        "discover": True,
     },
     "morpheus": {
         "url": "https://api.mor.org/api/v1/chat/completions",
@@ -100,6 +162,10 @@ VIDEO_PROVIDERS: dict[str, dict[str, Any]] = {
         "needs_title": False,
         "label": "Morpheus",
         "default_model": "grok-video-2026",
+        "models": [
+            "grok-video-2026",
+        ],
+        "discover": True,
     },
     "demo": {
         "url": "",
@@ -107,6 +173,10 @@ VIDEO_PROVIDERS: dict[str, dict[str, Any]] = {
         "needs_title": False,
         "label": "Demo (built-in test clip)",
         "default_model": "demo-cinematic",
+        "models": [
+            "demo-cinematic",
+        ],
+        "discover": False,
     },
     "other": {
         "url": "",
@@ -114,6 +184,8 @@ VIDEO_PROVIDERS: dict[str, dict[str, Any]] = {
         "needs_title": False,
         "label": "Other Video Provider",
         "default_model": "",
+        "models": [],
+        "discover": False,
     },
 }
 
@@ -124,6 +196,8 @@ AUDIO_PROVIDERS: dict[str, dict[str, Any]] = {
         "needs_title": False,
         "label": "SurplusIntelligence",
         "default_model": "",
+        "models": [],
+        "discover": True,
     },
     "morpheus": {
         "url": "https://api.mor.org/api/v1/audio/speech",
@@ -131,6 +205,10 @@ AUDIO_PROVIDERS: dict[str, dict[str, Any]] = {
         "needs_title": False,
         "label": "Morpheus",
         "default_model": "tts-kokoro",
+        "models": [
+            "tts-kokoro",
+        ],
+        "discover": True,
     },
     "openrouter": {
         "url": "https://openrouter.ai/api/v1/audio/speech",
@@ -138,6 +216,10 @@ AUDIO_PROVIDERS: dict[str, dict[str, Any]] = {
         "needs_title": True,
         "label": "OpenRouter",
         "default_model": "openrouter-audio",
+        "models": [
+            "openrouter-audio",
+        ],
+        "discover": True,
     },
     "other": {
         "url": "",
@@ -145,8 +227,32 @@ AUDIO_PROVIDERS: dict[str, dict[str, Any]] = {
         "needs_title": False,
         "label": "Other Audio Provider",
         "default_model": "",
+        "models": [],
+        "discover": False,
     },
 }
+
+
+def provider_model_catalogs() -> dict[str, dict[str, Any]]:
+    """Curated models/defaults exposed to the UI (discovery can replace at runtime)."""
+
+    def _pack(table: dict[str, dict[str, Any]]) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        for key, cfg in table.items():
+            out[key] = {
+                "label": cfg.get("label", key),
+                "default_model": cfg.get("default_model", ""),
+                "models": list(cfg.get("models") or []),
+                "discover": bool(cfg.get("discover", False)),
+            }
+        return out
+
+    return {
+        "chat": _pack(PROVIDERS),
+        "image": _pack(IMAGE_PROVIDERS),
+        "video": _pack(VIDEO_PROVIDERS),
+        "audio": _pack(AUDIO_PROVIDERS),
+    }
 
 DEFAULT_SKILL_ROOT = pathlib.Path(__file__).resolve().parent.parent / "skill" / "cypher-tempre-self-model"
 # Historical name: path to the skill's timechain.py engine file (parent is the skill root).

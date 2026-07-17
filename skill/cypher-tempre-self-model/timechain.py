@@ -80,9 +80,9 @@ def atomic_write_json(path, obj, compact=False):
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + f".{os.getpid()}.tmp")
     if compact:
-        tmp.write_text(json.dumps(obj, separators=(",", ":"), ensure_ascii=False))
+        tmp.write_text(json.dumps(obj, separators=(",", ":"), ensure_ascii=False), encoding="utf-8")
     else:
-        tmp.write_text(json.dumps(obj, indent=2, ensure_ascii=False))
+        tmp.write_text(json.dumps(obj, indent=2, ensure_ascii=False), encoding="utf-8")
     tmp.replace(path)
 
 
@@ -99,10 +99,17 @@ class Blockspace:
         self.blobs = self.root / "blobs"
         self.index_path = self.root / "index.json"
         self.blobs.mkdir(parents=True, exist_ok=True)
-        self.index = json.loads(self.index_path.read_text()) if self.index_path.exists() else {}
+        self.index = (
+            json.loads(self.index_path.read_text(encoding="utf-8", errors="replace"))
+            if self.index_path.exists()
+            else {}
+        )
 
     def _save_index(self):
-        self.index_path.write_text(json.dumps(self.index, indent=2, sort_keys=True))
+        self.index_path.write_text(
+            json.dumps(self.index, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
 
     def put_bytes(self, data: bytes, filename=None, mime=None) -> str:
         h = sha256_hex(data)
@@ -156,7 +163,7 @@ class Timechain:
         has to be materialized into a list at once."""
         if not self.rings_path.exists():
             return
-        with self.rings_path.open("r", encoding="utf-8") as fh:
+        with self.rings_path.open("r", encoding="utf-8", errors="replace") as fh:
             for line in fh:
                 line = line.strip()
                 if not line:
@@ -201,7 +208,9 @@ class Timechain:
         return rings[-k:]
 
     def _append(self, ring: dict):
-        with self.rings_path.open("a") as f:
+        # Always UTF-8: ring payloads may include non-ASCII (emoji, Hangul, etc.).
+        # Locale text mode (cp1252 on Windows) corrupts writes and crashes reads.
+        with self.rings_path.open("a", encoding="utf-8", newline="\n") as f:
             f.write(json.dumps(ring, ensure_ascii=False) + "\n")
         self._auto_attest(ring)
 
@@ -250,9 +259,9 @@ class Timechain:
         cfg_path = self.dir / "consensus" / "config.json"
         if not cfg_path.exists():
             return
-        cfg = json.loads(cfg_path.read_text())
+        cfg = json.loads(cfg_path.read_text(encoding="utf-8", errors="replace"))
         msg = f"{ring['index']}:{ring['ring_hash']}"
-        with (self.dir / "consensus" / "attestations.jsonl").open("a") as f:
+        with (self.dir / "consensus" / "attestations.jsonl").open("a", encoding="utf-8", newline="\n") as f:
             for w in cfg["witnesses"]:
                 mac = hmac.new(bytes.fromhex(w["key"]), msg.encode(), hashlib.sha256).hexdigest()
                 f.write(json.dumps({"height": ring["index"], "ring_hash": ring["ring_hash"],
@@ -390,7 +399,7 @@ class Timechain:
             prev_ck = None
             p = self._ckpt_path()
             if p.exists():
-                lines = [l for l in p.read_text().splitlines() if l.strip()]
+                lines = [l for l in p.read_text(encoding="utf-8", errors="replace").splitlines() if l.strip()]
                 if lines:
                     prev_ck = json.loads(lines[-1])
             ck = {"index": ring["index"], "ring_hash": ring["ring_hash"],
@@ -399,7 +408,7 @@ class Timechain:
             ck["ckpt_hash"] = _h.sha256(json.dumps(
                 {k: ck[k] for k in ("index", "ring_hash", "prev_ckpt_hash")},
                 sort_keys=True).encode()).hexdigest()
-            with p.open("a") as fh:
+            with p.open("a", encoding="utf-8", newline="\n") as fh:
                 fh.write(json.dumps(ck) + "\n")
         except Exception:
             pass   # checkpointing is an accelerator, never a failure source
@@ -410,7 +419,7 @@ class Timechain:
             return None
         last = None
         try:
-            for line in p.read_text().splitlines():
+            for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
                 if line.strip():
                     last = json.loads(line)
         except Exception:
@@ -428,7 +437,7 @@ class Timechain:
         import hashlib as _h
         prev_hash = None
         try:
-            for line in self._ckpt_path().read_text().splitlines():
+            for line in self._ckpt_path().read_text(encoding="utf-8", errors="replace").splitlines():
                 if not line.strip():
                     continue
                 c = json.loads(line)
@@ -445,7 +454,7 @@ class Timechain:
         # walk only the tail after the checkpoint
         report, ok = [], True
         prev_ring_hash, i, count = None, 0, 0
-        with self.rings_path.open("r") as fh:
+        with self.rings_path.open("r", encoding="utf-8", errors="replace") as fh:
             for raw in fh:
                 line = raw.strip()
                 if not line:
@@ -488,7 +497,8 @@ class Timechain:
         prev_hash = GENESIS_PREV
         i = 0
         count = 0
-        with self.rings_path.open("r") as fh:
+        # UTF-8 explicit: Windows locale (cp1252) cannot decode Hangul/emoji in rings.
+        with self.rings_path.open("r", encoding="utf-8", errors="replace") as fh:
             for raw in fh:
                 line = raw.strip()
                 if not line:

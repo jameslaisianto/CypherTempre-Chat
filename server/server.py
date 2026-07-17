@@ -26,6 +26,7 @@ from server.config import (
     DEFAULT_POQ_ENABLED, DEFAULT_POQ_MIN_SCORE, DEFAULT_POQ_MAX_RETRIES,
     DEFAULT_POQ_OVERFITTING_CHECK,
     default_provider_url,
+    provider_model_catalogs,
 )
 from server.html import HTML_TEMPLATE
 from server.ui import UI_JS
@@ -88,30 +89,49 @@ def resolve_model_discovery_credentials(
     app: App,
     provider: str,
     *,
+    modality: str = "",
     api_key_override: str = "",
     base_url_override: str = "",
 ) -> tuple[str, str]:
     """Pick the API key and base URL used to discover models for a provider.
 
-    Image/video/audio providers must use their modality-specific credentials so the
-    catalog matches what ImageGen and other studios can actually call.
+    Prefer the requested modality's credentials so chat discovery does not
+    accidentally use image/video keys (and vice versa) when a provider name is
+    shared across modalities.
     """
     provider = (provider or app.provider).strip().lower()
+    modality = (modality or "").strip().lower()
     api_key = (api_key_override or "").strip()
     base_url = (base_url_override or "").strip()
 
-    if provider in IMAGE_PROVIDERS:
-        base_url = base_url or app.image_base_url or IMAGE_PROVIDERS[provider].get("url", "")
+    if modality == "image" and provider in IMAGE_PROVIDERS:
+        base_url = base_url or app.image_base_url or str(IMAGE_PROVIDERS[provider].get("url", ""))
+        api_key = api_key or app.image_api_key or app.api_key
+    elif modality == "video" and provider in VIDEO_PROVIDERS:
+        base_url = base_url or app.video_base_url or str(VIDEO_PROVIDERS[provider].get("url", ""))
+        api_key = api_key or app.video_api_key or app.api_key
+    elif modality == "audio" and provider in AUDIO_PROVIDERS:
+        base_url = base_url or app.audio_base_url or str(AUDIO_PROVIDERS[provider].get("url", ""))
+        api_key = api_key or app.audio_api_key or app.api_key
+    elif modality in {"", "chat"} and provider in PROVIDERS:
+        if provider == app.provider:
+            base_url = base_url or app.base_url or default_provider_url(provider)
+            api_key = api_key or app.api_key
+        else:
+            base_url = base_url or default_provider_url(provider)
+            api_key = api_key or app.api_key
+    elif provider in PROVIDERS:
+        base_url = base_url or default_provider_url(provider)
+        api_key = api_key or app.api_key
+    elif provider in IMAGE_PROVIDERS:
+        base_url = base_url or app.image_base_url or str(IMAGE_PROVIDERS[provider].get("url", ""))
         api_key = api_key or app.image_api_key or app.api_key
     elif provider in VIDEO_PROVIDERS:
-        base_url = base_url or app.video_base_url or VIDEO_PROVIDERS[provider].get("url", "")
+        base_url = base_url or app.video_base_url or str(VIDEO_PROVIDERS[provider].get("url", ""))
         api_key = api_key or app.video_api_key or app.api_key
     elif provider in AUDIO_PROVIDERS:
-        base_url = base_url or app.audio_base_url or AUDIO_PROVIDERS[provider].get("url", "")
+        base_url = base_url or app.audio_base_url or str(AUDIO_PROVIDERS[provider].get("url", ""))
         api_key = api_key or app.audio_api_key or app.api_key
-    elif provider == app.provider:
-        base_url = base_url or app.base_url or default_provider_url(provider)
-        api_key = api_key or app.api_key
     else:
         base_url = base_url or default_provider_url(provider)
         api_key = api_key or app.api_key
@@ -189,6 +209,7 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                         "recommended_profile": __import__("server.product", fromlist=["RECOMMENDED_PROFILE"]).RECOMMENDED_PROFILE,
                         "skill_version": getattr(app.skill, "version", ""),
                         "app_version": "Forge/0.1",
+                        "provider_catalogs": provider_model_catalogs(),
                     })
                     return
                 if path == "/api/status":
@@ -207,9 +228,11 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                     return
                 if path == "/api/models":
                     provider = (self.query_param("provider") or app.provider).strip().lower()
+                    modality = (self.query_param("modality") or "chat").strip().lower()
                     api_key, base_url = resolve_model_discovery_credentials(
                         app,
                         provider,
+                        modality=modality,
                         api_key_override=self.query_param("apiKey"),
                         base_url_override=self.query_param("baseUrl"),
                     )
@@ -219,7 +242,12 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                         api_key=api_key,
                         timeout=min(app.timeout, 20.0),
                     )
-                    self.send_json({"ok": True, "provider": provider, "catalog": catalog})
+                    self.send_json({
+                        "ok": True,
+                        "provider": provider,
+                        "modality": modality,
+                        "catalog": catalog,
+                    })
                     return
                 if path == "/api/guide/topics":
                     self.send_json({"ok": True, "topics": guide_topics_payload()})
@@ -1037,6 +1065,21 @@ def main() -> int:
         audio_base_url=os.environ.get("AUDIO_BASE_URL", "").strip() or base_url,
     )
     migrate_global_data_to_users(app)
+    try:
+        from server import skill_runtime as _skill_runtime
+
+        migration_results = _skill_runtime.migrate_workspace_sessions(app.root_workspace)
+        repaired = [
+            r for r in migration_results
+            if r.get("actions") and not r.get("error") and not r.get("skipped")
+        ]
+        if repaired:
+            print(f"Session migration: updated {len(repaired)} session root(s) (persona + chain).")
+        errors = [r for r in migration_results if r.get("error")]
+        for err in errors[:5]:
+            print(f"Session migration warning: {err.get('root')}: {err.get('error')}")
+    except Exception as exc:
+        print(f"Session migration skipped: {type(exc).__name__}: {exc}")
     handler = make_handler(app)
     server = ThreadingHTTPServer((args.host, args.port), handler)
     url = f"http://{args.host}:{args.port}"

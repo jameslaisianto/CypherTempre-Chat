@@ -2692,6 +2692,123 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertEqual(app.session_persona_id(), "openclaw")
         self.assertEqual(app.bind_session_persona("companion"), "openclaw")
 
+    def test_forge_archive_migration_restores_persona_and_history(self):
+        """Legacy forge archives must restore persona locks and chat history."""
+        from server import skill_runtime
+
+        workspace = self.make_workspace()
+        session_root = workspace / "sessions" / "roleplay"
+        session_root.mkdir(parents=True)
+
+        archive = session_root / ".timechain_forge_archive_20260101T000000Z"
+        archive.mkdir()
+        (archive / "session.json").write_text(
+            json.dumps({
+                "persona_id": "openclaw",
+                "persona_name": "OpenClaw",
+                "name": "Roleplay",
+                "created_at": "2026-01-01T00:00:00+00:00",
+            }),
+            encoding="utf-8",
+        )
+        forge_rings = [
+            {
+                "n": 0, "prev": "0" * 64, "ts": "2026-01-01T00:00:00+00:00",
+                "kind": "genesis", "domain": "self", "query": "", "content": "g",
+                "brightness": 1.0,
+                "scores": {d: 1.0 for d in ("coherence", "relevance", "novelty", "consistency", "depth", "covenant")},
+                "hash": "a" * 64, "tags": [],
+            },
+            {
+                "n": 1, "prev": "a" * 64, "ts": "2026-01-01T00:01:00+00:00",
+                "kind": "interaction", "domain": "chat", "query": "hello", "content": "hi there",
+                "brightness": 0.5,
+                "scores": {d: 0.8 for d in ("coherence", "relevance", "novelty", "consistency", "depth", "covenant")},
+                "hash": "b" * 64, "tags": ["chat"], "epistemic": "known", "retrieved": [],
+            },
+        ]
+        with (archive / "chain.jsonl").open("w", encoding="utf-8") as handle:
+            for ring in forge_rings:
+                handle.write(json.dumps(ring) + "\n")
+
+        # Broken multi-genesis skill chain (race during cutover).
+        chain_dir = session_root / "chain"
+        chain_dir.mkdir()
+        dead = {
+            "index": 0, "ring_type": "genesis", "timestamp": "2026-01-01T00:00:00+00:00",
+            "prev_hash": "0" * 64, "payload": {"name": "x"}, "blockspace_refs": [],
+            "poq": {}, "difficulty": 0, "nonce": 0, "ring_hash": "deadbeef",
+        }
+        with (chain_dir / "rings.jsonl").open("w", encoding="utf-8") as handle:
+            for _ in range(3):
+                handle.write(json.dumps(dead) + "\n")
+
+        result = skill_runtime.migrate_session_root(session_root, name="Roleplay")
+        self.assertTrue(any("import_forge" in action for action in result.get("actions", [])))
+
+        ok, status = skill_runtime.verify_root(session_root)
+        self.assertTrue(ok, status)
+
+        meta = json.loads((session_root / ".timechain" / "session.json").read_text(encoding="utf-8"))
+        self.assertEqual(meta.get("persona_id"), "openclaw")
+
+        views = skill_runtime.load_ring_views(session_root)
+        interactions = [view for view in views if view.kind == "interaction"]
+        self.assertEqual(len(interactions), 1)
+        self.assertEqual(interactions[0].query, "hello")
+        self.assertEqual(interactions[0].content, "hi there")
+
+        # Idempotent: second migration does not re-import.
+        again = skill_runtime.migrate_session_root(session_root)
+        self.assertEqual(again.get("skipped"), "already_imported")
+
+    def test_multi_genesis_chain_repairs_without_archive(self):
+        from server import skill_runtime
+
+        workspace = self.make_workspace()
+        session_root = workspace / "sessions" / "broken"
+        session_root.mkdir(parents=True)
+        chain_dir = session_root / "chain"
+        chain_dir.mkdir()
+        dead = {
+            "index": 0, "ring_type": "genesis", "timestamp": "2026-01-01T00:00:00+00:00",
+            "prev_hash": "0" * 64, "payload": {"name": "x"}, "blockspace_refs": [],
+            "poq": {}, "difficulty": 0, "nonce": 0, "ring_hash": "deadbeef",
+        }
+        with (chain_dir / "rings.jsonl").open("w", encoding="utf-8") as handle:
+            for _ in range(4):
+                handle.write(json.dumps(dead) + "\n")
+
+        result = skill_runtime.migrate_session_root(session_root, name="Broken")
+        self.assertTrue(any("repair_multi_genesis" in action for action in result.get("actions", [])))
+        ok, status = skill_runtime.verify_root(session_root)
+        self.assertTrue(ok, status)
+        self.assertEqual(skill_runtime.count_rings(session_root), 1)
+
+    def test_archive_forge_ledger_preserves_session_json(self):
+        from server import skill_runtime
+
+        workspace = self.make_workspace()
+        session_root = workspace / "sessions" / "keep-persona"
+        session_root.mkdir(parents=True)
+        timechain = session_root / ".timechain"
+        timechain.mkdir()
+        (timechain / "session.json").write_text(
+            json.dumps({"persona_id": "socratic", "persona_name": "Socratic Tutor"}),
+            encoding="utf-8",
+        )
+        (timechain / "chain.jsonl").write_text(
+            json.dumps({"n": 0, "kind": "genesis", "content": "g", "hash": "x"}) + "\n",
+            encoding="utf-8",
+        )
+
+        archive = skill_runtime.archive_forge_ledger(session_root)
+        self.assertIsNotNone(archive)
+        restored = session_root / ".timechain" / "session.json"
+        self.assertTrue(restored.exists())
+        meta = json.loads(restored.read_text(encoding="utf-8"))
+        self.assertEqual(meta.get("persona_id"), "socratic")
+
     def test_existing_session_binds_persona_on_first_chat(self):
         app = server.App(
             self.make_workspace(),
@@ -3353,35 +3470,49 @@ class PromptAssemblyTests(unittest.TestCase):
         self.assertIn('id="chat-model-options"', server.HTML)
         self.assertIn('id="audio-model-options"', server.HTML)
         self.assertIn("async function refreshProviderModels", server.HTML)
+        self.assertIn("updateChatModelOptions", server.HTML)
+        self.assertIn("applyProviderCatalogs", server.HTML)
         self.assertIn(
             "const discoveredEditModels = (catalog.image_edit || []).map(model => model.id)",
             server.HTML,
         )
-        self.assertIn("imageEditModelsByProvider[provider] = discoveredEditModels", server.HTML)
+        self.assertIn("imageEditModelsByProvider[prov] = discoveredEditModels", server.HTML)
         self.assertIn("catalog.video", server.HTML)
         self.assertIn("catalog.audio", server.HTML)
         self.assertIn("'/api/models?'", server.HTML)
+        # Discovery is no longer limited to SurplusIntelligence only.
+        self.assertNotIn("if (provider !== 'surplusintelligence') return", server.HTML)
 
     def test_discovered_models_replace_stale_browser_media_models(self):
         ui_source = server.HTML
         sync_start = ui_source.index("function syncCreativeStudioModelsFromSettings()")
         sync_end = ui_source.index("function renderContent", sync_start)
         sync_source = ui_source[sync_start:sync_end]
-        edit_start = ui_source.index("function updateImageEditModelOptions()")
-        edit_end = ui_source.index("function updateVideoModelOptions()", edit_start)
+        edit_start = ui_source.index("function updateImageEditModelOptions(")
+        edit_end = ui_source.index("function updateVideoModelOptions(", edit_start)
         edit_source = ui_source[edit_start:edit_end]
 
         self.assertIn("localStorage.getItem('ct_image_edit_model')", sync_source)
         self.assertIn("providerDiscoveryCredentials", ui_source)
         self.assertIn("localStorage.setItem('ct_image_edit_model', els.imagegenEditModel.value)", edit_source)
         self.assertIn("localStorage.setItem('ct_image_model', els.imageModel.value)", ui_source)
-        self.assertIn("localStorage.setItem('ct_video_model', els.videoModel.value)", ui_source)
-        self.assertIn("Native image-to-image edit via /v1/images/edits", ui_source)
+
+    def test_provider_model_catalogs_expose_chat_and_video_defaults(self):
+        catalogs = server.provider_model_catalogs()
+        self.assertIn("morpheus", catalogs["chat"])
+        self.assertEqual(catalogs["chat"]["morpheus"]["default_model"], "gemma-4-uncensored")
+        self.assertIn("gemma-4-uncensored", catalogs["chat"]["morpheus"]["models"])
+        self.assertIn("openrouter", catalogs["video"])
+        self.assertIn("black-forest-labs/flux-video-pro", catalogs["video"]["openrouter"]["models"])
+        self.assertEqual(catalogs["video"]["demo"]["default_model"], "demo-cinematic")
+        # UI rebinds models when the chat/video provider changes.
+        self.assertIn("updateChatModelOptions({ forceDefault: true })", server.HTML)
+        self.assertIn("updateVideoModelOptions({ forceDefault: true })", server.HTML)
 
     def test_surplus_edit_controls_stay_enabled_with_seeded_edit_models(self):
         ui_source = server.HTML
-        start = ui_source.index("function updateImageEditModelOptions()")
-        end = ui_source.index("function updateVideoModelOptions()", start)
+        start = ui_source.index("function updateImageEditModelOptions(")
+        end = ui_source.index("function updateVideoModelOptions(", start)
         edit_source = ui_source[start:end]
 
         self.assertIn("els.imagegenEditModel.disabled = false", edit_source)

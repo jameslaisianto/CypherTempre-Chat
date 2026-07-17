@@ -110,8 +110,8 @@ HTML_TEMPLATE = r"""<!doctype html>
       --dur-fast: 0.15s;
       --dur: 0.24s;
       --dur-slow: 0.42s;
-      /* Chat stage width */
-      --stage: min(720px, 100%);
+      /* Chat stage width — roomy enough for long prose */
+      --stage: min(820px, calc(100% - 32px));
       /* Shell instrument — one system for rail + menu + layout */
       --shell-w-expanded: 268px;
       --shell-w-collapsed: 72px;
@@ -200,8 +200,9 @@ HTML_TEMPLATE = r"""<!doctype html>
         var(--bg);
       color: var(--text);
       font-family: var(--font-ui);
-      font-size: 14px;
-      line-height: 1.55;
+      font-size: 15px;
+      line-height: 1.62;
+      letter-spacing: 0.005em;
       font-feature-settings: "ss01", "cv11";
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
@@ -591,8 +592,11 @@ HTML_TEMPLATE = r"""<!doctype html>
       background: transparent;
       color: var(--shell-muted);
       cursor: pointer;
+      pointer-events: auto;
+      font-family: var(--font-ui);
       font-weight: 600;
       font-size: 13px;
+      line-height: 1.25;
       letter-spacing: -0.01em;
       display: flex;
       align-items: center;
@@ -600,8 +604,9 @@ HTML_TEMPLATE = r"""<!doctype html>
       gap: 10px;
       padding: 0 11px;
       position: relative;
-      z-index: 1;
+      z-index: 2;
       width: 100%;
+      box-sizing: border-box;
       transition:
         color var(--dur) var(--ease-out),
         background var(--dur) var(--ease-out),
@@ -1131,16 +1136,18 @@ HTML_TEMPLATE = r"""<!doctype html>
       margin: 0;
       font-size: 30px;
       font-weight: 750;
-      letter-spacing: -0.035em;
+      letter-spacing: -0.02em;
+      line-height: 1.2;
       position: relative;
     }
 
     .guide-hero p {
       max-width: 760px;
-      margin: 12px 0 0;
+      margin: 14px 0 0;
       color: var(--muted);
-      font-size: 15px;
-      line-height: 1.6;
+      font-size: 15.5px;
+      line-height: 1.65;
+      letter-spacing: 0.005em;
       position: relative;
     }
 
@@ -1763,8 +1770,8 @@ HTML_TEMPLATE = r"""<!doctype html>
       background: radial-gradient(circle, rgba(255,122,77,0.12), transparent 70%);
       pointer-events: none;
     }
-    .marketplace-hero h2 { margin: 0; font-size: 28px; font-weight: 750; letter-spacing: -0.035em; position: relative; }
-    .marketplace-hero p { margin: 10px 0 0; color: var(--muted); font-size: 15px; line-height: 1.55; position: relative; max-width: 52ch; }
+    .marketplace-hero h2 { margin: 0; font-size: 28px; font-weight: 750; letter-spacing: -0.02em; line-height: 1.2; position: relative; }
+    .marketplace-hero p { margin: 12px 0 0; color: var(--muted); font-size: 15.5px; line-height: 1.65; letter-spacing: 0.005em; position: relative; max-width: 58ch; }
     .marketplace-filters {
       display: flex;
       gap: 10px;
@@ -1909,12 +1916,13 @@ HTML_TEMPLATE = r"""<!doctype html>
     }
     .price-badge.free { background: rgba(34, 197, 94, 0.14); color: var(--green); }
     .price-badge.premium { background: rgba(232, 93, 42, 0.14); color: var(--blue); }
-    .persona-card h3 { margin: 0; font-size: 17px; letter-spacing: -0.01em; }
+    .persona-card h3 { margin: 0; font-size: 17px; letter-spacing: 0; line-height: 1.3; }
     .persona-card .tagline {
       color: var(--muted);
-      font-size: 13px;
-      line-height: 1.45;
-      min-height: 38px;
+      font-size: 13.5px;
+      line-height: 1.55;
+      min-height: 42px;
+      overflow-wrap: break-word;
     }
     .persona-card-meta {
       display: flex;
@@ -2049,12 +2057,17 @@ HTML_TEMPLATE = r"""<!doctype html>
     }
 
     .bubble-content {
-      padding: 14px 16px;
-      overflow-wrap: anywhere;
-      font-size: 15px;
-      line-height: 1.62;
+      padding: 14px 18px;
+      overflow-wrap: break-word;
+      word-break: normal;
+      word-wrap: break-word;
+      hyphens: manual;
+      font-size: 15.5px;
+      line-height: 1.7;
       white-space: pre-wrap;
-      letter-spacing: -0.005em;
+      letter-spacing: 0.01em;
+      /* Natural paragraph rhythm for multi-line replies */
+      max-width: 72ch;
     }
 
     .text-segment {
@@ -2065,7 +2078,8 @@ HTML_TEMPLATE = r"""<!doctype html>
       display: inline;
       color: var(--faint);
       font-style: italic;
-      opacity: 0.88;
+      opacity: 0.9;
+      letter-spacing: 0.005em;
     }
 
     .bubble-meta {
@@ -2107,11 +2121,12 @@ HTML_TEMPLATE = r"""<!doctype html>
       border: 0;
       background: transparent;
       box-shadow: none;
-      min-height: 48px;
-      max-height: 160px;
-      padding: 10px 4px;
-      font-size: 15px;
-      line-height: 1.5;
+      min-height: 52px;
+      max-height: 200px;
+      padding: 12px 6px;
+      font-size: 15.5px;
+      line-height: 1.55;
+      letter-spacing: 0.01em;
       resize: none;
     }
 
@@ -2315,7 +2330,7 @@ HTML_TEMPLATE = r"""<!doctype html>
     }
 
     dt { color: var(--muted); }
-    dd { margin: 0; overflow-wrap: anywhere; }
+    dd { margin: 0; overflow-wrap: break-word; word-break: normal; line-height: 1.5; }
 
     .stack {
       display: grid;
@@ -2403,20 +2418,22 @@ HTML_TEMPLATE = r"""<!doctype html>
       margin-top: 10px;
       color: var(--muted);
       white-space: pre-wrap;
-      overflow-wrap: anywhere;
-      font-size: 13px;
+      overflow-wrap: break-word;
+      word-break: normal;
+      font-size: 13.5px;
+      line-height: 1.55;
     }
 
     .memory-list {
       display: grid;
-      gap: 8px;
+      gap: 10px;
     }
 
     .memory-card {
       border: 1px solid var(--line-soft);
       border-radius: var(--r-sm);
       background: var(--memory-card-bg);
-      padding: 11px 12px;
+      padding: 12px 14px;
       display: grid;
       gap: 8px;
       transition: background-color var(--dur) var(--ease-out), border-color var(--dur) var(--ease-out), transform var(--dur) var(--ease-out);
@@ -2429,14 +2446,18 @@ HTML_TEMPLATE = r"""<!doctype html>
 
     .memory-card strong {
       color: var(--text);
-      font-size: 13px;
-      overflow-wrap: anywhere;
+      font-size: 13.5px;
+      line-height: 1.45;
+      overflow-wrap: break-word;
+      word-break: normal;
     }
 
     .memory-meta {
       color: var(--faint);
-      font-size: 11px;
-      overflow-wrap: anywhere;
+      font-size: 11.5px;
+      line-height: 1.45;
+      overflow-wrap: break-word;
+      word-break: normal;
     }
 
     .memory-actions {
@@ -2465,7 +2486,7 @@ HTML_TEMPLATE = r"""<!doctype html>
 
     .ring-list {
       display: grid;
-      gap: 8px;
+      gap: 10px;
       max-height: 340px;
       overflow: auto;
       padding-right: 2px;
@@ -2475,9 +2496,9 @@ HTML_TEMPLATE = r"""<!doctype html>
       border: 1px solid var(--line-soft);
       border-radius: var(--r-sm);
       background: var(--ring-card-bg);
-      padding: 11px 12px;
+      padding: 12px 14px;
       display: grid;
-      gap: 7px;
+      gap: 8px;
       transition: background-color var(--dur) var(--ease-out), border-color var(--dur) var(--ease-out), transform var(--dur) var(--ease-out);
     }
 
@@ -2488,16 +2509,19 @@ HTML_TEMPLATE = r"""<!doctype html>
 
     .ring-card strong {
       color: var(--text);
-      font-size: 13px;
-      overflow-wrap: anywhere;
+      font-size: 13.5px;
+      line-height: 1.4;
+      overflow-wrap: break-word;
+      word-break: normal;
     }
 
     .ring-card p {
       margin: 0;
       color: var(--muted);
-      font-size: 12px;
-      line-height: 1.45;
-      overflow-wrap: anywhere;
+      font-size: 12.5px;
+      line-height: 1.55;
+      overflow-wrap: break-word;
+      word-break: normal;
     }
 
     .workbench-actions {
@@ -2611,14 +2635,14 @@ HTML_TEMPLATE = r"""<!doctype html>
       .mobile-nav button { flex: 1; background: transparent; border: 0; color: var(--muted); font-size: 13px; font-weight: 700; cursor: pointer; }
       .mobile-nav button.active { color: var(--blue); background: rgba(232, 93, 42, 0.08); }
       .mobile-only { display: inline-flex; align-items: center; justify-content: center; }
-      .composer { padding: 10px 12px 14px; }
-      .composer-form { gap: 8px; }
-      .send { width: 100%; min-height: 44px; border-radius: 10px; }
-      .messages { padding: 12px; gap: 12px; }
-      .message { gap: 8px; }
-      .bubble-content { padding: 10px 12px; font-size: 15px; line-height: 1.5; }
-      .bubble-head { padding: 8px 10px; font-size: 11px; }
-      .bubble-meta { gap: 6px; padding: 0 10px 10px; }
+      .composer { padding: 12px 14px 16px; }
+      .composer-form { gap: 10px; }
+      .send { width: 100%; min-height: 44px; border-radius: 12px; }
+      .messages { padding: 16px 14px 12px; gap: 16px; }
+      .message { gap: 10px; }
+      .bubble-content { padding: 12px 14px; font-size: 15.5px; line-height: 1.65; letter-spacing: 0.01em; overflow-wrap: break-word; word-break: normal; }
+      .bubble-head { padding: 8px 12px; font-size: 11px; }
+      .bubble-meta { gap: 6px; padding: 0 12px 12px; }
       .guide { padding: 12px; }
       .guide-shell { gap: 12px; }
       .guide-hero { padding: 14px; }
@@ -3564,8 +3588,9 @@ HTML_TEMPLATE = r"""<!doctype html>
     }
 
     html.density-compact body {
-      font-size: 13px;
-      line-height: 1.45;
+      font-size: 14px;
+      line-height: 1.55;
+      letter-spacing: 0.005em;
     }
 
     html.density-compact {
@@ -3656,40 +3681,41 @@ HTML_TEMPLATE = r"""<!doctype html>
     }
 
     html.density-compact .messages {
-      padding: 16px 16px;
-      gap: 12px;
+      padding: 16px 20px;
+      gap: 14px;
     }
 
     html.density-compact .message {
-      gap: 8px;
-      grid-template-columns: 32px minmax(0, 1fr);
+      gap: 10px;
+      grid-template-columns: 34px minmax(0, 1fr);
     }
 
     html.density-compact .message.user {
-      grid-template-columns: minmax(0, 1fr) 32px;
+      grid-template-columns: minmax(0, 1fr) 34px;
     }
 
     html.density-compact .avatar {
-      width: 32px;
-      height: 32px;
+      width: 34px;
+      height: 34px;
       font-size: 11px;
-      border-radius: 9px;
+      border-radius: 50%;
     }
 
     html.density-compact .bubble-content {
-      padding: 10px 12px;
-      font-size: 13.5px;
-      line-height: 1.5;
+      padding: 12px 14px;
+      font-size: 14.5px;
+      line-height: 1.62;
+      letter-spacing: 0.005em;
     }
 
     html.density-compact .bubble-head {
-      padding: 7px 10px;
+      padding: 8px 12px;
       font-size: 11px;
     }
 
     html.density-compact .bubble-meta {
-      padding: 0 10px 10px;
-      gap: 5px;
+      padding: 0 12px 10px;
+      gap: 6px;
     }
 
     html.density-compact .composer {
@@ -3851,7 +3877,8 @@ HTML_TEMPLATE = r"""<!doctype html>
       overflow: hidden !important;
       min-width: 0 !important; /* allow grid track shrink */
       max-width: 100%;
-      width: auto;
+      width: 100%; /* fill grid track — avoid auto shrink/clip of nav labels */
+      box-sizing: border-box;
     }
     .light .rail {
       background:
@@ -3955,6 +3982,12 @@ HTML_TEMPLATE = r"""<!doctype html>
       align-items: center;
       gap: 4px;
       flex-shrink: 0;
+      position: relative;
+      z-index: 3;
+    }
+    .brand-actions > button {
+      flex-shrink: 0;
+      pointer-events: auto;
     }
     .brand > .account-wrap {
       margin-top: 0 !important;
@@ -4056,19 +4089,35 @@ HTML_TEMPLATE = r"""<!doctype html>
       border-radius: 0 !important;
       box-shadow: none !important;
       backdrop-filter: none !important;
+      position: relative;
+      z-index: 2;
+      width: 100%;
     }
     .nav button {
       border-radius: var(--shell-radius) !important;
+      font-family: var(--font-ui) !important;
+      font-size: 13px !important;
       font-weight: 600 !important;
+      line-height: 1.25 !important;
       letter-spacing: -0.01em !important;
       min-height: var(--shell-item-h) !important;
+      height: auto !important;
       padding: 0 11px !important;
       gap: 10px !important;
+      display: flex !important;
+      align-items: center !important;
       justify-content: flex-start !important;
       color: var(--shell-muted) !important;
       background: transparent !important;
       box-shadow: none !important;
       transform: none !important;
+      width: 100% !important;
+      max-width: 100% !important;
+      overflow: hidden !important;
+      cursor: pointer !important;
+      pointer-events: auto !important;
+      position: relative;
+      z-index: 2;
       transition:
         color var(--dur) var(--ease-out),
         background var(--dur) var(--ease-out),
@@ -4076,10 +4125,6 @@ HTML_TEMPLATE = r"""<!doctype html>
         gap var(--shell-dur) var(--shell-ease),
         padding var(--shell-dur) var(--shell-ease),
         min-height var(--shell-dur) var(--shell-ease) !important;
-    }
-    html.rail-collapsed .nav button {
-      gap: 0 !important;
-      padding: 0 !important;
     }
     .nav button:hover {
       color: var(--text) !important;
@@ -4096,9 +4141,13 @@ HTML_TEMPLATE = r"""<!doctype html>
     .nav button svg {
       width: 16px !important;
       height: 16px !important;
+      min-width: 16px !important;
+      flex-shrink: 0 !important;
       opacity: 0.88;
       filter: none !important;
       transform: none !important;
+      display: block !important;
+      pointer-events: none;
     }
     .nav button:hover svg,
     .nav button.active svg {
@@ -4107,6 +4156,17 @@ HTML_TEMPLATE = r"""<!doctype html>
     }
     .nav button.active svg {
       filter: drop-shadow(0 0 5px rgba(255, 122, 77, 0.3)) !important;
+    }
+    .nav-label {
+      display: inline-block !important;
+      min-width: 0;
+      max-width: none !important;
+      flex: 1 1 auto;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      line-height: 1.25 !important;
+      pointer-events: none;
     }
 
     /* Controls match list items — solid fills so hover stays dark */
@@ -4234,9 +4294,17 @@ HTML_TEMPLATE = r"""<!doctype html>
       border-radius: var(--shell-radius) !important;
       background: var(--shell-fill) !important;
       box-shadow: none !important;
+      font-family: var(--font-ui) !important;
       font-size: 12px !important;
+      font-weight: 650 !important;
+      line-height: 1.2 !important;
+      letter-spacing: 0 !important;
       padding: 0 12px !important;
       transform: none !important;
+      cursor: pointer !important;
+      pointer-events: auto !important;
+      flex-shrink: 0;
+      white-space: nowrap;
     }
     .rail .secondary:hover {
       background: var(--shell-fill-hover) !important;
@@ -4345,12 +4413,12 @@ HTML_TEMPLATE = r"""<!doctype html>
       box-shadow: 0 0 8px rgba(248, 113, 113, 0.45);
     }
 
-    /* Messages — editorial stage, not card stack */
+    /* Messages — editorial stage with natural reading rhythm */
     .messages {
-      padding: 12px 28px 8px !important;
-      gap: 8px !important;
-      mask-image: linear-gradient(to bottom, transparent 0, #000 12px, #000 calc(100% - 8px), transparent 100%);
-      -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 12px, #000 calc(100% - 8px), transparent 100%);
+      padding: 22px 32px 18px !important;
+      gap: 18px !important;
+      mask-image: linear-gradient(to bottom, transparent 0, #000 16px, #000 calc(100% - 12px), transparent 100%);
+      -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 16px, #000 calc(100% - 12px), transparent 100%);
     }
     .message {
       max-width: var(--stage) !important;
@@ -4359,21 +4427,22 @@ HTML_TEMPLATE = r"""<!doctype html>
       gap: 14px !important;
       animation: msgIn 0.45s var(--ease-out) both;
     }
-    .message + .message { margin-top: 6px; }
-    .message.user { max-width: min(560px, 100%) !important; }
+    .message + .message { margin-top: 4px; }
+    .message.user { max-width: min(680px, 100%) !important; }
 
     .avatar {
-      width: 34px !important;
-      height: 34px !important;
+      width: 36px !important;
+      height: 36px !important;
       border-radius: 50% !important;
       border: 1px solid transparent !important;
       background: linear-gradient(145deg, rgba(255, 122, 77, 0.12), rgba(245, 158, 11, 0.08)) !important;
       box-shadow: 0 0 0 1px rgba(255,255,255,0.04), 0 4px 16px -4px rgba(255, 122, 77, 0.25) !important;
-      font-size: 11px !important;
+      font-size: 12px !important;
       font-weight: 700 !important;
-      letter-spacing: -0.02em;
+      letter-spacing: 0;
       align-self: flex-start;
-      margin-top: 4px;
+      margin-top: 6px;
+      flex-shrink: 0;
     }
     .message.user .avatar {
       background: linear-gradient(145deg, rgba(255, 122, 77, 0.22), rgba(232, 93, 42, 0.12)) !important;
@@ -4392,14 +4461,15 @@ HTML_TEMPLATE = r"""<!doctype html>
       border-radius: 0 !important;
       overflow: visible !important;
       position: relative;
+      min-width: 0;
     }
     .message.assistant .bubble::before,
     .message:not(.user) .bubble::before {
       content: '';
       position: absolute;
-      left: -14px;
-      top: 10px;
-      bottom: 10px;
+      left: -16px;
+      top: 12px;
+      bottom: 12px;
       width: 2px;
       border-radius: 2px;
       background: linear-gradient(
@@ -4409,33 +4479,36 @@ HTML_TEMPLATE = r"""<!doctype html>
         rgba(251, 146, 60, 0.30) 60%,
         rgba(52, 211, 153, 0.0)
       );
-      opacity: 0.7;
+      opacity: 0.65;
     }
     .message.assistant .bubble-head,
     .message:not(.user) .bubble-head {
       border: none !important;
       background: transparent !important;
-      padding: 0 0 6px !important;
-      font-size: 11px !important;
+      padding: 0 0 8px !important;
+      font-size: 11.5px !important;
       font-weight: 600 !important;
-      letter-spacing: 0.04em;
+      letter-spacing: 0.03em;
       text-transform: uppercase;
       color: var(--faint) !important;
-      opacity: 0.75;
+      opacity: 0.8;
     }
     .message.assistant .bubble-content,
     .message:not(.user) .bubble-content {
-      padding: 0 !important;
-      font-size: 15.5px !important;
+      padding: 2px 4px 2px 0 !important;
+      font-size: 16px !important;
       line-height: 1.72 !important;
-      letter-spacing: -0.011em !important;
+      letter-spacing: 0.01em !important;
       color: var(--text);
+      max-width: 72ch;
+      overflow-wrap: break-word !important;
+      word-break: normal !important;
     }
     .message.assistant .bubble-meta,
     .message:not(.user) .bubble-meta {
-      padding: 10px 0 0 !important;
-      gap: 6px !important;
-      opacity: 0.85;
+      padding: 12px 0 0 !important;
+      gap: 8px !important;
+      opacity: 0.88;
     }
 
     /* User: soft organic speech — asymmetric radius */
@@ -4457,12 +4530,14 @@ HTML_TEMPLATE = r"""<!doctype html>
       display: none !important;
     }
     .message.user .bubble-content {
-      padding: 13px 16px !important;
-      font-size: 15px !important;
-      line-height: 1.55 !important;
+      padding: 14px 18px !important;
+      font-size: 15.5px !important;
+      line-height: 1.62 !important;
+      letter-spacing: 0.01em !important;
+      max-width: none;
     }
     .message.user .bubble-meta {
-      padding: 0 14px 12px !important;
+      padding: 0 16px 12px !important;
     }
 
     /* Thinking — gentle bloom, not a boxed alert */
@@ -4583,7 +4658,7 @@ HTML_TEMPLATE = r"""<!doctype html>
         rgba(6, 8, 12, 0.88) 100%
       ) !important;
       backdrop-filter: blur(20px) saturate(1.25) !important;
-      padding: 8px 28px 22px !important;
+      padding: 12px 32px 24px !important;
     }
     .light .composer {
       background: linear-gradient(
@@ -4607,8 +4682,8 @@ HTML_TEMPLATE = r"""<!doctype html>
         0 16px 48px -16px rgba(0, 0, 0, 0.55),
         0 0 0 1px rgba(255, 255, 255, 0.03) inset,
         0 -1px 0 rgba(255, 122, 77, 0.05) !important;
-      padding: 8px 8px 8px 18px !important;
-      gap: 10px !important;
+      padding: 10px 10px 10px 18px !important;
+      gap: 12px !important;
       transition: border-color var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out), transform var(--dur) var(--ease-out) !important;
     }
     .light .composer-form {
@@ -4813,12 +4888,19 @@ HTML_TEMPLATE = r"""<!doctype html>
     @media (max-width: 760px) {
       .message.assistant .bubble::before,
       .message:not(.user) .bubble::before { display: none; }
-      .messages { padding: 10px 14px !important; mask-image: none; -webkit-mask-image: none; }
-      .composer { padding: 8px 12px 14px !important; }
+      .messages { padding: 16px 16px 12px !important; gap: 16px !important; mask-image: none; -webkit-mask-image: none; }
+      .composer { padding: 10px 14px 16px !important; }
       .chat-top { padding: 12px 14px 8px !important; }
       .trust-strip { padding: 0 14px 8px !important; }
       .empty h2 { font-size: 26px !important; }
+      .message.user { max-width: 100% !important; }
       .message.user .bubble { border-radius: 18px 18px 6px 18px !important; }
+      .message.assistant .bubble-content,
+      .message:not(.user) .bubble-content {
+        font-size: 15.5px !important;
+        line-height: 1.68 !important;
+        max-width: none;
+      }
       .composer-form { border-radius: 20px !important; }
       .send { border-radius: 50% !important; width: 44px !important; min-height: 44px !important; }
       .composer-form { grid-template-columns: minmax(0, 1fr) auto !important; }
@@ -4832,12 +4914,13 @@ HTML_TEMPLATE = r"""<!doctype html>
 
     html.density-compact .message.assistant .bubble-content,
     html.density-compact .message:not(.user) .bubble-content {
-      font-size: 14px !important;
-      line-height: 1.58 !important;
+      font-size: 15px !important;
+      line-height: 1.65 !important;
+      letter-spacing: 0.005em !important;
     }
     html.density-compact .empty h2 { font-size: 24px !important; }
     html.density-compact .composer-form { border-radius: 18px !important; }
-    html.density-compact .messages { gap: 4px !important; }
+    html.density-compact .messages { gap: 12px !important; padding: 16px 20px !important; }
 
     /* —— Session chips = same shell-item as nav —— */
     .sr-only {
@@ -4891,10 +4974,13 @@ HTML_TEMPLATE = r"""<!doctype html>
       border-radius: var(--shell-radius);
       padding: 0 11px;
       cursor: pointer;
-      font: inherit;
+      pointer-events: auto;
+      font-family: var(--font-ui);
       font-size: 13px;
       font-weight: 600;
+      line-height: 1.25;
       letter-spacing: -0.01em;
+      box-sizing: border-box;
       transition: background var(--dur) var(--ease-out), color var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out);
     }
     .session-chip:hover {
@@ -5047,6 +5133,7 @@ HTML_TEMPLATE = r"""<!doctype html>
         gap: 3px !important;
         width: 100% !important;
       }
+      /* Icon-only tuck: scoped to desktop so mobile drawer keeps padded labeled buttons */
       html.rail-collapsed .nav button {
         display: flex !important;
         justify-content: center !important;
@@ -5057,6 +5144,9 @@ HTML_TEMPLATE = r"""<!doctype html>
         width: 100% !important;
         overflow: hidden !important;
       }
+      html.rail-collapsed .nav button .nav-label {
+        display: none !important;
+      }
       html.rail-collapsed .nav button.active {
         box-shadow:
           inset 0 0 0 1px rgba(255, 122, 77, 0.25),
@@ -5065,6 +5155,7 @@ HTML_TEMPLATE = r"""<!doctype html>
       html.rail-collapsed .nav button svg {
         width: 18px !important;
         height: 18px !important;
+        min-width: 18px !important;
         flex-shrink: 0 !important;
         margin: 0 !important;
         display: block !important;
@@ -5083,12 +5174,13 @@ HTML_TEMPLATE = r"""<!doctype html>
       .brand p,
       .brand-tagline { display: block !important; font-size: 10px !important; color: var(--shell-faint) !important; margin: 0 !important; }
       .rail-footer { border-top: 1px solid rgba(255,255,255,0.04); }
-      /* Mobile uses drawer — ignore desktop tuck */
+      /* Mobile uses drawer — ignore desktop tuck completely */
       html.rail-collapsed .app {
         grid-template-columns: unset !important;
       }
       html.rail-collapsed .rail {
         max-width: none !important;
+        width: min(320px, 86vw) !important;
       }
       html.rail-collapsed .rail-section .group,
       html.rail-collapsed .rail-footer,
@@ -5096,18 +5188,33 @@ HTML_TEMPLATE = r"""<!doctype html>
       html.rail-collapsed .brand-mark h1,
       html.rail-collapsed .brand p,
       html.rail-collapsed .brand-tagline,
-      html.rail-collapsed .brand-actions .density-toggle,
-      html.rail-collapsed .nav-label {
+      html.rail-collapsed .brand-actions .density-toggle {
         display: revert !important;
-      }
-      html.rail-collapsed .nav-label {
-        display: inline !important;
       }
       html.rail-collapsed .brand-mark h1 {
         display: block !important;
       }
       html.rail-collapsed .brand-tagline {
         display: block !important;
+      }
+      /* Keep labeled nav usable in the mobile drawer even if desktop tuck is saved */
+      html.rail-collapsed .nav button,
+      .rail .nav button {
+        justify-content: flex-start !important;
+        padding: 0 12px !important;
+        gap: 10px !important;
+        min-height: 42px !important;
+      }
+      html.rail-collapsed .nav button .nav-label,
+      html.rail-collapsed .nav-label,
+      .rail .nav button .nav-label {
+        display: inline-block !important;
+        max-width: none !important;
+        opacity: 1 !important;
+      }
+      .rail .nav button svg {
+        width: 17px !important;
+        height: 17px !important;
       }
     }
 
@@ -5905,12 +6012,13 @@ HTML_TEMPLATE = r"""<!doctype html>
       .messages {
         min-height: 0 !important;
         overflow: auto !important;
-        padding: 12px 12px 8px !important;
+        padding: 16px 14px 12px !important;
+        gap: 16px !important;
         mask-image: none !important;
         -webkit-mask-image: none !important;
       }
       .composer {
-        padding: 8px 12px max(12px, env(safe-area-inset-bottom)) !important;
+        padding: 10px 14px max(14px, env(safe-area-inset-bottom)) !important;
         position: sticky !important;
         bottom: 0 !important;
       }
