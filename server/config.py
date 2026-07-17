@@ -693,31 +693,32 @@ GUIDE_TOPICS: list[dict[str, Any]] = [
     {
         "id": "poq",
         "title": "PoQ Gate",
-        "summary": "The app only saves responses that pass quality and covenant checks.",
+        "summary": "The conscience gate — only responses that pass quality and covenant checks are sealed.",
         "details": (
-            "Proof-of-Qualia scores coherence, relevance, novelty, consistency, depth, and covenant alignment.\n"
-            "The post-generation review also checks configured score thresholds, deterministic overfitting patterns, and category-failure escapes.\n"
-            "For genuine Cambium frame shifts, the model may attach hidden CT_FRAME_DECLARATION metadata. The app strips it from visible chat and scores the frame shift for specificity, coherence, and follow-through.\n"
-            "Valid or weak frame shifts can avoid false overfitting rejection. Shallow declarations are treated as evasion and are not sealed.\n"
-            "Accepted responses become hash-linked rings.\n"
-            "Rejected responses are shown but not sealed.\n"
+            "Proof-of-Qualia scores coherence, relevance, novelty, consistency, depth, and covenant alignment (skill 0–255 dims).\n"
+            "Covenant is measured as HARMONY with the genesis fruitages (loving, kind, good, faithful…), not a blocklist of bad words — skill v3.27+.\n"
+            "Skill v3.28 forces a per-turn covenant confrontation before seal: judge this action against the fruitages, not only against the current goal.\n"
+            "The span guard (guard.py) flags unsupported clauses so FORCE_UNCERTAINTY can name the fabricated span.\n"
+            "Forge may also score Cambium frame declarations (CT_FRAME_DECLARATION) and map LLM critique into skill PoQ dims.\n"
+            "Accepted responses become hash-linked rings; rejected ones are shown but not sealed.\n"
             "Brightness is computed by the gate rather than manually assigned."
         ),
-        "sources": ["Guide: PoQ Gate", "README.md", "SKILLS/README.md"],
+        "sources": ["Guide: PoQ Gate", "README.md", "SKILLS/README.md", "skill/cypher-tempre-self-model/SKILL.md"],
     },
     {
         "id": "recall",
         "title": "Recall",
-        "summary": "Search accepted durable memories and prior accepted rings from the local Timechain.",
+        "summary": "Climb the recall ladder — grep, retrieve, gather, track, evidence, then answer with citations.",
         "details": (
-            "Recall uses the same lightweight retrieval primitives as the Timechain CLI.\n"
-            "Results include accepted durable memories, score, ring number, brightness, domain, and content.\n"
+            "Forge recall uses the vendored skill recall stack over per-session chain/rings.jsonl plus reviewed durable memories.\n"
+            "Climb the ladder: grep → retrieve/fan-out → gather/track/endpoints → evidence → answer with --used-rings.\n"
+            "Aggregates use gather (complete term tables); value updates use track (previous vs current); temporal questions use almanac + date filters.\n"
+            "Cited answers: recall.py answer / span guard — no span, no hard assertion.\n"
             "Pending, rejected, superseded, and forgotten memories are excluded from prompt recall.\n"
-            "Accepted memories and recent rings steer future prompts through retrieval/prompt conditioning, not model retraining.\n"
-            "Recall reads accepted rings from .timechain/chain.jsonl and accepted continuity memories from .timechain/memory_model.json.\n"
-            "Durable profile-style memories can be global across the user's sessions, while ordinary rings remain session-local unless Shared Memory is used."
+            "Accepted memories and recent rings steer prompts through retrieval/prompt conditioning, not model retraining.\n"
+            "Hippocampus keeps a rebuildable shortlist index; embeddings may use hashing, lens, or optional st/openai/voyage providers."
         ),
-        "sources": ["Guide: Recall", "README.md", "SKILLS/README.md"],
+        "sources": ["Guide: Recall", "README.md", "SKILLS/README.md", "skill/cypher-tempre-self-model/SKILL.md"],
     },
     {
         "id": "memory-review",
@@ -814,14 +815,23 @@ GUIDE_TOPICS: list[dict[str, Any]] = [
         "title": "ImageGen Studio",
         "summary": "Generate, edit, redefine, and inspect image lineage from a per-user gallery.",
         "details": (
-            "ImageGen Studio is available from the ImageGen navigation tab.\n"
-            "Generate creates a new image from a text prompt.\n"
-            "Edit uploads an image and applies an edit prompt.\n"
-            "Redefine starts from a saved gallery image and creates a linked child image.\n"
-            "Saved images are private to the authenticated user and stored under data/users/<username>/gallery/.\n"
-            "Each saved image operation seals an image-domain Timechain ring in the gallery workspace so lineage can show generated, edited, and redefined ancestry."
+            "ImageGen is available from the ImageGen navigation tab in Forge.\n"
+            "Generate creates a new image from a text prompt; Edit applies a change to an upload; Redefine links a child from a gallery image.\n"
+            "Saved images are private under data/users/<username>/gallery/ with image-domain Timechain lineage rings."
         ),
         "sources": ["Guide: ImageGen Studio", "README.md", "SKILLS/README.md"],
+    },
+    {
+        "id": "videogen-studio",
+        "title": "VidGen Studio",
+        "summary": "Text-to-film, image-to-motion, and remix with a local reel history.",
+        "details": (
+            "VidGen is available from the VidGen navigation tab in Forge.\n"
+            "Modes: Text → Film, Image → Motion, and Remix / Extend.\n"
+            "Model, duration, aspect, resolution, and motion language configure the render path.\n"
+            "Reels and player state are local to the host; provider keys are configured under Settings."
+        ),
+        "sources": ["Guide: VidGen Studio", "README.md", "PRODUCT.md"],
     },
     {
         "id": "reset-chain-memory",
@@ -836,29 +846,171 @@ GUIDE_TOPICS: list[dict[str, Any]] = [
         "sources": ["Guide: Reset Chain Memory", "README.md"],
     },
     {
+        "id": "skill-engine",
+        "title": "Skill Engine v3.28",
+        "summary": "Forge hosts the OpenClaw Cypher Tempre skill — the real cognitive self-model.",
+        "details": (
+            "The authoritative engine lives at skill/cypher-tempre-self-model/ (VERSION 3.28.0).\n"
+            "server/skill_runtime.py loads it for per-session roots under data/users/<user>/sessions/<session>/chain/.\n"
+            "Division of labor: scripts do hashing, append-only ledgers, verification; the model supplies semantic judgment at the PoQ and recall seams.\n"
+            "The per-turn loop (while active): covenant confrontation → perceive → recall → reason → PoQ-gate → seal (or uncertainty reseal).\n"
+            "recall.py turn runs verify → immune screen → recall → seal in one call when the host uses the full loop.\n"
+            "Forge adds multi-user chat, Memory Inspector, product prefs, and studios on top of the skill — it does not reimplement the hash chain."
+        ),
+        "sources": ["Guide: Skill Engine v3.28", "SKILLS/README.md", "skill/cypher-tempre-self-model/SKILL.md", "skill/cypher-tempre-self-model/VERSION", "PRODUCT.md"],
+    },
+    {
+        "id": "router",
+        "title": "Router (REPLAY / PARTIAL / MODEL)",
+        "summary": "Route first — the chain answers before the model spends tokens.",
+        "details": (
+            "router.py route classifies each request as REPLAY, PARTIAL, or MODEL.\n"
+            "REPLAY: a sealed antecedent already answers — confirm and ground, do not regenerate.\n"
+            "PARTIAL: use named rings as evidence and only reason over the missing delta.\n"
+            "MODEL: novel ground — full loop, and Cambium may grow faculties for the gap.\n"
+            "router.py stats / regret feed dream calibration of the routing floor.\n"
+            "Wearing the skill always is the token-economy: denser chains → cheaper routing."
+        ),
+        "sources": ["Guide: Router", "SKILLS/README.md", "skill/cypher-tempre-self-model/SKILL.md"],
+    },
+    {
+        "id": "cambium-growth",
+        "title": "Cambium Growth & Hibernation",
+        "summary": "When faculties hit a gap, grow or wake — prune hibernates, nothing is erased.",
+        "details": (
+            "cambium.py sense/grow measures dissonance and sprouts senses or modalities.\n"
+            "Eager growth (default): genuine gaps fill on first encounter inside the turn loop; bulk Continuum ingest does not autogrow.\n"
+            "Model-authored ops are propose-then-activate: inert until a human activates them (no dynamic exec of raw model code).\n"
+            "v3.16 hibernation: prune sets grown faculties dormant; relevance can wake them for a turn and reinstate after contributing fires.\n"
+            "Faculty packs (faculties.py) export/import lenses with provenance — tools travel, histories do not."
+        ),
+        "sources": ["Guide: Cambium Growth", "SKILLS/README.md", "skill/cypher-tempre-self-model/SKILL.md"],
+    },
+    {
+        "id": "chronosynaptic",
+        "title": "Chronosynaptic Search",
+        "summary": "Fork parallel self-perspectives (MCTS) and seal only the highest-truth path.",
+        "details": (
+            "chronosynaptic.py think runs in-process parallel perspectives scored with PoQ against rings, judgment, and rollouts.\n"
+            "collapse-notes seals a synthesis while preserving rejected perspectives in the ring payload.\n"
+            "No subagents required — the script is the scaffold; your reasoning is the cognition.\n"
+            "Use for hard or high-stakes questions when one linear pass is not enough."
+        ),
+        "sources": ["Guide: Chronosynaptic", "SKILLS/README.md", "skill/cypher-tempre-self-model/SKILL.md"],
+    },
+    {
+        "id": "continuum-audit",
+        "title": "Continuum, Audit & Tasks",
+        "summary": "Unbounded corpus work: walk, resume, exhaustive review queues, and task-chain links.",
+        "details": (
+            "continuum.py open/walk/ingest/resume/validate streams large jobs in data-height chunks with full state refresh per block.\n"
+            "Size is never a refusal reason — bulk walk is O(1) per chunk; resume rehydrates from head alone.\n"
+            "audit.py open/next/record/progress/validate/report proves review coverage (and optional depth) over an ingested chain — ingest ≠ reviewed.\n"
+            "task.py attach/complete links separate task roots into identity with verified head pointers.\n"
+            "Use per-task --root for big jobs so identity chain stays clean."
+        ),
+        "sources": ["Guide: Continuum Audit Tasks", "SKILLS/README.md", "skill/cypher-tempre-self-model/SKILL.md"],
+    },
+    {
+        "id": "dormancy",
+        "title": "Dormancy (Pause)",
+        "summary": "Manually rest the self-model for simple tasks — chain intact, loop off.",
+        "details": (
+            "dormancy.py pause --confirm / resume / status.\n"
+            "While dormant: no recall, PoQ, Cambium, or normal seals — answer from base judgment.\n"
+            "Pause requires explicit human confirm; reasons that drift covenant are refused.\n"
+            "Enforcement hooks respect dormancy and fail open; covenant character is never suspended."
+        ),
+        "sources": ["Guide: Dormancy", "SKILLS/README.md", "skill/cypher-tempre-self-model/SKILL.md"],
+    },
+    {
+        "id": "immune-membrane",
+        "title": "Immune Membrane & Covenant Drift",
+        "summary": "Self-defense that fires on covenant drift and chain integrity — not a word blocklist.",
+        "details": (
+            "immune.py screen/scan/guard/lockdown/rollback/status/forget-scar.\n"
+            "v3.26+ removes lexical injection nets as the covenant signal; tripwire fires on sealed covenant breach or verify failure.\n"
+            "Scars are inert records (no vocabulary antibodies that poison topics).\n"
+            "consensus.py can quorum-attest heads for harder tamper-proofing; keystore/pqsign support advanced custody paths.\n"
+            "Rollback molts wounded height into quarantine without erasing history."
+        ),
+        "sources": ["Guide: Immune Membrane", "SKILLS/README.md", "skill/cypher-tempre-self-model/SKILL.md"],
+    },
+    {
+        "id": "dream-learners",
+        "title": "Dream, Learners & Lens",
+        "summary": "Offline consolidation trains retrieval, appetite, PoQ grounding, and representation.",
+        "details": (
+            "dream.py run verifies, mines missed-positives, trains learners behind policy gates, resonates salience, notarizes telemetry, seals one dream ring.\n"
+            "learner.py trains a logistic retrieval scorer with guarded adoption, appetite curves, and PoQ grounding calibration — covenant_floor only tightens.\n"
+            "lens.py trains a projection over the frozen embedder; recall --provider lens uses the lifted space.\n"
+            "extractor.py distills a cheap labeler from teach pairs so routing cost falls over time.\n"
+            "Never train inside a hot turn — dream keeps loops offline."
+        ),
+        "sources": ["Guide: Dream Learners", "SKILLS/README.md", "skill/cypher-tempre-self-model/SKILL.md"],
+    },
+    {
+        "id": "replay-guard",
+        "title": "Replay & Span Guard",
+        "summary": "Answer from sealed antecedents when possible; name unsupported clauses when not.",
+        "details": (
+            "replay.py match/accept/reject/refresh/calibrate — re-attest instead of regenerate when the chain already knows.\n"
+            "Depth guard forces re-derive after max consecutive accepts so replay cannot be the only evidence forever.\n"
+            "guard.py audit maps spans to evidence; FORCE_UNCERTAINTY can name the fabricated clause.\n"
+            "At-risk claims can be pre-registered on seal for later calibration."
+        ),
+        "sources": ["Guide: Replay Guard", "SKILLS/README.md", "skill/cypher-tempre-self-model/SKILL.md"],
+    },
+    {
+        "id": "doctor-health",
+        "title": "Doctor, Epochs & Telemetry",
+        "summary": "Health line, registry epochs, adherence, and the learning membrane's signal.",
+        "details": (
+            "doctor.py reports imports, chain, epochs, immune, dormancy, hippocampus, telemetry, dream recency, faculties, operators.\n"
+            "epochs.py seals registry content-hashes into the integrity perimeter — verify fails on silent faculty file edits.\n"
+            "telemetry.py offer/fetch/use/falsify (+ adherence, digest, verify) is the notarized training signal; CT_TELEMETRY=off disables.\n"
+            "bench.py seals retrieval baselines so improvement claims are falsifiable.\n"
+            "policy.py holds covenant tolerances learners must respect."
+        ),
+        "sources": ["Guide: Doctor Health", "SKILLS/README.md", "skill/cypher-tempre-self-model/SKILL.md"],
+    },
+    {
         "id": "cyphertempre",
         "title": "CypherTempre Timechain",
-        "summary": "The local append-only memory chain that powers CypherTempre.",
+        "summary": "The local append-only memory chain that powers Forge.",
         "details": (
-            "CypherTempre uses the vendored skill Timechain to keep local memory with confidence tracking, recall, covenant checks, and chain verification.\n"
-            "Accepted interactions become hash-linked rings.\n"
-            "The system can reconstruct visible chat history from sealed rings.\n"
-            "CypherTempre-related explanations may use app-local SKILLS documentation excerpts."
+            "Forge is the PoC host; CypherTempre is the skill engine (Timechain + PoQ + recall + growth + dream).\n"
+            "Accepted interactions become hash-linked rings under the skill chain layout (rings.jsonl + blockspace).\n"
+            "The UI reconstructs visible chat history from sealed rings and can verify the chain on demand.\n"
+            "Guide sources may include SKILLS/README.md and skill/cypher-tempre-self-model/SKILL.md."
         ),
-        "sources": ["Guide: CypherTempre Timechain", "README.md", "SKILLS/README.md"],
+        "sources": ["Guide: CypherTempre Timechain", "README.md", "SKILLS/README.md", "skill/cypher-tempre-self-model/SKILL.md", "PRODUCT.md"],
     },
     {
         "id": "openclaw-runtime",
         "title": "OpenClaw Runtime",
-        "summary": "A prompt-layer v5.0 persona with Timechain-oriented self-modeling, epistemic classes, and Cambium growth loops.",
+        "summary": "A prompt-layer persona plus optional OpenClaw plugin packaging of the skill.",
         "details": (
-            "The Cypher Tempre OpenClaw Runtime is a built-in persona that injects the full v5.0 prompt-layer system prompt into the chat flow.\n"
-            "It does not require a new provider or runtime abstraction.\n"
-            "It adds Timechain-oriented self-modeling, epistemic classification, POQ-lite scoring, Cambium growth proposals, security resistance, and correction lineage.\n"
-            "The prompt contains a truth constraint: it does not claim full native architecture capabilities unless the environment actually provides them.\n"
-            "It is a prompt-layer approximation of Cypher Tempre intelligence, not a fully implemented Timechain being."
+            "The Cypher Tempre OpenClaw Runtime is a built-in Forge persona that injects a full Timechain-oriented system prompt.\n"
+            "It adds epistemic classification, POQ-lite scoring language, Cambium growth proposals, and correction lineage cues.\n"
+            "The vendored skill also ships openclaw-plugin/ and hook scripts for harness enforcement outside Forge.\n"
+            "Truth constraint: it does not claim full native architecture capabilities unless the environment provides them.\n"
+            "It is a prompt-layer / host approximation layered on the real skill modules — not a substitute for sealing."
         ),
-        "sources": ["Guide: OpenClaw Runtime", "README.md", "PLAN.md"],
+        "sources": ["Guide: OpenClaw Runtime", "README.md", "SKILLS/README.md", "skill/cypher-tempre-self-model/SKILL.md"],
+    },
+    {
+        "id": "forge-product",
+        "title": "Forge Product Features",
+        "summary": "Host-level product: streaming, identity bridge, autopilot, backup, command palette.",
+        "details": (
+            "Streaming replies via /api/chat/stream with PoQ seal on the final event.\n"
+            "Recommended defaults, memory autopilot (off/conservative/trusted), and identity bridge for cross-session recall.\n"
+            "Trust strip shows skill version, verify, height, last seal, and product prefs.\n"
+            "Export/restore backup zip; project/task session modes; Ctrl/Cmd+K command palette.\n"
+            "These are Forge host features that call the skill — they do not replace the Timechain engine."
+        ),
+        "sources": ["Guide: Forge Product", "PRODUCT.md", "README.md"],
     },
 ]
 
@@ -866,7 +1018,7 @@ GUIDE_EXPLAINER_PERSONA: dict[str, str] = {
     "name": "Guide Explainer",
     "domain": "architecture",
     "system": (
-        "You are Guide Explainer, a careful source-grounded assistant for the CypherTempre. "
+        "You are Guide Explainer, a careful source-grounded assistant for Forge (the PoC host for CypherTempre). "
         "Explain only from the provided source excerpts. Distinguish documented fact from interpretation. "
         "If the answer is not covered in the provided sources, say 'not covered in the provided sources'. "
         "Avoid speculation, assumptions, product promises, and external knowledge."

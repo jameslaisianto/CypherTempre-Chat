@@ -1,4 +1,4 @@
-"""Inline JavaScript SPA for the CypherTempre chat interface."""
+"""Inline JavaScript SPA for Forge — CypherTempre PoC host UI."""
 
 UI_JS = r"""      apiKey: document.getElementById('api-key'),
       model: document.getElementById('model'),
@@ -133,8 +133,11 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       manageSavePersona: document.getElementById('manage-save-persona'),
       manageDeletePersona: document.getElementById('manage-delete-persona'),
       sessionList: document.getElementById('session-list'),
+      sessionChips: document.getElementById('session-chips'),
+      sessionsCount: document.getElementById('sessions-count'),
       sessionName: document.getElementById('session-name'),
       newSession: document.getElementById('new-session'),
+      railCollapse: document.getElementById('rail-collapse'),
       composerWarning: document.getElementById('composer-warning'),
       mobChat: document.getElementById('mob-chat'),
       mobGuide: document.getElementById('mob-guide'),
@@ -475,26 +478,36 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
         .join('');
     }
 
-    function initTheme() {
-      const saved = localStorage.getItem('ct_theme');
-      const prefersLight = saved === 'light' || (!saved && window.matchMedia('(prefers-color-scheme: light)').matches);
-      document.documentElement.classList.toggle('light', prefersLight);
-      updateThemeIcon(prefersLight);
+    function applyTheme(isLight) {
+      document.documentElement.classList.toggle('light', isLight);
+      document.body.classList.toggle('light', isLight);
+      document.documentElement.style.colorScheme = isLight ? 'light' : 'dark';
+      updateThemeIcon(isLight);
       const metaTheme = document.querySelector('meta[name="theme-color"]');
-      if (metaTheme) metaTheme.content = prefersLight ? '#f4f5f8' : '#07090d';
+      if (metaTheme) metaTheme.content = isLight ? '#faf6f3' : '#0a0706';
+    }
+
+    function initTheme() {
+      // Dark-first product: only light when user explicitly chose it.
+      const saved = localStorage.getItem('ct_theme');
+      const isLight = saved === 'light';
+      applyTheme(isLight);
     }
 
     function toggleTheme() {
-      const isLight = document.documentElement.classList.toggle('light');
+      const isLight = !document.documentElement.classList.contains('light');
       localStorage.setItem('ct_theme', isLight ? 'light' : 'dark');
-      updateThemeIcon(isLight);
-      const metaTheme = document.querySelector('meta[name="theme-color"]');
-      if (metaTheme) metaTheme.content = isLight ? '#f4f5f8' : '#07090d';
+      applyTheme(isLight);
     }
 
     function updateThemeIcon(isLight) {
       if (els.themeIconMoon) els.themeIconMoon.style.display = isLight ? 'none' : 'block';
       if (els.themeIconSun) els.themeIconSun.style.display = isLight ? 'block' : 'none';
+      if (els.themeToggle) {
+        els.themeToggle.title = isLight ? 'Switch to dark mode' : 'Switch to light mode';
+        els.themeToggle.setAttribute('aria-label', isLight ? 'Switch to dark mode' : 'Switch to light mode');
+        els.themeToggle.setAttribute('aria-pressed', isLight ? 'true' : 'false');
+      }
     }
 
     function initDensity() {
@@ -515,6 +528,80 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       els.densityToggle.setAttribute('aria-pressed', compact ? 'true' : 'false');
       els.densityToggle.title = compact ? 'Comfortable density' : 'Compact density';
       els.densityToggle.setAttribute('aria-label', compact ? 'Switch to comfortable density' : 'Switch to compact density');
+    }
+
+    function setRailCollapsed(collapsed) {
+      document.documentElement.classList.toggle('rail-collapsed', !!collapsed);
+      // Also stamp data attr for CSS debugging / future hooks
+      document.documentElement.dataset.rail = collapsed ? 'collapsed' : 'expanded';
+      localStorage.setItem('ct_rail_collapsed', collapsed ? 'true' : 'false');
+      updateRailCollapse(!!collapsed);
+    }
+
+    function initRailCollapse() {
+      const collapsed = localStorage.getItem('ct_rail_collapsed') === 'true';
+      setRailCollapsed(collapsed);
+    }
+
+    function toggleRailCollapse() {
+      const collapsed = !document.documentElement.classList.contains('rail-collapsed');
+      setRailCollapsed(collapsed);
+    }
+
+    function updateRailCollapse(collapsed) {
+      if (!els.railCollapse) return;
+      els.railCollapse.classList.toggle('active', collapsed);
+      els.railCollapse.setAttribute('aria-pressed', collapsed ? 'true' : 'false');
+      els.railCollapse.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
+      els.railCollapse.setAttribute('aria-label', collapsed ? 'Expand sidebar' : 'Collapse sidebar');
+    }
+
+    function renderSessionChips() {
+      if (!els.sessionChips) return;
+      const sessions = sessionRows || [];
+      if (els.sessionsCount) {
+        els.sessionsCount.textContent = sessions.length ? `${sessions.length}` : '';
+      }
+      if (!sessions.length) {
+        els.sessionChips.innerHTML = '<div class="hint" style="padding:6px 4px">No sessions yet.</div>';
+        return;
+      }
+      els.sessionChips.innerHTML = sessions.map(session => {
+        const active = session.id === activeSession;
+        const rings = session.rings ?? 0;
+        return `<button type="button" role="option" class="session-chip${active ? ' active' : ''}" data-session-id="${esc(session.id)}" aria-selected="${active ? 'true' : 'false'}" title="${esc(session.name)} · ${rings} rings"><span class="session-chip-name">${esc(session.name)}</span><span class="session-chip-meta">${rings}</span></button>`;
+      }).join('');
+    }
+
+    function applyPromptPill(prompt) {
+      if (!els.message || !prompt) return;
+      els.message.value = prompt;
+      els.message.focus();
+      els.message.dispatchEvent(new Event('input', { bubbles: true }));
+      // Place caret at end
+      const len = els.message.value.length;
+      try { els.message.setSelectionRange(len, len); } catch (_) {}
+    }
+
+    function emptyStateHtml() {
+      return `
+          <div class="empty" id="empty-state">
+            <div class="empty-mark" aria-hidden="true">F</div>
+            <h2>What should we remember together?</h2>
+            <p>Forge is a PoC host for CypherTempre. Accepted replies seal into your local Timechain — verifiable memory that grows with you.</p>
+            <div class="prompt-pills" id="prompt-pills" role="group" aria-label="Suggested prompts">
+              <button type="button" class="prompt-pill" data-prompt="What do you already remember about how I like to work?">Recall my working style</button>
+              <button type="button" class="prompt-pill" data-prompt="Summarize the key decisions sealed in this session's Timechain so far.">Summarize this chain</button>
+              <button type="button" class="prompt-pill" data-prompt="Help me think through a design tradeoff carefully — surface assumptions, risks, and a recommended path.">Design tradeoff</button>
+              <button type="button" class="prompt-pill" data-prompt="Verify your self-model: what are you confident about, uncertain about, and what would change your mind?">Honest self-check</button>
+            </div>
+            <div class="empty-hints" aria-hidden="true">
+              <span>PoQ-gated</span>
+              <span>Hash-linked memory</span>
+              <span>Your chain, your keys</span>
+            </div>
+          </div>
+        `;
     }
 
     let currentMainView = localStorage.getItem('ct_view') || 'chat';
@@ -773,6 +860,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
         .map(session => `<option value="${esc(session.id)}">${esc(session.name)} (${session.rings})</option>`)
         .join('');
       els.sessionList.value = activeSession;
+      renderSessionChips();
       renderManageSessions();
       renderCreatorSourceSessions();
       applySessionPersonaLock();
@@ -1066,7 +1154,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       }
       window.__recommendedProfile = config.recommended_profile || null;
       window.__skillVersion = config.skill_version || '';
-      window.__appVersion = config.app_version || 'CypherTempre/1.0';
+      window.__appVersion = config.app_version || 'Forge/0.1';
       updateProviderHint();
       updatePersonaText();
       updateSetup(config.has_env_key);
@@ -1588,16 +1676,21 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     function appendMessage(role, content, meta = {}, rejected = false) {
       els.empty?.remove();
       const wrapper = document.createElement('article');
-      wrapper.className = `message ${role === 'You' ? 'user' : 'assistant'}${rejected ? ' rejected' : ''}`;
-      const avatar = role === 'You' ? 'Y' : 'C';
+      const isUser = role === 'You';
+      wrapper.className = `message ${isUser ? 'user' : 'assistant'}${rejected ? ' rejected' : ''}`;
+      const avatar = isUser ? 'Y' : 'C';
+      const timeLabel = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const metaHtml = Object.entries(meta)
         .filter(([, value]) => value !== undefined && value !== null && value !== '')
         .map(([key, value]) => `<span class="badge ${key === 'accepted' ? (value ? 'ok' : 'bad') : 'info'}">${esc(key)}: ${esc(value)}</span>`)
         .join('');
+      const headHtml = isUser
+        ? ''
+        : `<div class="bubble-head"><span>${esc(role)}</span><span>${timeLabel}</span></div>`;
       wrapper.innerHTML = `
-        <div class="avatar">${esc(avatar)}</div>
+        <div class="avatar" aria-hidden="true">${esc(avatar)}</div>
         <div class="bubble">
-          <div class="bubble-head"><span>${esc(role)}</span><span>${new Date().toLocaleTimeString()}</span></div>
+          ${headHtml}
           <div class="bubble-content">${renderContent(content)}</div>
           ${metaHtml ? `<div class="bubble-meta">${metaHtml}</div>` : ''}
         </div>
@@ -1977,12 +2070,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       const data = await api(`/api/reset${sessionQuery()}`, { method: 'POST', body: JSON.stringify({}) });
       clearRenderedMessages();
       if (!document.getElementById('empty-state')) {
-        els.messages.innerHTML = `
-          <div class="empty" id="empty-state">
-            <h2>Start a remembered conversation.</h2>
-            <p>Responses come from the configured LLM provider, then CypherTempre scores them through PoQ before sealing accepted rings.</p>
-          </div>
-        `;
+        els.messages.innerHTML = emptyStateHtml();
         els.empty = document.getElementById('empty-state');
       }
       els.recallResults.textContent = 'Memory reset. No recall query yet.';
@@ -2751,9 +2839,27 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     els.sessionList.addEventListener('change', () => {
       switchSession(els.sessionList.value).catch(error => { els.setup.textContent = error.message; });
     });
+    if (els.sessionChips) {
+      els.sessionChips.addEventListener('click', (event) => {
+        const chip = event.target.closest('.session-chip');
+        if (!chip) return;
+        const sessionId = chip.getAttribute('data-session-id');
+        if (!sessionId || sessionId === activeSession) return;
+        switchSession(sessionId).catch(error => { els.setup.textContent = error.message; });
+      });
+    }
     els.newSession.addEventListener('click', () => {
       createSession().catch(error => { els.setup.textContent = error.message; });
     });
+    // Prompt pills (empty state) — event delegation survives re-renders
+    if (els.messages) {
+      els.messages.addEventListener('click', (event) => {
+        const pill = event.target.closest('.prompt-pill');
+        if (!pill) return;
+        event.preventDefault();
+        applyPromptPill(pill.getAttribute('data-prompt') || pill.dataset.prompt || '');
+      });
+    }
     els.manageSessionSelect.addEventListener('change', () => {
       activeSession = els.manageSessionSelect.value || 'default';
       localStorage.setItem('ct_active_session', activeSession);
@@ -4235,9 +4341,11 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
 
     initTheme();
     initDensity();
+    initRailCollapse();
     initPanels();
     if (els.themeToggle) els.themeToggle.addEventListener('click', toggleTheme);
     if (els.densityToggle) els.densityToggle.addEventListener('click', toggleDensity);
+    if (els.railCollapse) els.railCollapse.addEventListener('click', toggleRailCollapse);
 
     checkAuth().then((authenticated) => {
       if (!authenticated) return;

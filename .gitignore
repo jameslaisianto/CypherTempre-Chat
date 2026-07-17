@@ -36,3 +36,7 @@ Thumbs.db
 /agent-tools
 *.out
 .tmp-server.err
+/chain
+.timechain_forge_archive_20260717T055353Z/memory_model.json
+.timechain_forge_archive_20260717T055353Z/config.json
+.timechain_forge_archive_20260717T055353Z/chain.jsonl

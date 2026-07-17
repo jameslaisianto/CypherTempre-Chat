@@ -103,13 +103,81 @@ Workbench output is diagnostic. Cambium proposals, PoQ Cambium events, and Dream
 
 ImageGen Studio is the app-local image workspace. It can generate images from text, edit an uploaded image, redefine an existing gallery image, delete saved images, and show lineage for image variants under `data/users/<username>/gallery/` with a separate image Timechain.
 
+## VidGen Studio
+
+VidGen Studio is the app-local video workspace (Text → Film, Image → Motion, Remix). Model and motion settings are host UI; renders use configured providers. Local reel history is per-user.
+
+## Skill Engine v3.28
+
+Forge hosts OpenClaw Cypher Tempre skill **3.28.0** under `skill/cypher-tempre-self-model/`. Authoritative loop and modules are documented in that folder's `SKILL.md` and `CHANGELOG.md`.
+
+Key skill organs registered in Guide:
+
+| Organ | Role |
+|--|--|
+| **Router** | `router.py` — REPLAY / PARTIAL / MODEL before spending tokens |
+| **PoQ** | `poq.py` — six-dimension conscience; covenant as fruitage harmony; v3.28 forced confrontation |
+| **Recall ladder** | `recall.py` + `almanac.py` + `hippocampus.py` — grep → retrieve → gather/track → evidence → answer |
+| **Cambium** | `cambium.py` — growth, propose/activate ops, hibernation / wake (v3.16) |
+| **Chronosynaptic** | `chronosynaptic.py` — parallel-self MCTS search |
+| **Continuum / Audit / Task** | `continuum.py`, `audit.py`, `task.py` — unbounded ingest and exhaustive review queues |
+| **Dormancy** | `dormancy.py` — pause/resume the loop for simple tasks |
+| **Immune** | `immune.py` — covenant-drift membrane, scars, lockdown, rollback (v3.26+) |
+| **Dream / learners** | `dream.py`, `learner.py`, `lens.py`, `extractor.py` — offline consolidation |
+| **Replay / Guard** | `replay.py`, `guard.py` — antecedent cache + span-level grounding |
+| **Doctor / epochs / telemetry** | `doctor.py`, `epochs.py`, `telemetry.py`, `bench.py`, `policy.py` |
+| **Faculties** | `faculties.py` — export/import faculty packs with provenance |
+| **Consensus / custody** | `consensus.py`, `keystore.py`, `pqsign.py` — quorum attest and advanced custody |
+
+Host integration remains in `server/skill_runtime.py` (session roots, seal/recall views, PoQ score mapping).
+
+## Router (REPLAY / PARTIAL / MODEL)
+
+The first act of a skill-wearing turn is routing. REPLAY re-attests a sealed antecedent; PARTIAL reasons only over the missing delta with named rings; MODEL runs the full loop. This is how wearing the skill saves tokens rather than spending them.
+
+## Cambium Growth
+
+When faculties cannot cover a gap, Cambium measures dissonance and grows senses/modalities. Model-authored ops are propose-then-activate. Hibernation prunes non-contributing grown faculties without deleting history; relevance can wake them.
+
+## Chronosynaptic Search
+
+For hard problems, fork parallel self-perspectives in-process (MCTS), score with PoQ, and seal only the highest-truth path. Rejected perspectives can remain in the ring payload.
+
+## Continuum, Audit & Tasks
+
+Continuum streams large corpora as data-height blocks with full task state refresh. Audit queues prove *review* coverage after *ingest*. Task chains attach/complete via verified head pointers into identity.
+
+## Dormancy
+
+Pause requires explicit human confirm. While dormant the loop is off (no recall/PoQ/Cambium/seals); the chain stays verifiable. Resume restores the loop.
+
+## Immune Membrane
+
+Compromise is covenant drift or integrity failure — not a word blocklist. Scars are inert records. Lockdown freezes seals; rollback resumes from a clean height.
+
+## Dream, Learners & Lens
+
+Dream runs offline: verify, mine misses, train guarded operators (retrieval scorer, lens, appetite, PoQ grounding), notarize telemetry, seal one dream ring. Extractor teach pairs lower labeling cost over time.
+
+## Replay & Span Guard
+
+Replay matches sealed antecedents before regenerating. The span guard names unsupported clauses so uncertainty is specific.
+
+## Doctor, Epochs & Telemetry
+
+Doctor is the health surface. Epochs pin registry hashes into the chain perimeter. Telemetry is the notarized offer/fetch/use/falsify stream for learners; bench seals baselines.
+
+## Forge Product Features
+
+Streaming chat, recommended defaults, memory autopilot, identity bridge, trust strip, backup export/restore, project sessions, and command palette are Forge host features that call the skill — they do not replace the Timechain engine.
+
 ## Chain Verification
 
-Verification replays the hash chain to confirm that each ring still points to the previous ring and that no sealed memory was changed outside the normal append path.
+Verification replays the hash chain to confirm that each ring still points to the previous ring and that no sealed memory was changed outside the normal append path. Registry epochs can also fail verify when faculty files drift from the last sealed epoch.
 
 ## Source Rule
 
-Guide explanations may use this folder, `README.md`, `.env.example`, `PRODUCT.md`, and the Guide topic text. Guide topics are defined in `server/config.py`. They should say when a requested detail is not covered by those sources.
+Guide explanations may use this folder, `README.md`, `.env.example`, `PRODUCT.md`, `skill/cypher-tempre-self-model/SKILL.md`, `skill/cypher-tempre-self-model/VERSION`, and the Guide topic text. Guide topics are defined in `server/config.py`. They should say when a requested detail is not covered by those sources.
 
 ## Legacy files here
 

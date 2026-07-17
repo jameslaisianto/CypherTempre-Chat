@@ -1,4 +1,7 @@
-# CypherTempre — Product Vision
+# Forge — Product Vision (CypherTempre PoC)
+
+**Forge** is the application shell. **CypherTempre** is the personal intelligence
+runtime it proves out. This host is a proof-of-concept for that continuum.
 
 You should choose this over ChatGPT or Grok when continuity, ownership, and
 honest self-modeling matter more than a polished generic chat box.
@@ -6,6 +9,7 @@ honest self-modeling matter more than a polished generic chat box.
 ## Positioning
 
 **CypherTempre is a personal intelligence runtime with a verifiable memory.**
+**Forge is the local chat host built to exercise it.**
 
 | | ChatGPT / Grok | CypherTempre |
 |--|--|--|
@@ -86,5 +90,5 @@ You still open them when you only need a disposable one-shot answer with zero lo
 
 ## Versioning
 
-- App host: `CypherTempre/1.0` (product line; not “PoC”)
+- App host: `Forge/0.1` (PoC shell for CypherTempre)
 - Skill engine: pin in `skill/cypher-tempre-self-model/VERSION`

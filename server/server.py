@@ -44,17 +44,18 @@ from server.llm import list_provider_models, safe_persona_metadata, serialize_hi
 HTML = HTML_TEMPLATE.replace("{ui_js}", UI_JS)
 
 MANIFEST_JSON = json.dumps({
-    "name": "CypherTempre Chat",
-    "short_name": "CypherTempre",
+    "name": "Forge",
+    "short_name": "Forge",
+    "description": "PoC host for CypherTempre — local intelligence with verifiable memory",
     "start_url": "/",
     "display": "standalone",
-    "background_color": "#0b0c0b",
-    "theme_color": "#0b0c0b",
+    "background_color": "#0a0706",
+    "theme_color": "#0a0706",
     "icons": [{"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml"}]
 }, indent=2)
 
 SW_JS = (
-    "const CACHE_NAME = 'cyphertempre-v4';\\n"
+    "const CACHE_NAME = 'forge-v2';\\n"
     "const URLS_TO_CACHE = ['/','/manifest.json','/icon.svg'];\\n"
     "self.addEventListener('install', e => {\\n"
     "  self.skipWaiting();\\n"
@@ -71,8 +72,8 @@ SW_JS = (
 
 ICON_SVG = (
     '<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\">'
-    '<rect width=\"100\" height=\"100\" rx=\"20\" fill=\"#0b0c0b\"/>'
-    '<text x=\"50\" y=\"68\" font-size=\"52\" text-anchor=\"middle\" fill=\"#d6b36a\" font-family=\"ui-sans-serif,system-ui,sans-serif\">C</text>'
+    '<rect width=\"100\" height=\"100\" rx=\"22\" fill=\"#0a0706\"/>'
+    '<text x=\"50\" y=\"68\" font-size=\"52\" text-anchor=\"middle\" fill=\"#ff8a5c\" font-family=\"ui-sans-serif,system-ui,sans-serif\" font-weight=\"700\">F</text>'
     '</svg>'
 )
 
@@ -119,7 +120,7 @@ def resolve_model_discovery_credentials(
 
 def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
-        server_version = "CypherTempre/1.0"
+        server_version = "Forge/0.1"
 
         def log_message(self, fmt: str, *args: Any) -> None:
             print(f"{self.address_string()} - {fmt % args}")
@@ -187,7 +188,7 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                         "product": app.product_settings(user["username"]) if user else app.product_settings(None),
                         "recommended_profile": __import__("server.product", fromlist=["RECOMMENDED_PROFILE"]).RECOMMENDED_PROFILE,
                         "skill_version": getattr(app.skill, "version", ""),
-                        "app_version": "CypherTempre/1.0",
+                        "app_version": "Forge/0.1",
                     })
                     return
                 if path == "/api/status":
@@ -847,7 +848,7 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
     return Handler
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run the CypherTempre personal intelligence runtime.")
+    parser = argparse.ArgumentParser(description="Run Forge — PoC host for the CypherTempre personal intelligence runtime.")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument(
@@ -1039,7 +1040,7 @@ def main() -> int:
     handler = make_handler(app)
     server = ThreadingHTTPServer((args.host, args.port), handler)
     url = f"http://{args.host}:{args.port}"
-    print(f"CypherTempre running at {url}")
+    print(f"Forge (CypherTempre PoC) running at {url}")
     print(f"Workspace: {app.workspace}")
     print(f"Default model: {app.default_model}")
     print("Press Ctrl+C to stop.")

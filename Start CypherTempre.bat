@@ -2,7 +2,7 @@
 chcp 65001 >nul
 cd /d "%~dp0"
 echo ========================================
-echo   CypherTempre — personal intelligence
+echo   Forge — PoC host for CypherTempre
 echo ========================================
 echo.
 

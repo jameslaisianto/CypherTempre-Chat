@@ -2921,7 +2921,10 @@ class PromptAssemblyTests(unittest.TestCase):
 
     def test_desktop_layout_locks_shell_to_chat_scroll(self):
         self.assertIn("body {\n      margin: 0;\n      height: 100%;\n      overflow: hidden;", server.HTML)
-        self.assertIn("grid-template-columns: 286px minmax(0, 1fr) var(--inspector-width, 360px);", server.HTML)
+        self.assertIn("grid-template-columns: var(--shell-w) minmax(0, 1fr) var(--inspector-width, 360px);", server.HTML)
+        self.assertIn("--shell-w:", server.HTML)
+        self.assertIn("html.rail-collapsed .app", server.HTML)
+        self.assertIn("grid-template-columns: 72px minmax(0, 1fr)", server.HTML)
         self.assertIn(".app {\n      display: grid;", server.HTML)
         self.assertIn(".messages {\n      overflow: auto;", server.HTML)
         self.assertNotIn("body { overflow: auto; }", server.HTML)
@@ -3007,6 +3010,32 @@ class PromptAssemblyTests(unittest.TestCase):
             self.assertTrue(topic["summary"])
             self.assertTrue(topic["details"])
             self.assertIsInstance(topic["sources"], list)
+
+    def test_guide_registers_skill_v328_organs(self):
+        topic_ids = {topic["id"] for topic in server.GUIDE_TOPICS}
+        for required in (
+            "skill-engine",
+            "router",
+            "cambium-growth",
+            "chronosynaptic",
+            "continuum-audit",
+            "dormancy",
+            "immune-membrane",
+            "dream-learners",
+            "replay-guard",
+            "doctor-health",
+            "videogen-studio",
+            "forge-product",
+        ):
+            self.assertIn(required, topic_ids)
+        payload = {topic["id"]: topic for topic in server.guide_topics_payload()}
+        self.assertIn("3.28", payload["skill-engine"]["details"])
+        self.assertIn("REPLAY", payload["router"]["details"])
+        self.assertIn("hibern", payload["cambium-growth"]["details"].lower())
+        self.assertIn("covenant", payload["immune-membrane"]["details"].lower())
+        skills_readme = server.pathlib.Path("SKILLS/README.md").read_text(encoding="utf-8")
+        self.assertIn("Skill Engine v3.28", skills_readme)
+        self.assertIn("Router (REPLAY", skills_readme)
 
     def test_guide_topics_payload_exposes_safe_content(self):
         payload = server.guide_topics_payload()
@@ -3387,7 +3416,7 @@ class PromptAssemblyTests(unittest.TestCase):
     def test_image_edit_upload_uses_one_hidden_file_picker_and_bumps_shell_cache(self):
         self.assertIn('.imagegen-dropzone input[type="file"]', server.HTML)
         self.assertIn("pointer-events: none", server.HTML)
-        self.assertIn("const CACHE_NAME = 'cyphertempre-v4'", server.SW_JS)
+        self.assertIn("const CACHE_NAME = 'forge-v2'", server.SW_JS)
 
     def test_imagegen_creative_canvas_has_comparison_preview_and_download_controls(self):
         for marker in (

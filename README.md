@@ -1,6 +1,6 @@
-# CypherTempre
+# Forge
 
-**Your personal intelligence runtime** — local chat with a verifiable Timechain self-model, not a disposable cloud tab.
+**Forge** is the local application shell — a **proof-of-concept host for CypherTempre**, the personal intelligence runtime with a verifiable Timechain self-model.
 
 Choose this when you want **continuity you own**: sealed memory, Proof-of-Qualia honesty, personas, and audit trails that outlive any single model provider.
 
