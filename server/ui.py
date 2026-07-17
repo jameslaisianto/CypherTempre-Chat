@@ -1638,7 +1638,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
         if (els.imageModelHint) {
           els.imageModelHint.textContent = prov === 'other'
             ? 'Enter the exact model name your provider expects.'
-            : (preferred ? Default:  : 'No curated models — enter a provider-supported model id.');
+            : (preferred ? `Default: ${preferred}` : 'No curated models — enter a provider-supported model id.');
         }
         return;
       }
@@ -1660,7 +1660,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       if (els.imageModelHint) {
         els.imageModelHint.textContent = prov === 'other'
           ? 'Enter the exact model name your provider expects.'
-          : ${list.length} model(s) for  + (preferred ?  · default:  : '');
+          : `${list.length} model(s) for ${prov}` + (preferred ? ` · default: ${preferred}` : '');
       }
     }
 
@@ -1727,7 +1727,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
         if (els.videoModelHint) {
           els.videoModelHint.textContent = prov === 'other'
             ? 'Enter the exact model name your provider expects.'
-            : (preferred ? Default:  : 'No curated models — enter a provider-supported model id.');
+            : (preferred ? `Default: ${preferred}` : 'No curated models — enter a provider-supported model id.');
         }
         return;
       }
@@ -1751,7 +1751,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
           ? 'Built-in demo clip. No API key required.'
           : (prov === 'other'
             ? 'Enter the exact model name your provider expects.'
-            : ${list.length} model(s) for  + (preferred ?  · default:  : ''));
+            : `${list.length} model(s) for ${prov}` + (preferred ? ` · default: ${preferred}` : ''));
       }
     }
 
@@ -3020,7 +3020,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
             if (els.imageModelHint) {
               const n = (imageModelsByProvider[els.imageProvider.value] || []).length;
               els.imageModelHint.textContent = n
-                ? Using  curated image model(s). Live catalog: 
+                ? `Using ${n} curated image model(s). Live catalog: ${error.message || error}`
                 : (error.message || String(error));
             }
           });
@@ -3069,7 +3069,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
             if (els.videoModelHint) {
               const n = (videoModelsByProvider[els.videoProvider.value] || []).length;
               els.videoModelHint.textContent = n
-                ? Using  curated video model(s). Live catalog: 
+                ? `Using ${n} curated video model(s). Live catalog: ${error.message || error}`
                 : (error.message || String(error));
             }
           });
@@ -3316,13 +3316,16 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       localStorage.setItem('ct_view', view);
 
       if (switched) {
-        const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-        if (!reduceMotion) animateViewEnter(getViewElement(view));
+        try {
+          const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+          if (!reduceMotion) animateViewEnter(getViewElement(view));
+        } catch (_) { /* ignore animation errors */ }
       }
 
-      if (marketplace) loadMarketplace();
-      if (imagegen) loadImagegen();
-      if (videogen) loadVideogen();
+      // Fire-and-forget studio loads — never block nav chrome on network/API.
+      if (marketplace) Promise.resolve().then(() => loadMarketplace()).catch(() => null);
+      if (imagegen) Promise.resolve().then(() => loadImagegen()).catch(() => null);
+      if (videogen) Promise.resolve().then(() => loadVideogen()).catch(() => null);
     }
     async function loadMarketplace() {
       if (!els.marketplaceGrid) return;

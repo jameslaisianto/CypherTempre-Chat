@@ -56,7 +56,7 @@ MANIFEST_JSON = json.dumps({
 }, indent=2)
 
 SW_JS = (
-    "const CACHE_NAME = 'forge-v2';\\n"
+    "const CACHE_NAME = 'forge-v3';\\n"
     "const URLS_TO_CACHE = ['/','/manifest.json','/icon.svg'];\\n"
     "self.addEventListener('install', e => {\\n"
     "  self.skipWaiting();\\n"
