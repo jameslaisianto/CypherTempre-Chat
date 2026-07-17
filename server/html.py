@@ -1461,6 +1461,8 @@ HTML_TEMPLATE = r"""<!doctype html>
       gap: 12px;
       max-width: 920px;
       width: 100%;
+      margin-inline: auto;
+      box-sizing: border-box;
       animation: msgIn 0.35s var(--ease-out) both;
     }
 
@@ -1469,9 +1471,9 @@ HTML_TEMPLATE = r"""<!doctype html>
       to { opacity: 1; transform: translateY(0); }
     }
 
+    /* User rows share the stage column: spacer | bubble | avatar */
     .message.user {
-      align-self: flex-end;
-      grid-template-columns: minmax(0, 1fr) 40px;
+      grid-template-columns: minmax(0, 1fr) minmax(0, auto) 40px;
     }
 
     .avatar {
@@ -1489,7 +1491,8 @@ HTML_TEMPLATE = r"""<!doctype html>
     }
 
     .message.user .avatar {
-      grid-column: 2;
+      grid-column: 3;
+      grid-row: 1;
       color: var(--blue);
       background: linear-gradient(145deg, rgba(232, 93, 42, 0.18), rgba(245, 158, 11, 0.12));
       border-color: rgba(255, 122, 77, 0.22);
@@ -1507,8 +1510,10 @@ HTML_TEMPLATE = r"""<!doctype html>
     }
 
     .message.user .bubble {
-      grid-column: 1;
+      grid-column: 2;
       grid-row: 1;
+      width: max-content;
+      max-width: min(640px, calc(100% - 52px));
       background: var(--user-bubble-bg);
       border-color: rgba(255, 122, 77, 0.28);
       box-shadow: var(--shadow-card), 0 0 0 1px rgba(255, 122, 77, 0.06) inset;
@@ -2617,9 +2622,23 @@ HTML_TEMPLATE = r"""<!doctype html>
       .badge { font-size: 11px; padding: 4px 8px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
       .composer-form { grid-template-columns: 1fr; }
       .send { width: 100%; }
-      .message, .message.user { grid-template-columns: 1fr; }
-      .avatar { display: none; }
-      .message.user .bubble { grid-column: auto; grid-row: auto; }
+      .message { grid-template-columns: 1fr; }
+      .message.user {
+        grid-template-columns: minmax(0, 1fr) minmax(0, auto) !important;
+      }
+      .avatar { display: none !important; }
+      .message.user .avatar { display: none !important; }
+      .message.user .bubble {
+        grid-column: 2 !important;
+        grid-row: 1 !important;
+        width: max-content !important;
+        max-width: min(92%, 640px) !important;
+      }
+      .message.assistant .bubble,
+      .message:not(.user) .bubble {
+        width: 100%;
+        max-width: 100%;
+      }
       .marketplace { padding: 14px; height: auto; }
       .marketplace.active { flex: 1; min-height: 0; }
       .marketplace-hero { padding: 14px; }
@@ -3691,7 +3710,7 @@ HTML_TEMPLATE = r"""<!doctype html>
     }
 
     html.density-compact .message.user {
-      grid-template-columns: minmax(0, 1fr) 34px;
+      grid-template-columns: minmax(0, 1fr) minmax(0, auto) 34px;
     }
 
     html.density-compact .avatar {
@@ -4424,11 +4443,29 @@ HTML_TEMPLATE = r"""<!doctype html>
       max-width: var(--stage) !important;
       margin-inline: auto;
       width: 100%;
+      box-sizing: border-box;
       gap: 14px !important;
       animation: msgIn 0.45s var(--ease-out) both;
     }
     .message + .message { margin-top: 4px; }
-    .message.user { max-width: min(680px, 100%) !important; }
+    /* Same stage column as assistant — spacer packs bubble+avatar to the right */
+    .message.user {
+      max-width: var(--stage) !important;
+      margin-inline: auto !important;
+      align-self: stretch !important;
+      width: 100% !important;
+      grid-template-columns: minmax(0, 1fr) minmax(0, auto) 36px !important;
+    }
+    .message.user .avatar {
+      grid-column: 3 !important;
+      grid-row: 1 !important;
+    }
+    .message.user .bubble {
+      grid-column: 2 !important;
+      grid-row: 1 !important;
+      width: max-content !important;
+      max-width: min(640px, calc(100% - 50px)) !important;
+    }
 
     .avatar {
       width: 36px !important;
@@ -4534,7 +4571,9 @@ HTML_TEMPLATE = r"""<!doctype html>
       font-size: 15.5px !important;
       line-height: 1.62 !important;
       letter-spacing: 0.01em !important;
-      max-width: none;
+      max-width: none !important;
+      width: fit-content;
+      min-width: 0;
     }
     .message.user .bubble-meta {
       padding: 0 16px 12px !important;
@@ -4893,8 +4932,17 @@ HTML_TEMPLATE = r"""<!doctype html>
       .chat-top { padding: 12px 14px 8px !important; }
       .trust-strip { padding: 0 14px 8px !important; }
       .empty h2 { font-size: 26px !important; }
+      .message,
       .message.user { max-width: 100% !important; }
-      .message.user .bubble { border-radius: 18px 18px 6px 18px !important; }
+      .message.user {
+        grid-template-columns: minmax(0, 1fr) minmax(0, auto) !important;
+      }
+      .message.user .bubble {
+        border-radius: 18px 18px 6px 18px !important;
+        grid-column: 2 !important;
+        width: max-content !important;
+        max-width: min(92%, 640px) !important;
+      }
       .message.assistant .bubble-content,
       .message:not(.user) .bubble-content {
         font-size: 15.5px !important;
@@ -6050,6 +6098,15 @@ HTML_TEMPLATE = r"""<!doctype html>
       }
       .message {
         max-width: 100% !important;
+      }
+      .message.user {
+        max-width: 100% !important;
+        grid-template-columns: minmax(0, 1fr) minmax(0, auto) !important;
+      }
+      .message.user .bubble {
+        grid-column: 2 !important;
+        width: max-content !important;
+        max-width: min(92%, 640px) !important;
       }
       .message.assistant .bubble::before,
       .message:not(.user) .bubble::before {

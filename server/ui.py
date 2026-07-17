@@ -2609,6 +2609,18 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
             assembled += data.text;
             if (contentEl) contentEl.innerHTML = renderContent(assembled);
             els.messages.scrollTop = els.messages.scrollHeight;
+          } else if (event === 'status' && contentEl && !assembled) {
+            const label = data.label || data.phase || 'Working…';
+            contentEl.innerHTML = `
+              <span class="thinking-row" role="status" aria-live="polite">
+                <span>${esc(label)}</span>
+                <span class="thinking-dot"></span>
+                <span class="thinking-dot"></span>
+                <span class="thinking-dot"></span>
+              </span>
+            `;
+          } else if (event === 'status' && contentEl && assembled && data.phase === 'sealing') {
+            // Keep streamed text; seal phase is usually brief after local PoQ.
           } else if (event === 'meta' && data.persona_name && streamWrapper) {
             const head = streamWrapper.querySelector('.bubble-head span');
             if (head) head.textContent = data.persona_name;

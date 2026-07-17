@@ -217,11 +217,13 @@ def handle_chat_stream(handler: Any, app: Any) -> None:
             "model": model,
             "session": app.active_session,
         })
+        emit("status", {"phase": "preparing", "label": "Gathering context…"})
 
         def on_token(piece: str) -> None:
             emit("token", {"text": piece})
 
         app.reload_agent()
+        emit("status", {"phase": "generating", "label": "Writing reply…"})
         llm = app.generate_llm_response(
             query=message,
             domain=domain,
@@ -241,6 +243,7 @@ def handle_chat_stream(handler: Any, app: Any) -> None:
         if llm.get("content") and not llm.get("streamed"):
             # Non-stream fallback path still delivers content for progressive UI.
             emit("token", {"text": str(llm.get("content") or "")})
+        emit("status", {"phase": "sealing", "label": "Sealing to Timechain…"})
         response = finalize_chat_response(
             app=app,
             message=message,

@@ -797,9 +797,47 @@ class PoQGateTests(unittest.TestCase):
         self.assertEqual(app.poq["min_score"], 7)
         self.assertEqual(app.poq["max_retries"], 1)
         self.assertEqual(app.poq["overfitting_check"], True)
+        self.assertEqual(app.poq.get("mode"), "local")
         chat_source = inspect.getsource(server.chat.handle_chat)
         self.assertIn('payload.get("poq"', chat_source)
         self.assertIn("poq_enabled", chat_source)
+
+    def test_generate_llm_response_local_poq_avoids_extra_llm_calls(self):
+        workspace = server.pathlib.Path(__file__).resolve().parent / ".test_workspaces" / f"test-{server.uuid.uuid4().hex}"
+        app = server.App(
+            workspace,
+            server.DEFAULT_TIMECHAIN_PATH,
+            default_model=server.DEFAULT_MODEL,
+            provider="openrouter",
+            api_key="sk-test",
+            base_url="",
+            timeout=1,
+            poq={"enabled": True, "mode": "local", "min_score": 7, "max_retries": 1, "overfitting_check": True},
+        )
+        self.addCleanup(lambda: server.shutil.rmtree(app.root_workspace, ignore_errors=True))
+
+        with (
+            mock.patch(
+                "server.timechain.active_call_llm",
+                return_value={"content": "Hello there — happy to help.", "model_used": "test-model", "usage": {}},
+            ) as call_llm,
+            mock.patch("server.timechain.generate_llm_memory_candidates") as memory_candidates,
+        ):
+            response = app.generate_llm_response(
+                query="hello",
+                domain="chat",
+                persona_id="companion",
+                custom_persona=None,
+                model=server.DEFAULT_MODEL,
+                api_key="sk-test",
+            )
+
+        self.assertEqual(response["content"], "Hello there — happy to help.")
+        self.assertTrue(response["poq"]["passed"])
+        self.assertEqual(response["poq"].get("mode"), "local")
+        # One completion only — no critique / memory-extract round-trips for casual chat.
+        self.assertEqual(call_llm.call_count, 1)
+        memory_candidates.assert_not_called()
 
     def test_generate_llm_response_skips_gate_when_request_override_is_false(self):
         workspace = server.pathlib.Path(__file__).resolve().parent / ".test_workspaces" / f"test-{server.uuid.uuid4().hex}"

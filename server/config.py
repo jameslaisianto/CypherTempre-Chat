@@ -270,6 +270,8 @@ DEFAULT_POQ_ENABLED = True
 DEFAULT_POQ_MIN_SCORE = 7
 DEFAULT_POQ_MAX_RETRIES = 1
 DEFAULT_POQ_OVERFITTING_CHECK = True
+# local = deterministic host gate (fast); llm = extra model critique (slow, training-oriented)
+DEFAULT_POQ_MODE = "local"
 
 SESSION_NAME_LIMIT = 80
 

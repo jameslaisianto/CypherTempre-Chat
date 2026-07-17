@@ -24,7 +24,7 @@ from server.config import (
     DEFAULT_MODEL, DEFAULT_PROVIDER, PROVIDERS, IMAGE_PROVIDERS, VIDEO_PROVIDERS, AUDIO_PROVIDERS, PERSONAS,
     DEFAULT_SKILL_ROOT, DEFAULT_TIMECHAIN_PATH, DEFAULT_ENV_PATH,
     DEFAULT_POQ_ENABLED, DEFAULT_POQ_MIN_SCORE, DEFAULT_POQ_MAX_RETRIES,
-    DEFAULT_POQ_OVERFITTING_CHECK,
+    DEFAULT_POQ_OVERFITTING_CHECK, DEFAULT_POQ_MODE,
     default_provider_url,
     provider_model_catalogs,
 )
@@ -944,6 +944,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Enable or disable deterministic PoQ overfitting detection.",
     )
+    parser.add_argument(
+        "--poq-mode",
+        choices=("local", "llm"),
+        default=None,
+        help="PoQ host gate mode: local (fast, default) or llm (extra critique call).",
+    )
     return parser
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -975,6 +981,8 @@ def build_poq_config(args: argparse.Namespace) -> dict[str, Any]:
     min_score = _env_float("POQ_MIN_SCORE", float(DEFAULT_POQ_MIN_SCORE))
     max_retries = _env_int("POQ_MAX_RETRIES", int(DEFAULT_POQ_MAX_RETRIES))
     overfitting_check = _env_bool("POQ_OVERFITTING_CHECK", DEFAULT_POQ_OVERFITTING_CHECK)
+    mode_raw = (os.environ.get("POQ_MODE") or DEFAULT_POQ_MODE).strip().lower()
+    mode = "llm" if mode_raw == "llm" else "local"
     if args.poq_enabled is not None:
         enabled = bool(args.poq_enabled)
     if args.poq_min_score is not None:
@@ -983,11 +991,14 @@ def build_poq_config(args: argparse.Namespace) -> dict[str, Any]:
         max_retries = int(args.poq_max_retries)
     if args.poq_overfitting_check is not None:
         overfitting_check = bool(args.poq_overfitting_check)
+    if getattr(args, "poq_mode", None):
+        mode = "llm" if str(args.poq_mode).strip().lower() == "llm" else "local"
     return {
         "enabled": enabled,
         "min_score": min_score,
         "max_retries": max(0, max_retries),
         "overfitting_check": overfitting_check,
+        "mode": mode,
     }
 
 def migrate_global_data_to_users(app: App) -> None:

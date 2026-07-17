@@ -172,7 +172,12 @@ FRAME_SHIFT_TRIGGERS = [
 
 
 class PoQGate:
-    """Review a candidate answer, then repair it with critique context if needed."""
+    """Review a candidate answer, then repair it with critique context if needed.
+
+    Modes:
+      - local (default): deterministic checks + heuristic scores, no extra LLM call
+      - llm: full model critique (and optional repair) — slower, for training personas
+    """
 
     def __init__(
         self,
@@ -188,6 +193,7 @@ class PoQGate:
         max_tokens: int = 1600,
         overfitting_check: bool = True,
         cambium_enabled: bool = True,
+        mode: str = "llm",
     ) -> None:
         self.llm_callable = llm_callable
         self.provider = provider
@@ -200,6 +206,7 @@ class PoQGate:
         self.max_tokens = max(1, int(max_tokens or 1600))
         self.overfitting_check = bool(overfitting_check)
         self.cambium_enabled = bool(cambium_enabled)
+        self.mode = "llm" if str(mode or "local").strip().lower() == "llm" else "local"
 
     def review_and_repair(
         self,
@@ -216,12 +223,20 @@ class PoQGate:
         attempts = 0
 
         while True:
-            critique = self._critique(
-                query=query,
-                answer=content,
-                frame_declaration=active_frame_declaration,
-                known_proposals=known_proposals,
-            )
+            if self.mode == "local":
+                critique = self._local_critique(
+                    query=query,
+                    answer=content,
+                    frame_declaration=active_frame_declaration,
+                    known_proposals=known_proposals,
+                )
+            else:
+                critique = self._critique(
+                    query=query,
+                    answer=content,
+                    frame_declaration=active_frame_declaration,
+                    known_proposals=known_proposals,
+                )
             critiques.append(critique)
             if critique["passed"]:
                 result = {
@@ -230,6 +245,7 @@ class PoQGate:
                     "passed": True,
                     "content": content,
                     "attempts": attempts,
+                    "mode": self.mode,
                     "scores": critique["scores"],
                     "skill_scores": host_scores_to_skill(critique["scores"]),
                     "critique": critique["explanation"],
@@ -239,7 +255,8 @@ class PoQGate:
                 }
                 _attach_cambium_result_metadata(result, critiques, active_frame_declaration)
                 return result
-            if critique.get("evasion_detected") or attempts >= self.max_retries:
+            # Local mode never spends another LLM call on repair — return failure/content as-is.
+            if self.mode == "local" or critique.get("evasion_detected") or attempts >= self.max_retries:
                 if critique.get("category_failure_detected") and critique.get("overfitting_detected"):
                     final_content = CAMBIUM_REDIRECT_CONTENT
                 else:
@@ -250,6 +267,7 @@ class PoQGate:
                     "passed": False,
                     "content": final_content,
                     "attempts": attempts,
+                    "mode": self.mode,
                     "scores": critique["scores"],
                     "skill_scores": host_scores_to_skill(critique["scores"]),
                     "critique": critique["explanation"],
@@ -266,13 +284,86 @@ class PoQGate:
                 api_key=self.api_key,
                 model=self.model,
                 messages=self._repair_messages(messages, content, critique),
-                timeout=self.timeout,
+                timeout=min(float(self.timeout), 30.0),
                 base_url=self.base_url,
                 max_tokens=self.max_tokens,
             )
             content = str(repaired.get("content", "")).strip()
             active_frame_declaration = repaired.get("frame_declaration") or None
             attempts += 1
+
+    def _local_critique(
+        self,
+        *,
+        query: str,
+        answer: str,
+        frame_declaration: dict[str, Any] | None = None,
+        known_proposals: set[str] | None = None,
+    ) -> dict[str, Any]:
+        """Fast deterministic gate: no network, heuristic host scores."""
+        scores = local_host_scores(query, answer, min_score=self.min_score)
+        low = {key: value for key, value in scores.items() if value < self.min_score}
+        explanation = ""
+        if not str(answer or "").strip():
+            explanation = "Empty answer."
+        elif low:
+            explanation = "Local PoQ heuristic scored one or more dimensions below threshold."
+
+        cambium_event = (
+            evaluate_cambium_frame_declaration(frame_declaration, answer, known_proposals=known_proposals)
+            if self.cambium_enabled
+            else {
+                "status": "none",
+                "proposal": "",
+                "reason": "",
+                "quality_score": 0.0,
+                "overfitting_skipped": False,
+                "evasion_reason": "",
+                "source": "",
+            }
+        )
+        overfitting_skipped = self.cambium_enabled and cambium_event["status"] == "valid"
+        if overfitting_skipped:
+            cambium_event["overfitting_skipped"] = True
+            overfitting = {"detected": False, "reason": ""}
+        else:
+            overfitting = (
+                detect_overfitting(answer)
+                if self.overfitting_check
+                else {"detected": False, "reason": ""}
+            )
+        if overfitting["detected"]:
+            explanation = _append_failure_reason(explanation, overfitting["reason"])
+        category_failure = detect_category_failure_escape(answer)
+        if category_failure["detected"] and overfitting["detected"]:
+            explanation = _append_failure_reason(
+                explanation,
+                f"category enumeration abandoned but overfitted answer produced ({category_failure['reason']})",
+            )
+        evasion_detected = cambium_event["status"] == "evasion"
+        if evasion_detected:
+            explanation = _append_issue_reason(
+                explanation,
+                f"Cambium evasion detected: {cambium_event['evasion_reason']}",
+            )
+        include_cambium = (
+            not self.cambium_enabled
+            or (frame_declaration is not None or cambium_event.get("source") == "nl_detection")
+        )
+        return {
+            "passed": not low and not overfitting["detected"] and not evasion_detected,
+            "scores": {key: float(scores.get(key, 0.0)) for key in POQ_SCORE_KEYS},
+            "explanation": explanation,
+            "raw": "",
+            "mode": "local",
+            "overfitting_detected": overfitting["detected"],
+            "overfitting_reason": overfitting["reason"],
+            "overfitting_skipped": overfitting_skipped,
+            "category_failure_detected": category_failure["detected"],
+            "category_failure_reason": category_failure["reason"],
+            "evasion_detected": evasion_detected,
+            "cambium_event": cambium_event if include_cambium else None,
+        }
 
     def _critique(
         self,
@@ -287,9 +378,9 @@ class PoQGate:
             api_key=self.api_key,
             model=self.model,
             messages=self._critique_messages(query, answer),
-            timeout=self.timeout,
+            timeout=min(float(self.timeout), 20.0),
             base_url=self.base_url,
-            max_tokens=700,
+            max_tokens=400,
         )
         raw = str(result.get("content", "") or "")
         scores = parse_poq_scores(raw)
@@ -347,6 +438,7 @@ class PoQGate:
             "scores": {key: scores.get(key, 0.0) for key in POQ_SCORE_KEYS},
             "explanation": explanation,
             "raw": raw,
+            "mode": "llm",
             "overfitting_detected": overfitting["detected"],
             "overfitting_reason": overfitting["reason"],
             "overfitting_skipped": overfitting_skipped,
@@ -831,6 +923,49 @@ def _latest_category_failure_reason(critiques: list[dict[str, Any]]) -> str:
         if reason:
             return str(reason)
     return ""
+
+
+def local_host_scores(query: str, answer: str, *, min_score: float = 7.0) -> dict[str, float]:
+    """Heuristic 0–10 host scores for the fast local PoQ path.
+
+    Designed to pass ordinary coherent replies (including short ones) without an
+    extra LLM round-trip. Only empty answers and clear garbage fail hard.
+    Skill-side PoQ still scores at seal time.
+    """
+    text = str(answer or "").strip()
+    q = str(query or "").strip()
+    if not text:
+        return {key: 0.0 for key in POQ_SCORE_KEYS}
+
+    # Stay at/above the configured gate for normal replies.
+    floor = max(float(min_score), 7.0)
+    scores = {key: floor + 0.5 for key in POQ_SCORE_KEYS}
+
+    words = re.findall(r"\w+", text)
+    word_count = len(words)
+
+    # Extremely repetitive long dumps look low-quality — soft demotion only when
+    # clearly broken (still may pass if above min_score after demotion of one dim).
+    if word_count > 60:
+        unique_ratio = len(set(w.lower() for w in words)) / max(1, word_count)
+        if unique_ratio < 0.18:
+            scores["coherence"] = min(scores["coherence"], floor - 0.5)
+            scores["hallucination"] = min(scores["hallucination"], floor)
+
+    # Only demote relevance when a long answer shares no meaningful terms with a
+    # substantial query — short chit-chat is allowed to pass freely.
+    lower = text.lower()
+    q_terms = {
+        t
+        for t in re.findall(r"[a-z0-9]{4,}", q.lower())
+        if t not in {"what", "when", "where", "which", "that", "this", "with", "from", "have", "your", "please", "could", "would"}
+    }
+    if q_terms and word_count > 40 and len(q) > 60:
+        hits = sum(1 for t in q_terms if t in lower)
+        if hits == 0:
+            scores["relevance"] = min(scores["relevance"], floor)
+
+    return {key: float(max(0.0, min(10.0, scores.get(key, floor)))) for key in POQ_SCORE_KEYS}
 
 
 def parse_poq_scores(content: str) -> dict[str, float]:

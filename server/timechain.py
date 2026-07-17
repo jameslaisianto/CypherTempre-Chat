@@ -27,7 +27,7 @@ from server.config import (
     DOMAIN_KEYWORDS, GUIDE_TOPICS, GUIDE_EXPLAINER_PERSONA,
     DEFAULT_SKILL_ROOT, DEFAULT_ENV_PATH,
     ACTIVE_CONTEXT_DAYS, DEFAULT_POQ_ENABLED, DEFAULT_POQ_MIN_SCORE,
-    DEFAULT_POQ_MAX_RETRIES, DEFAULT_POQ_OVERFITTING_CHECK,
+    DEFAULT_POQ_MAX_RETRIES, DEFAULT_POQ_OVERFITTING_CHECK, DEFAULT_POQ_MODE,
 )
 from server.poq import PoQGate
 from server.trainer import Trainer
@@ -719,6 +719,25 @@ def active_recall_chain(chain: list[Any], *, now: dt.datetime | None = None) -> 
     return genesis + active
 
 
+def _looks_like_memory_bearing(query: str) -> bool:
+    """True when the user message likely introduces durable facts worth an LLM extract."""
+    text = str(query or "").strip()
+    if not text or len(text) < 8:
+        return False
+    return bool(
+        re.search(
+            r"\b(?:"
+            r"my name is|call me|i am|i'm|"
+            r"i prefer|i like|i want you to|please remember|"
+            r"from now on|always|never|don't ever|do not ever|"
+            r"i live in|i work|my goal|remember that|note that"
+            r")\b",
+            text,
+            re.I,
+        )
+    )
+
+
 def stage_memory_candidates(
     model: dict[str, Any],
     ring: Any,
@@ -1305,11 +1324,13 @@ class App:
         self.audio_api_key = audio_api_key or api_key
         self.audio_base_url = audio_base_url or base_url
         raw_poq = poq or {}
+        mode_raw = str(raw_poq.get("mode", DEFAULT_POQ_MODE) or DEFAULT_POQ_MODE).strip().lower()
         self.poq = {
             "enabled": bool(raw_poq.get("enabled", DEFAULT_POQ_ENABLED)),
             "min_score": float(raw_poq.get("min_score", DEFAULT_POQ_MIN_SCORE)),
             "max_retries": max(0, int(raw_poq.get("max_retries", DEFAULT_POQ_MAX_RETRIES))),
             "overfitting_check": bool(raw_poq.get("overfitting_check", DEFAULT_POQ_OVERFITTING_CHECK)),
+            "mode": "llm" if mode_raw == "llm" else "local",
         }
         self.active_session = "default"
         self.user_active_sessions: dict[str, str] = {}
@@ -1959,6 +1980,14 @@ class App:
         }
 
     def reload_agent(self) -> None:
+        # Reuse the session handle when the workspace is unchanged — only drop the chain cache.
+        if (
+            getattr(self, "agent", None) is not None
+            and getattr(self.agent, "workspace", None) is not None
+            and pathlib.Path(self.agent.workspace).resolve() == pathlib.Path(self.workspace).resolve()
+        ):
+            self.agent.reload()
+            return
         self.agent = SkillSession(self.workspace, name="CypherTempre", skill=self.skill)
 
     def _normalize_self_model(self, model: dict[str, Any]) -> dict[str, Any]:
@@ -3084,8 +3113,9 @@ class App:
         except Exception:
             screen = {}
         route = skill_runtime.route_query(self.workspace, query, self.skill)
-        retrieved = skill_runtime.retrieve_views(self.workspace, query, limit=12, skill=self.skill)
-        recent_turns = build_recent_turns(self.agent.chain, limit=8)
+        # 8 views is enough for prompt grounding and cheaper than a wide recall.
+        retrieved = skill_runtime.retrieve_views(self.workspace, query, limit=8, skill=self.skill)
+        recent_turns = build_recent_turns(self.agent.chain, limit=6)
         neuro = {"dopamine": 0.5, "serotonin": 0.5, "norepinephrine": 0.3, "gaba": 0.2, "acetylcholine": 0.5}
         lattice = {
             "perception": {},
@@ -3203,22 +3233,29 @@ class App:
         except RuntimeError as exc:
             return local_fallback(str(exc))
         retry_reason = memory_retry_reason(query, llm.get("content", ""), durable_hits, persona["name"])
-        retry = {"attempted": False, "reason": retry_reason}
+        retry = {"attempted": False, "reason": retry_reason, "local": False}
         if retry_reason:
-            try:
-                repaired = active_call_llm(
-                    provider=provider,
-                    api_key=key,
-                    model=model or self.default_model,
-                    messages=build_retry_messages(messages, reason=retry_reason, facts=durable_hits),
-                    timeout=self.timeout,
-                    base_url=base_url,
-                    max_tokens=response_token_budget(query),
-                )
-                llm = repaired
+            # Prefer a zero-cost local repair before spending another full LLM call.
+            local_repair = local_memory_answer(query, durable_hits, persona["name"])
+            if local_repair:
+                llm["content"] = local_repair
                 retry["attempted"] = True
-            except RuntimeError as exc:
-                llm["provider_error"] = str(exc)
+                retry["local"] = True
+            else:
+                try:
+                    repaired = active_call_llm(
+                        provider=provider,
+                        api_key=key,
+                        model=model or self.default_model,
+                        messages=build_retry_messages(messages, reason=retry_reason, facts=durable_hits),
+                        timeout=min(float(self.timeout), 30.0),
+                        base_url=base_url,
+                        max_tokens=response_token_budget(query),
+                    )
+                    llm = repaired
+                    retry["attempted"] = True
+                except RuntimeError as exc:
+                    llm["provider_error"] = str(exc)
         poq_is_enabled = self.poq.get("enabled", DEFAULT_POQ_ENABLED) if poq_enabled is None else bool(poq_enabled)
         if poq_is_enabled and not llm.get("provider_error"):
             try:
@@ -3228,6 +3265,9 @@ class App:
                     for event in past_events
                     if event.get("proposal")
                 }
+                # Fast local gate by default; set POQ_MODE=llm (or --poq-mode llm) for model critique.
+                configured_mode = str(self.poq.get("mode", DEFAULT_POQ_MODE) or DEFAULT_POQ_MODE).strip().lower()
+                poq_mode = "llm" if configured_mode == "llm" else "local"
                 poq_result = PoQGate(
                     llm_callable=active_call_llm,
                     provider=provider,
@@ -3240,6 +3280,7 @@ class App:
                     max_tokens=response_token_budget(query),
                     overfitting_check=bool(self.poq.get("overfitting_check", DEFAULT_POQ_OVERFITTING_CHECK)),
                     cambium_enabled=bool(runtime_options.get("supports_cambium_training")),
+                    mode=poq_mode,
                 ).review_and_repair(
                     messages=messages,
                     answer=str(llm.get("content", "")),
@@ -3271,27 +3312,41 @@ class App:
             llm["retry"] = retry
             llm["persona"] = persona
             return llm
-        llm["memory_candidates"] = generate_llm_memory_candidates(
-            provider=provider,
-            api_key=key,
-            model=model or self.default_model,
-            query=query,
-            content=str(llm.get("content", "")),
-            persona_name=persona["name"],
-            timeout=self.timeout,
-            base_url=base_url,
-        )
+        # LLM memory extraction is expensive; deterministic extract in queue_memory_candidates
+        # covers common identity/preference facts. Only spend an extra call when the user
+        # clearly stated something worth remembering.
+        if _looks_like_memory_bearing(query):
+            llm["memory_candidates"] = generate_llm_memory_candidates(
+                provider=provider,
+                api_key=key,
+                model=model or self.default_model,
+                query=query,
+                content=str(llm.get("content", "")),
+                persona_name=persona["name"],
+                timeout=min(float(self.timeout), 15.0),
+                base_url=base_url,
+            )
+        else:
+            llm["memory_candidates"] = []
         llm["retrieved"] = [ring.n for ring in retrieved]
         llm["memory_hits"] = durable_hits
         llm["retry"] = retry
         llm["persona"] = persona
         # Cited-answer discipline: span-guard against declared used rings (skill).
+        # Skip on empty/trivial answers to avoid seal-time cost on chit-chat.
         used = list(llm.get("retrieved") or [])
-        if used and llm.get("content") and not llm.get("provider_error"):
+        content_text = str(llm.get("content") or "")
+        if (
+            used
+            and content_text
+            and not llm.get("provider_error")
+            and len(content_text) > 40
+            and len(used) <= 16
+        ):
             citation = skill_runtime.cite_answer(
                 self.workspace,
                 question=query,
-                answer=str(llm.get("content") or ""),
+                answer=content_text,
                 used_rings=used,
                 skill=self.skill,
             )
