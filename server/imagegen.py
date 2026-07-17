@@ -111,7 +111,7 @@ def handle_imagegen_edit(handler: Any, app: Any) -> None:
         handler.send_json({"ok": False, "error": "Describe the change you want — e.g. “make the background blue”."}, HTTPStatus.BAD_REQUEST)
         return
     if not image_data:
-        handler.send_json({"ok": False, "error": "Upload or select a source image to edit."}, HTTPStatus.BAD_REQUEST)
+        handler.send_json({"ok": False, "error": "image is required"}, HTTPStatus.BAD_REQUEST)
         return
     if not api_key:
         handler.send_json({"ok": False, "error": "API key is required"}, HTTPStatus.BAD_REQUEST)

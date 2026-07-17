@@ -10,6 +10,24 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       modelBadge: document.getElementById('model-badge'),
       ringsBadge: document.getElementById('rings-badge'),
       verifyBadge: document.getElementById('verify-badge'),
+      trustStrip: document.getElementById('trust-strip'),
+      trustSkill: document.getElementById('trust-skill'),
+      trustVerify: document.getElementById('trust-verify'),
+      trustRings: document.getElementById('trust-rings'),
+      trustSeal: document.getElementById('trust-seal'),
+      trustProduct: document.getElementById('trust-product'),
+      streamRepliesToggle: document.getElementById('stream-replies-toggle'),
+      identityBridgeToggle: document.getElementById('identity-bridge-toggle'),
+      memoryAutopilot: document.getElementById('memory-autopilot'),
+      applyRecommendedDefaults: document.getElementById('apply-recommended-defaults'),
+      exportBackup: document.getElementById('export-backup'),
+      restoreBackup: document.getElementById('restore-backup'),
+      projectObjective: document.getElementById('project-objective'),
+      makeProjectSession: document.getElementById('make-project-session'),
+      makeChatSession: document.getElementById('make-chat-session'),
+      commandPalette: document.getElementById('command-palette'),
+      commandPaletteInput: document.getElementById('command-palette-input'),
+      commandPaletteList: document.getElementById('command-palette-list'),
       messages: document.getElementById('messages'),
       empty: document.getElementById('empty-state'),
       form: document.getElementById('composer-form'),
@@ -124,6 +142,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       themeToggle: document.getElementById('theme-toggle'),
       themeIconMoon: document.getElementById('theme-icon-moon'),
       themeIconSun: document.getElementById('theme-icon-sun'),
+      densityToggle: document.getElementById('density-toggle'),
       authOverlay: document.getElementById('auth-overlay'),
       authTabLogin: document.getElementById('auth-tab-login'),
       authTabRegister: document.getElementById('auth-tab-register'),
@@ -462,7 +481,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       document.documentElement.classList.toggle('light', prefersLight);
       updateThemeIcon(prefersLight);
       const metaTheme = document.querySelector('meta[name="theme-color"]');
-      if (metaTheme) metaTheme.content = prefersLight ? '#f7f7f5' : '#000000';
+      if (metaTheme) metaTheme.content = prefersLight ? '#f4f5f8' : '#07090d';
     }
 
     function toggleTheme() {
@@ -470,12 +489,60 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       localStorage.setItem('ct_theme', isLight ? 'light' : 'dark');
       updateThemeIcon(isLight);
       const metaTheme = document.querySelector('meta[name="theme-color"]');
-      if (metaTheme) metaTheme.content = isLight ? '#f7f7f5' : '#000000';
+      if (metaTheme) metaTheme.content = isLight ? '#f4f5f8' : '#07090d';
     }
 
     function updateThemeIcon(isLight) {
       if (els.themeIconMoon) els.themeIconMoon.style.display = isLight ? 'none' : 'block';
       if (els.themeIconSun) els.themeIconSun.style.display = isLight ? 'block' : 'none';
+    }
+
+    function initDensity() {
+      const compact = localStorage.getItem('ct_density') === 'compact';
+      document.documentElement.classList.toggle('density-compact', compact);
+      updateDensityToggle(compact);
+    }
+
+    function toggleDensity() {
+      const compact = document.documentElement.classList.toggle('density-compact');
+      localStorage.setItem('ct_density', compact ? 'compact' : 'comfortable');
+      updateDensityToggle(compact);
+    }
+
+    function updateDensityToggle(compact) {
+      if (!els.densityToggle) return;
+      els.densityToggle.classList.toggle('active', compact);
+      els.densityToggle.setAttribute('aria-pressed', compact ? 'true' : 'false');
+      els.densityToggle.title = compact ? 'Comfortable density' : 'Compact density';
+      els.densityToggle.setAttribute('aria-label', compact ? 'Switch to comfortable density' : 'Switch to compact density');
+    }
+
+    let currentMainView = localStorage.getItem('ct_view') || 'chat';
+    let viewTransitionToken = 0;
+
+    function getViewElement(view) {
+      if (view === 'forge') view = 'imagegen';
+      if (view === 'chat') return els.chatView;
+      if (view === 'guide') return els.guideView;
+      if (view === 'settings') return els.settingsView;
+      if (view === 'marketplace') return els.marketplaceView;
+      if (view === 'imagegen') return els.imagegenView;
+      if (view === 'videogen') return els.videogenView;
+      if (view === 'audiogen') return els.audiogenView;
+      return null;
+    }
+
+    function animateViewEnter(el) {
+      if (!el) return;
+      el.classList.remove('view-exit');
+      el.classList.remove('view-enter');
+      // Force reflow so re-adding the class restarts the animation
+      void el.offsetWidth;
+      el.classList.add('view-enter');
+      const token = ++viewTransitionToken;
+      window.setTimeout(() => {
+        if (token === viewTransitionToken) el.classList.remove('view-enter');
+      }, 420);
     }
 
     function initPanels() {
@@ -714,7 +781,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     async function switchSession(sessionId) {
       activeSession = sessionId || 'default';
       localStorage.setItem('ct_active_session', activeSession);
-      await Promise.all([refreshSummary(), refreshMemories(), refreshWorkbench(), verifyChain(), restoreHistory()]);
+      await Promise.all([refreshSummary(), refreshMemories(), refreshWorkbench(), verifyChain(), restoreHistory(), refreshTrustStrip()]);
       await loadSessions();
       applySessionPersonaLock();
     }
@@ -739,6 +806,9 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       localStorage.setItem('ct_base_url', els.baseUrl.value.trim());
       localStorage.setItem('ct_persona', els.persona.value);
       localStorage.setItem('ct_domain', els.domain.value);
+      if (els.memoryAutopilot) localStorage.setItem('ct_memory_autopilot', els.memoryAutopilot.value);
+      if (els.identityBridgeToggle) localStorage.setItem('ct_identity_bridge', els.identityBridgeToggle.checked ? 'true' : 'false');
+      if (els.streamRepliesToggle) localStorage.setItem('ct_stream_replies', els.streamRepliesToggle.checked ? 'true' : 'false');
       if (els.apiKey.value.trim()) {
         localStorage.setItem('ct_api_key', els.apiKey.value.trim());
       } else {
@@ -813,6 +883,9 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
             audio_provider: els.audioProvider?.value || '',
             audio_model: els.audioModel?.value?.trim() || '',
             audio_base_url: els.audioBaseUrl?.value?.trim() || '',
+            memory_autopilot: els.memoryAutopilot?.value || 'conservative',
+            identity_bridge: els.identityBridgeToggle?.checked ? 'true' : 'false',
+            stream_replies: els.streamRepliesToggle?.checked ? 'true' : 'false',
           }),
         });
       } catch {
@@ -975,12 +1048,72 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       
       if (!personas[els.persona.value] && !customPersonas[els.persona.value] && !creatorPersonas[els.persona.value] && !publicPersonas[els.persona.value] && !marketplacePersonas[els.persona.value]) els.persona.value = 'companion';
       els.domain.value = localStorage.getItem('ct_domain') || 'auto';
+      const product = config.product || {};
+      if (els.memoryAutopilot) {
+        els.memoryAutopilot.value = localStorage.getItem('ct_memory_autopilot') || product.memory_autopilot || 'conservative';
+      }
+      if (els.identityBridgeToggle) {
+        const storedBridge = localStorage.getItem('ct_identity_bridge');
+        els.identityBridgeToggle.checked = storedBridge === null
+          ? product.identity_bridge !== false
+          : storedBridge !== 'false';
+      }
+      if (els.streamRepliesToggle) {
+        const storedStream = localStorage.getItem('ct_stream_replies');
+        els.streamRepliesToggle.checked = storedStream === null
+          ? product.stream_replies !== false
+          : storedStream !== 'false';
+      }
+      window.__recommendedProfile = config.recommended_profile || null;
+      window.__skillVersion = config.skill_version || '';
+      window.__appVersion = config.app_version || 'CypherTempre/1.0';
       updateProviderHint();
       updatePersonaText();
       updateSetup(config.has_env_key);
       validatePersonaModel();
       syncCreativeStudioModelsFromSettings();
       applySessionPersonaLock();
+      refreshTrustStrip();
+    }
+
+    function applyTrustStatus(status) {
+      if (!status) return;
+      if (els.trustSkill) els.trustSkill.textContent = `skill: ${status.skill_version || window.__skillVersion || '—'}`;
+      if (els.trustVerify) {
+        els.trustVerify.textContent = `verify: ${status.verify_ok ? 'PASS' : 'FAIL'}`;
+      }
+      if (els.trustRings) els.trustRings.textContent = `height: ${status.height ?? status.ring_count ?? '—'}`;
+      if (els.trustSeal) {
+        const ts = status.last_seal_ts || '';
+        const short = ts ? String(ts).replace('T', ' ').slice(0, 16) : '—';
+        els.trustSeal.textContent = `last seal: ${short}`;
+      }
+      if (els.trustProduct) {
+        const p = status.product || {};
+        els.trustProduct.textContent = `memory: ${p.memory_autopilot || '—'} · identity: ${p.identity_bridge === false ? 'off' : 'on'}`;
+      }
+      if (els.trustStrip) {
+        els.trustStrip.classList.toggle('ok', !!status.verify_ok);
+        els.trustStrip.classList.toggle('bad', status.verify_ok === false);
+      }
+      if (els.verifyBadge) {
+        els.verifyBadge.textContent = `verify: ${status.verify_ok ? 'PASS' : 'FAIL'}`;
+        els.verifyBadge.className = `badge ${status.verify_ok ? 'ok' : 'bad'}`;
+      }
+      if (els.ringsBadge && status.ring_count != null) {
+        els.ringsBadge.textContent = `rings: ${status.ring_count}`;
+      }
+    }
+
+    async function refreshTrustStrip() {
+      try {
+        const data = await api(`/api/status${sessionQuery()}`);
+        applyTrustStatus(data);
+      } catch {
+        if (els.trustSkill && window.__skillVersion) {
+          els.trustSkill.textContent = `skill: ${window.__skillVersion}`;
+        }
+      }
     }
 
     async function syncCustomPersonasToServer(config) {
@@ -1861,7 +1994,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     }
 
     async function refreshOperationalState() {
-      await Promise.all([refreshSummary(), refreshMemories(), refreshWorkbench(), verifyChain(), restoreHistory()]);
+      await Promise.all([refreshSummary(), refreshMemories(), refreshWorkbench(), verifyChain(), restoreHistory(), refreshTrustStrip()]);
       await loadSessions();
       renderManageSessions();
       renderManagePersonas();
@@ -1965,6 +2098,179 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       els.manageStatusDetail.textContent = `Deleted persona ${id}.`;
     }
 
+    function chatPayload(message) {
+      return {
+        message,
+        session: activeSession,
+        domain: els.domain.value,
+        persona: els.persona.value,
+        customPersona: customPersonas[els.persona.value] || publicPersonas[els.persona.value] || null,
+        model: els.model.value.trim() || 'gemma-4-uncensored',
+        apiKey: els.apiKey.value.trim(),
+        provider: els.provider.value,
+        baseUrl: els.baseUrl.value.trim(),
+        sharedMemory: els.sharedMemoryToggle?.checked || false
+      };
+    }
+
+    function citationHtml(citations) {
+      if (!citations || typeof citations !== 'object') return '';
+      const unsupported = citations.unsupported || citations.unsupported_spans || [];
+      const used = citations.used_rings || citations.used || [];
+      const nUn = citations.n_unsupported != null ? citations.n_unsupported : (Array.isArray(unsupported) ? unsupported.length : 0);
+      const usedLabel = Array.isArray(used) ? used.join(', ') : String(used || '');
+      if (!usedLabel && !nUn) return '';
+      let body = `<strong>Citations</strong> · used rings: ${esc(usedLabel || '—')}`;
+      if (nUn > 0) {
+        const sample = Array.isArray(unsupported)
+          ? unsupported.slice(0, 2).map(u => (typeof u === 'string' ? u : (u.text || u.span || JSON.stringify(u)))).join(' · ')
+          : '';
+        body += `<br>⚠ ${esc(String(nUn))} unsupported span(s)${sample ? `: ${esc(sample)}` : ''}`;
+      } else {
+        body += `<br>✓ spans grounded against declared rings`;
+      }
+      return `<div class="citation-box">${body}</div>`;
+    }
+
+    function applyChatResult(data, streamWrapper) {
+      if (data.persona_id) {
+        sessionPersonaLocks[activeSession] = { id: data.persona_id, name: data.persona_name || '' };
+        applySessionPersonaLock();
+      }
+      if (data.trust) applyTrustStatus(data.trust);
+      const role = data.persona_name || 'CypherTempre';
+      const cite = citationHtml(data.citations);
+      if (streamWrapper && streamWrapper.isConnected) {
+        streamWrapper.classList.remove('streaming', 'thinking-message');
+        const contentEl = streamWrapper.querySelector('.bubble-content');
+        const metaEl = streamWrapper.querySelector('.bubble-meta');
+        if (contentEl) contentEl.innerHTML = renderContent(data.content || data.reason || '') + cite;
+        if (data.accepted) {
+          streamWrapper.classList.remove('rejected');
+          if (metaEl) {
+            metaEl.innerHTML = Object.entries({
+              accepted: true,
+              ring: data.ring,
+              brightness: data.brightness,
+              epistemic: data.epistemic,
+              model: data.model_used || data.model,
+              domain: data.domain,
+              offline: data.offline ? 'yes' : '',
+              retry: data.retry?.attempted ? 'yes' : '',
+              memory: (data.memory_hits || []).length || '',
+              autoMem: (data.memory_auto_accepted || []).length || '',
+              cites: data.citations?.n_unsupported != null ? `${(data.citations.used_rings || []).length || 0}r` : ''
+            }).filter(([, v]) => v !== undefined && v !== null && v !== '')
+              .map(([k, v]) => `<span class="badge ${k === 'accepted' ? 'ok' : 'info'}">${esc(k)}: ${esc(v)}</span>`)
+              .join('');
+          }
+        } else {
+          streamWrapper.classList.add('rejected');
+          if (contentEl) contentEl.innerHTML = renderContent(data.reason || data.content || 'Rejected by PoQ gate.');
+        }
+        return;
+      }
+      if (data.accepted) {
+        const wrapper = appendMessage(role, data.content, {
+          accepted: true,
+          ring: data.ring,
+          brightness: data.brightness,
+          epistemic: data.epistemic,
+          model: data.model_used || data.model,
+          provider: data.provider_error ? 'fallback' : '',
+          error: data.provider_error || '',
+          domain: data.domain,
+          offline: data.offline ? 'yes' : '',
+          retry: data.retry?.attempted ? 'yes' : '',
+          memory: (data.memory_hits || []).length || '',
+          autoMem: (data.memory_auto_accepted || []).length || ''
+        });
+        if (cite) {
+          const contentEl = wrapper.querySelector('.bubble-content');
+          if (contentEl) contentEl.insertAdjacentHTML('beforeend', cite);
+        }
+      } else {
+        appendMessage(role, data.reason || data.content || 'Rejected by PoQ gate.', {
+          accepted: false,
+          brightness: data.brightness,
+          provider: data.provider_error ? 'fallback' : '',
+          error: data.provider_error || ''
+        }, true);
+      }
+    }
+
+    async function sendChatStreaming(message) {
+      const personaName = getActivePersona()?.name || 'CypherTempre';
+      const streamWrapper = appendThinkingMessage(personaName);
+      streamWrapper.classList.add('streaming');
+      const contentEl = streamWrapper.querySelector('.bubble-content');
+      let assembled = '';
+      const token = localStorage.getItem('ct_auth_token') || '';
+      const response = await fetch('/api/chat/stream', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify(chatPayload(message))
+      });
+      if (!response.ok || !response.body) {
+        throw new Error(`Stream failed (${response.status})`);
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let finalData = null;
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop() || '';
+        for (const part of parts) {
+          const lines = part.split('\n');
+          let event = 'message';
+          let dataLine = '';
+          for (const line of lines) {
+            if (line.startsWith('event:')) event = line.slice(6).trim();
+            if (line.startsWith('data:')) dataLine += line.slice(5).trim();
+          }
+          if (!dataLine) continue;
+          let data;
+          try { data = JSON.parse(dataLine); } catch { continue; }
+          if (event === 'token' && data.text) {
+            assembled += data.text;
+            if (contentEl) contentEl.innerHTML = renderContent(assembled);
+            els.messages.scrollTop = els.messages.scrollHeight;
+          } else if (event === 'meta' && data.persona_name && streamWrapper) {
+            const head = streamWrapper.querySelector('.bubble-head span');
+            if (head) head.textContent = data.persona_name;
+          } else if (event === 'final') {
+            finalData = data;
+          } else if (event === 'error') {
+            throw new Error(data.error || 'Stream error');
+          }
+        }
+      }
+      if (!finalData) throw new Error('Stream ended without a final result');
+      applyChatResult(finalData, streamWrapper);
+    }
+
+    async function sendChatBlocking(message) {
+      const thinkingMessage = appendThinkingMessage(getActivePersona()?.name || 'CypherTempre');
+      try {
+        const data = await api('/api/chat', {
+          method: 'POST',
+          body: JSON.stringify(chatPayload(message))
+        });
+        removeThinkingMessage();
+        applyChatResult(data, null);
+      } finally {
+        if (thinkingMessage && thinkingMessage.isConnected) thinkingMessage.remove();
+      }
+    }
+
     els.form.addEventListener('submit', async (event) => {
       event.preventDefault();
       const message = els.message.value.trim();
@@ -1972,76 +2278,256 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
 
       saveLocalConfig();
       appendMessage('You', message, { domain: els.domain.value });
-      const thinkingMessage = appendThinkingMessage(getActivePersona()?.name || 'CypherTempre');
       els.message.value = '';
       isSending = true;
       validatePersonaModel();
+      const preferStream = !els.streamRepliesToggle || els.streamRepliesToggle.checked;
 
       try {
-        const data = await api('/api/chat', {
-          method: 'POST',
-          body: JSON.stringify({
-            message,
-            session: activeSession,
-            domain: els.domain.value,
-            persona: els.persona.value,
-            customPersona: customPersonas[els.persona.value] || publicPersonas[els.persona.value] || null,
-            model: els.model.value.trim() || 'gemma-4-uncensored',
-            apiKey: els.apiKey.value.trim(),
-            provider: els.provider.value,
-            baseUrl: els.baseUrl.value.trim(),
-            sharedMemory: els.sharedMemoryToggle?.checked || false
-          })
-        });
-        removeThinkingMessage();
-        if (data.persona_id) {
-          sessionPersonaLocks[activeSession] = { id: data.persona_id, name: data.persona_name || '' };
-          applySessionPersonaLock();
-        }
-        if (data.accepted) {
-          appendMessage(data.persona_name || 'CypherTempre', data.content, {
-            accepted: true,
-            ring: data.ring,
-            brightness: data.brightness,
-            epistemic: data.epistemic,
-            model: data.model_used || data.model,
-            provider: data.provider_error ? 'fallback' : '',
-            error: data.provider_error || '',
-            domain: data.domain,
-            retry: data.retry?.attempted ? 'yes' : '',
-            memory: (data.memory_hits || []).length || ''
-          });
+        if (preferStream) {
+          try {
+            await sendChatStreaming(message);
+          } catch (streamErr) {
+            removeThinkingMessage();
+            await sendChatBlocking(message);
+          }
         } else {
-          appendMessage(data.persona_name || 'CypherTempre', data.reason || 'Rejected by PoQ gate.', {
-            accepted: false,
-            brightness: data.brightness,
-            provider: data.provider_error ? 'fallback' : '',
-            error: data.provider_error || ''
-          }, true);
+          await sendChatBlocking(message);
         }
         await refreshSummary();
         await refreshMemories();
         await refreshWorkbench();
         await verifyChain();
+        await refreshTrustStrip();
       } catch (error) {
         removeThinkingMessage();
-        // The server may have finished processing even though the connection was
-        // dropped (e.g. slow model + browser timeout or user navigation).
-        // Try reloading history first — if the response was saved it will appear
-        // without the user having to manually refresh.
         try {
           await restoreHistory();
           await refreshSummary();
           await verifyChain();
+          await refreshTrustStrip();
         } catch (_) {
-          // History reload failed too — fall back to showing the error inline.
           appendMessage('CypherTempre', error.message, { accepted: false }, true);
         }
       } finally {
-        if (thinkingMessage && thinkingMessage.isConnected) thinkingMessage.remove();
         isSending = false;
         validatePersonaModel();
         els.message.focus();
+      }
+    });
+
+    if (els.applyRecommendedDefaults) {
+      els.applyRecommendedDefaults.addEventListener('click', () => {
+        const rec = window.__recommendedProfile || {};
+        if (els.provider && rec.provider) els.provider.value = rec.provider;
+        if (els.model && rec.default_model) els.model.value = rec.default_model;
+        if (els.baseUrl && rec.base_url) els.baseUrl.value = rec.base_url;
+        if (els.memoryAutopilot) els.memoryAutopilot.value = rec.memory_autopilot || 'conservative';
+        if (els.identityBridgeToggle) els.identityBridgeToggle.checked = rec.identity_bridge !== false;
+        if (els.streamRepliesToggle) els.streamRepliesToggle.checked = rec.stream_replies !== false;
+        updateProviderHint();
+        saveLocalConfig();
+        if (els.setup) els.setup.textContent = 'Recommended defaults applied. Add your API key if the env file is empty.';
+        refreshTrustStrip();
+      });
+    }
+    ['memoryAutopilot', 'identityBridgeToggle', 'streamRepliesToggle'].forEach(key => {
+      const node = els[key];
+      if (node) node.addEventListener('change', () => saveLocalConfig());
+    });
+
+    // --- Backup / project ---
+    if (els.exportBackup) {
+      els.exportBackup.addEventListener('click', async () => {
+        try {
+          const token = localStorage.getItem('ct_auth_token') || '';
+          const response = await fetch('/api/backup/export?media=1', {
+            credentials: 'same-origin',
+            headers: token ? { Authorization: `Bearer ${token}` } : {}
+          });
+          if (!response.ok) throw new Error(`Export failed (${response.status})`);
+          const blob = await response.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `cyphertempre-backup-${Date.now()}.zip`;
+          a.click();
+          URL.revokeObjectURL(url);
+          if (els.setup) els.setup.textContent = 'Backup zip downloaded.';
+        } catch (err) {
+          if (els.setup) els.setup.textContent = err.message || 'Export failed';
+        }
+      });
+    }
+    if (els.restoreBackup) {
+      els.restoreBackup.addEventListener('change', async () => {
+        const file = els.restoreBackup.files && els.restoreBackup.files[0];
+        if (!file) return;
+        try {
+          const token = localStorage.getItem('ct_auth_token') || '';
+          const buf = await file.arrayBuffer();
+          const response = await fetch('/api/backup/restore?mode=merge', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+              'Content-Type': 'application/zip',
+              ...(token ? { Authorization: `Bearer ${token}` } : {})
+            },
+            body: buf
+          });
+          const data = await response.json();
+          if (!data.ok) throw new Error(data.error || 'Restore failed');
+          if (els.setup) els.setup.textContent = `Restored ${data.restored_files || 0} files. Reload recommended.`;
+          await loadSessions();
+          await restoreHistory();
+          await refreshTrustStrip();
+        } catch (err) {
+          if (els.setup) els.setup.textContent = err.message || 'Restore failed';
+        } finally {
+          els.restoreBackup.value = '';
+        }
+      });
+    }
+    async function setSessionMode(mode) {
+      const objective = (els.projectObjective?.value || '').trim();
+      const data = await api('/api/session/project', {
+        method: 'POST',
+        body: JSON.stringify({ session: activeSession, mode, objective })
+      });
+      if (els.setup) {
+        els.setup.textContent = mode === 'project'
+          ? `Project mode on: ${data.objective || objective}`
+          : 'Session marked as normal chat.';
+      }
+    }
+    if (els.makeProjectSession) {
+      els.makeProjectSession.addEventListener('click', async () => {
+        try { await setSessionMode('project'); } catch (err) {
+          if (els.setup) els.setup.textContent = err.message || 'Could not set project mode';
+        }
+      });
+    }
+    if (els.makeChatSession) {
+      els.makeChatSession.addEventListener('click', async () => {
+        try { await setSessionMode('chat'); } catch (err) {
+          if (els.setup) els.setup.textContent = err.message || 'Could not set chat mode';
+        }
+      });
+    }
+
+    // --- Command palette (Ctrl/Cmd+K) ---
+    let paletteIndex = 0;
+    let paletteItems = [];
+    function paletteCommands() {
+      return [
+        { id: 'new-session', label: 'New session', hint: 'Create conversation', run: async () => {
+          const name = prompt('Session name', `Session ${new Date().toLocaleString()}`);
+          if (!name) return;
+          const data = await api('/api/sessions', { method: 'POST', body: JSON.stringify({ name }) });
+          await switchSession(data.session.id);
+        }},
+        { id: 'focus-composer', label: 'Focus composer', hint: 'Type a message', run: () => els.message?.focus() },
+        { id: 'recall', label: 'Open recall', hint: 'Search sealed memory', run: () => {
+          document.querySelector('[data-panel="recall"]')?.classList.add('expanded');
+          els.recallQuery?.focus();
+        }},
+        { id: 'verify', label: 'Verify chain', hint: 'Tamper-evidence check', run: () => verifyChain() },
+        { id: 'trust', label: 'Refresh trust strip', hint: 'Skill / verify / seal', run: () => refreshTrustStrip() },
+        { id: 'settings', label: 'Open settings', hint: 'Provider & product prefs', run: () => {
+          document.getElementById('nav-settings')?.click();
+        }},
+        { id: 'toggle-shared', label: 'Toggle shared memory', hint: 'Composer checkbox', run: () => {
+          if (els.sharedMemoryToggle) {
+            els.sharedMemoryToggle.checked = !els.sharedMemoryToggle.checked;
+          }
+        }},
+        { id: 'export', label: 'Export backup', hint: 'Download zip', run: () => els.exportBackup?.click() },
+        { id: 'project', label: 'Mark session as project', hint: 'Uses objective field', run: async () => {
+          document.getElementById('nav-settings')?.click();
+          els.projectObjective?.focus();
+        }},
+        { id: 'task-note', label: 'Seal project progress note', hint: 'Project sessions only', run: async () => {
+          const note = prompt('Progress note to seal on the task chain');
+          if (!note) return;
+          const data = await api('/api/session/task-progress', {
+            method: 'POST',
+            body: JSON.stringify({ session: activeSession, note })
+          });
+          if (els.setup) els.setup.textContent = data.ok ? `Task note sealed (ring ${data.task_ring})` : (data.error || 'Failed');
+        }},
+        { id: 'guide', label: 'Open guide', hint: 'Architecture help', run: () => document.getElementById('nav-guide')?.click() },
+        { id: 'reload-history', label: 'Reload history', hint: 'From sealed rings', run: () => restoreHistory() },
+      ];
+    }
+    function renderPalette(filter = '') {
+      const q = filter.trim().toLowerCase();
+      paletteItems = paletteCommands().filter(cmd =>
+        !q || cmd.label.toLowerCase().includes(q) || cmd.hint.toLowerCase().includes(q) || cmd.id.includes(q)
+      );
+      paletteIndex = 0;
+      if (!els.commandPaletteList) return;
+      els.commandPaletteList.innerHTML = paletteItems.map((cmd, i) => `
+        <div class="command-palette-item ${i === 0 ? 'active' : ''}" data-idx="${i}">
+          <span>${esc(cmd.label)}</span>
+          <span class="hint">${esc(cmd.hint)}</span>
+        </div>
+      `).join('') || `<div class="command-palette-item"><span>No matches</span></div>`;
+      els.commandPaletteList.querySelectorAll('.command-palette-item[data-idx]').forEach(node => {
+        node.addEventListener('click', () => runPaletteItem(Number(node.dataset.idx)));
+      });
+    }
+    function openPalette() {
+      if (!els.commandPalette) return;
+      els.commandPalette.classList.add('open');
+      els.commandPalette.setAttribute('aria-hidden', 'false');
+      if (els.commandPaletteInput) {
+        els.commandPaletteInput.value = '';
+        els.commandPaletteInput.focus();
+      }
+      renderPalette('');
+    }
+    function closePalette() {
+      if (!els.commandPalette) return;
+      els.commandPalette.classList.remove('open');
+      els.commandPalette.setAttribute('aria-hidden', 'true');
+    }
+    async function runPaletteItem(idx) {
+      const cmd = paletteItems[idx];
+      closePalette();
+      if (!cmd) return;
+      try { await cmd.run(); } catch (err) {
+        if (els.setup) els.setup.textContent = err.message || 'Command failed';
+      }
+    }
+    if (els.commandPaletteInput) {
+      els.commandPaletteInput.addEventListener('input', () => renderPalette(els.commandPaletteInput.value));
+      els.commandPaletteInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') { e.preventDefault(); closePalette(); return; }
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          paletteIndex = Math.min(paletteIndex + 1, Math.max(0, paletteItems.length - 1));
+          els.commandPaletteList?.querySelectorAll('.command-palette-item').forEach((n, i) => n.classList.toggle('active', i === paletteIndex));
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          paletteIndex = Math.max(paletteIndex - 1, 0);
+          els.commandPaletteList?.querySelectorAll('.command-palette-item').forEach((n, i) => n.classList.toggle('active', i === paletteIndex));
+        } else if (e.key === 'Enter') {
+          e.preventDefault();
+          runPaletteItem(paletteIndex);
+        }
+      });
+    }
+    if (els.commandPalette) {
+      els.commandPalette.addEventListener('click', (e) => {
+        if (e.target === els.commandPalette) closePalette();
+      });
+    }
+    document.addEventListener('keydown', (e) => {
+      const key = (e.key || '').toLowerCase();
+      if ((e.ctrlKey || e.metaKey) && key === 'k') {
+        e.preventDefault();
+        if (els.commandPalette?.classList.contains('open')) closePalette();
+        else openPalette();
       }
     });
 
@@ -2407,12 +2893,14 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     // Marketplace
     function setMainView(view) {
       if (view === 'forge') view = 'imagegen';
+      const prevView = currentMainView;
       const guide = view === 'guide';
       const settings = view === 'settings';
       const marketplace = view === 'marketplace';
       const imagegen = view === 'imagegen';
       const videogen = view === 'videogen';
       const audiogen = view === 'audiogen';
+      const switched = prevView !== view;
 
       if (els.chatView) els.chatView.classList.toggle('hidden', guide || settings || marketplace || imagegen || videogen || audiogen);
       if (els.guideView) els.guideView.classList.toggle('active', guide);
@@ -2437,7 +2925,14 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
       if (els.mobImagegen) els.mobImagegen.classList.toggle('active', imagegen);
       if (els.mobVideogen) els.mobVideogen.classList.toggle('active', videogen);
 
+      currentMainView = view;
       localStorage.setItem('ct_view', view);
+
+      if (switched) {
+        const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        if (!reduceMotion) animateViewEnter(getViewElement(view));
+      }
+
       if (marketplace) loadMarketplace();
       if (imagegen) loadImagegen();
       if (videogen) loadVideogen();
@@ -2471,14 +2966,15 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
         els.marketplaceGrid.innerHTML = '<div style="color:var(--muted);padding:20px 0;">No personas found.</div>';
         return;
       }
-      els.marketplaceGrid.innerHTML = items.map(p => {
+      els.marketplaceGrid.innerHTML = items.map((p, index) => {
         const isFree = p.price?.model === 'free';
         const priceLabel = isFree ? 'Free' : `$${p.price?.amount}`;
         const priceClass = isFree ? 'free' : 'premium';
         const mass = p.stats?.temporal_mass || 0;
         const subs = p.stats?.subscribers || 0;
+        const stagger = Math.min(index, 12);
         return `
-          <article class="persona-card" data-id="${esc(p.persona_id)}">
+          <article class="persona-card" data-id="${esc(p.persona_id)}" style="--stagger:${stagger}" tabindex="0" role="button" aria-label="Open ${esc(p.name || 'persona')}">
             <div class="persona-card-header">
               <span class="domain-badge"><span class="domain-dot"></span>${esc(p.domain || 'general')}</span>
               <span class="price-badge ${priceClass}">${esc(priceLabel)}</span>
@@ -2493,7 +2989,14 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
         `;
       }).join('');
       els.marketplaceGrid.querySelectorAll('.persona-card').forEach(card => {
-        card.addEventListener('click', () => openDetail(card.dataset.id));
+        const open = () => openDetail(card.dataset.id);
+        card.addEventListener('click', open);
+        card.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            open();
+          }
+        });
       });
     }
     async function openDetail(personaId) {
@@ -3731,8 +4234,10 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
     }
 
     initTheme();
+    initDensity();
     initPanels();
     if (els.themeToggle) els.themeToggle.addEventListener('click', toggleTheme);
+    if (els.densityToggle) els.densityToggle.addEventListener('click', toggleDensity);
 
     checkAuth().then((authenticated) => {
       if (!authenticated) return;
@@ -3758,7 +4263,7 @@ UI_JS = r"""      apiKey: document.getElementById('api-key'),
           return syncCustomPersonasToServer(config).then(() => {
             setMainView(localStorage.getItem('ct_view') || 'chat');
             setSettingsSection(localStorage.getItem('ct_settings_section') || 'provider');
-            return loadGuideTopics().then(() => loadSessions().then(() => Promise.all([refreshSummary(), refreshMemories(), refreshWorkbench(), verifyChain(), restoreHistory()])));
+            return loadGuideTopics().then(() => loadSessions().then(() => Promise.all([refreshSummary(), refreshMemories(), refreshWorkbench(), verifyChain(), restoreHistory(), refreshTrustStrip()])));
           });
         })
         .catch(error => {

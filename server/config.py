@@ -148,7 +148,9 @@ AUDIO_PROVIDERS: dict[str, dict[str, Any]] = {
     },
 }
 
-DEFAULT_TIMECHAIN_PATH = pathlib.Path(__file__).resolve().parent.parent / "timechain.py"
+DEFAULT_SKILL_ROOT = pathlib.Path(__file__).resolve().parent.parent / "skill" / "cypher-tempre-self-model"
+# Historical name: path to the skill's timechain.py engine file (parent is the skill root).
+DEFAULT_TIMECHAIN_PATH = DEFAULT_SKILL_ROOT / "timechain.py"
 DEFAULT_ENV_PATH = pathlib.Path(__file__).resolve().parent.parent / ".env.local"
 ACTIVE_CONTEXT_DAYS = 90
 SESSION_PAUSE_NOTICE_DAYS = 2
@@ -644,7 +646,7 @@ GUIDE_TOPICS: list[dict[str, Any]] = [
         "summary": "Change the assistant's style, generate a fictional persona, or select a Creator Studio draft.",
         "details": (
             "Personas provide the system prompt and default memory domain for the request.\n"
-            "Custom personas are saved in the local PoC workspace and mirrored in your browser.\n"
+            "Custom personas are saved in the local workspace and mirrored in your browser.\n"
             "Creator Studio draft personas are owner-only until published, and training sessions lock to the selected draft persona.\n"
             "Built-in personas include Companion, Architect, Socratic Tutor, Memory Critic, CypherTempre Researcher, and Cypher Tempre OpenClaw Runtime.\n"
             "Generated personas can be inspired by aesthetics or communication styles, but should remain fictional."
@@ -797,7 +799,7 @@ GUIDE_TOPICS: list[dict[str, Any]] = [
         "title": "Sessions",
         "summary": "Create separate conversations with separate local memory chains.",
         "details": (
-            "Each session stores its Timechain in a separate workspace under the PoC sessions folder.\n"
+            "Each session stores its Timechain in a separate workspace under the user sessions folder.\n"
             "Session display names are stored in session metadata and can be renamed from Manage.\n"
             "Stable global user profile memories are shared from the main workspace, while session notes stay local.\n"
             "Shared Memory is a separate manual workbench action for moving accepted rings or thoughts between sessions.\n"
@@ -826,7 +828,7 @@ GUIDE_TOPICS: list[dict[str, Any]] = [
         "title": "Reset Chain Memory",
         "summary": "Clear local demo memory and start again with a fresh genesis ring.",
         "details": (
-            "The reset button deletes the active PoC workspace .timechain directory and immediately creates a new chain.\n"
+            "The reset button deletes the active session Timechain and immediately creates a new chain.\n"
             "Use it before sharing the demo with someone else.\n"
             "It does not delete .env.local or saved custom personas.\n"
             "After reset, recall history is empty except for the new genesis state."
@@ -836,9 +838,9 @@ GUIDE_TOPICS: list[dict[str, Any]] = [
     {
         "id": "cyphertempre",
         "title": "CypherTempre Timechain",
-        "summary": "The local append-only memory chain that powers this PoC.",
+        "summary": "The local append-only memory chain that powers CypherTempre.",
         "details": (
-            "The PoC uses timechain.py to keep local memory with confidence tracking, recall, covenant checks, and chain verification.\n"
+            "CypherTempre uses the vendored skill Timechain to keep local memory with confidence tracking, recall, covenant checks, and chain verification.\n"
             "Accepted interactions become hash-linked rings.\n"
             "The system can reconstruct visible chat history from sealed rings.\n"
             "CypherTempre-related explanations may use app-local SKILLS documentation excerpts."
@@ -864,7 +866,7 @@ GUIDE_EXPLAINER_PERSONA: dict[str, str] = {
     "name": "Guide Explainer",
     "domain": "architecture",
     "system": (
-        "You are Guide Explainer, a careful source-grounded assistant for the CypherTempre chat PoC. "
+        "You are Guide Explainer, a careful source-grounded assistant for the CypherTempre. "
         "Explain only from the provided source excerpts. Distinguish documented fact from interpretation. "
         "If the answer is not covered in the provided sources, say 'not covered in the provided sources'. "
         "Avoid speculation, assumptions, product promises, and external knowledge."

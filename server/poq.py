@@ -7,7 +7,10 @@ import re
 from typing import Any, Callable
 
 
+# Host LLM critique keys (0-10 scale). Mapped into skill six-dim 0-255 scores at seal time.
 POQ_SCORE_KEYS = ("relevance", "coherence", "completeness", "contradictions", "hallucination")
+# Canonical skill Proof-of-Qualia dimensions (0-255).
+SKILL_POQ_DIMS = ("coherence", "relevance", "novelty", "consistency", "depth", "covenant")
 OVERFITTING_FAILURE_CONTENT = (
     "Unable to determine a consistent rule from these examples. [PoQ: overfitting detected]"
 )
@@ -228,6 +231,7 @@ class PoQGate:
                     "content": content,
                     "attempts": attempts,
                     "scores": critique["scores"],
+                    "skill_scores": host_scores_to_skill(critique["scores"]),
                     "critique": critique["explanation"],
                     "critiques": critiques,
                     "overfitting_detected": any(item.get("overfitting_detected") for item in critiques),
@@ -247,6 +251,7 @@ class PoQGate:
                     "content": final_content,
                     "attempts": attempts,
                     "scores": critique["scores"],
+                    "skill_scores": host_scores_to_skill(critique["scores"]),
                     "critique": critique["explanation"],
                     "critiques": critiques,
                     "overfitting_detected": any(item.get("overfitting_detected") for item in critiques),
@@ -852,6 +857,36 @@ def parse_poq_scores(content: str) -> dict[str, float]:
         if match:
             scores[key] = float(match.group(1))
     return scores
+
+
+def host_scores_to_skill(scores: dict[str, Any] | None) -> dict[str, int]:
+    """Map host 0-10 PoQ critique scores to skill external_scores (0-255).
+
+    Skill dimensions: coherence, relevance, novelty, consistency, depth, covenant.
+    """
+    raw = dict(scores or {})
+    def _ten(key: str, default: float = 7.0) -> float:
+        try:
+            value = float(raw.get(key, default))
+        except (TypeError, ValueError):
+            value = default
+        return max(0.0, min(10.0, value))
+
+    relevance = _ten("relevance")
+    coherence = _ten("coherence")
+    completeness = _ten("completeness", relevance)
+    # High contradictions/hallucination scores in host scale mean FEWER problems.
+    consistency = _ten("contradictions", 8.0)
+    covenant = _ten("hallucination", 8.0)
+    mapped = {
+        "coherence": coherence,
+        "relevance": relevance,
+        "novelty": max(3.0, completeness * 0.7),
+        "consistency": consistency,
+        "depth": completeness,
+        "covenant": covenant,
+    }
+    return {dim: int(max(0, min(255, round(val * 25.5)))) for dim, val in mapped.items()}
 
 
 def parse_poq_explanation(content: str) -> str:

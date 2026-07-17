@@ -22,7 +22,7 @@ from server import marketplace as marketplace_routes
 
 from server.config import (
     DEFAULT_MODEL, DEFAULT_PROVIDER, PROVIDERS, IMAGE_PROVIDERS, VIDEO_PROVIDERS, AUDIO_PROVIDERS, PERSONAS,
-    DEFAULT_TIMECHAIN_PATH, DEFAULT_ENV_PATH,
+    DEFAULT_SKILL_ROOT, DEFAULT_TIMECHAIN_PATH, DEFAULT_ENV_PATH,
     DEFAULT_POQ_ENABLED, DEFAULT_POQ_MIN_SCORE, DEFAULT_POQ_MAX_RETRIES,
     DEFAULT_POQ_OVERFITTING_CHECK,
     default_provider_url,
@@ -119,7 +119,7 @@ def resolve_model_discovery_credentials(
 
 def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
-        server_version = "CypherTempreChatPoC/0.2"
+        server_version = "CypherTempre/1.0"
 
         def log_message(self, fmt: str, *args: Any) -> None:
             print(f"{self.address_string()} - {fmt % args}")
@@ -184,7 +184,25 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                         "public_personas": with_runtime_metadata(public_personas),
                         "marketplace_personas": with_runtime_metadata(mp_personas),
                         "poq": app.poq,
+                        "product": app.product_settings(user["username"]) if user else app.product_settings(None),
+                        "recommended_profile": __import__("server.product", fromlist=["RECOMMENDED_PROFILE"]).RECOMMENDED_PROFILE,
+                        "skill_version": getattr(app.skill, "version", ""),
+                        "app_version": "CypherTempre/1.0",
                     })
+                    return
+                if path == "/api/status":
+                    try:
+                        user = marketplace.require_auth(dict(self.headers))
+                    except PermissionError as exc:
+                        self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+                        return
+                    session = self.query_param("session")
+                    if session:
+                        app.use_session(session, username=user["username"])
+                    self.send_json(app.trust_status(user["username"]))
+                    return
+                if path == "/api/backup/export":
+                    chat.handle_export_backup(self, app)
                     return
                 if path == "/api/models":
                     provider = (self.query_param("provider") or app.provider).strip().lower()
@@ -424,6 +442,18 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 if path == "/api/chat":
                     self.handle_chat()
                     return
+                if path == "/api/chat/stream":
+                    self.handle_chat_stream()
+                    return
+                if path == "/api/backup/restore":
+                    chat.handle_restore_backup(self, app)
+                    return
+                if path == "/api/session/project":
+                    chat.handle_session_project(self, app)
+                    return
+                if path == "/api/session/task-progress":
+                    chat.handle_task_progress(self, app)
+                    return
                 if path == "/api/sessions":
                     self.handle_create_session()
                     return
@@ -630,6 +660,9 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
         def handle_chat(self) -> None:
             chat.handle_chat(self, app)
 
+        def handle_chat_stream(self) -> None:
+            chat.handle_chat_stream(self, app)
+
         def handle_recall(self) -> None:
             chat.handle_recall(self, app)
 
@@ -814,7 +847,7 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
     return Handler
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run the standalone CypherTempre chat PoC.")
+    parser = argparse.ArgumentParser(description="Run the CypherTempre personal intelligence runtime.")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument(
@@ -824,10 +857,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Directory where .timechain will be created.",
     )
     parser.add_argument(
+        "--skill-root",
+        type=pathlib.Path,
+        default=DEFAULT_SKILL_ROOT,
+        help="Path to the vendored Cypher Tempre skill bundle (cypher-tempre-self-model).",
+    )
+    parser.add_argument(
         "--timechain-path",
         type=pathlib.Path,
-        default=DEFAULT_TIMECHAIN_PATH,
-        help="Path to the timechain.py skill script.",
+        default=None,
+        help="Deprecated alias for --skill-root (OpenClaw skill directory).",
     )
     parser.add_argument(
         "--model",
@@ -972,9 +1011,10 @@ def main() -> int:
         api_key = args.api_key or os.environ.get("API_KEY") or args.openrouter_api_key or os.environ.get("OPENROUTER_API_KEY", "")
         base_url = args.base_url or os.environ.get("BASE_URL", "")
     timeout = args.timeout if args.timeout is not None else (args.openrouter_timeout or 45.0)
+    skill_root = args.skill_root or args.timechain_path or DEFAULT_SKILL_ROOT
     app = App(
         args.workspace,
-        args.timechain_path,
+        skill_root=skill_root,
         default_model=default_model,
         provider=provider,
         api_key=api_key,
@@ -999,7 +1039,7 @@ def main() -> int:
     handler = make_handler(app)
     server = ThreadingHTTPServer((args.host, args.port), handler)
     url = f"http://{args.host}:{args.port}"
-    print(f"CypherTempre chat PoC running at {url}")
+    print(f"CypherTempre running at {url}")
     print(f"Workspace: {app.workspace}")
     print(f"Default model: {app.default_model}")
     print("Press Ctrl+C to stop.")

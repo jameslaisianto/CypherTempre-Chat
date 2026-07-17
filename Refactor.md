@@ -1,19 +1,27 @@
 # Server Refactor Map
 
-`server/timechain.py` owns the server-level Timechain surface: session paths, memory model management, Cambium scanning, overlays, dream synthesis, fleet import, temporal challenge, memory sync, memory anchors, PoQ Cambium event summaries, and image lineage.
+`server/skill_runtime.py` loads the vendored Cypher Tempre skill (v3.28+) and
+owns session skill roots, ring views, seal/recall helpers, and workbench
+backends. `server/timechain.py` is the HTTP App host: sessions, memory model,
+Workbench product APIs, gallery/video lineage, and chat orchestration on top
+of that skill.
 
 ## Current Structure
 
 ```text
+skill/
+  cypher-tempre-self-model/   Vendored OpenClaw skill (timechain, poq, recall, cambium, dream, …)
+
 server/
   __init__.py       Public compatibility exports
   __main__.py       Entry point for `python -m server`
   config.py         Constants, providers, personas, prompts, guide topics
   html.py           HTML and CSS template string
   ui.py             Browser SPA JavaScript
-  timechain.py      Session-aware Timechain, memory, Workbench, gallery lineage
-  llm.py            Provider calls, prompt assembly, memory prompts, image calls, frame metadata parsing
-  poq.py            PoQ review, repair prompts, overfitting checks, Cambium frame/evasion scoring
+  skill_runtime.py  Skill bootstrap, session roots, seal/recall, RingView
+  timechain.py      App host: sessions, memory, Workbench, gallery lineage
+  llm.py            Provider calls, prompt assembly, memory prompts, image calls
+  poq.py            LLM PoQ critique/repair → skill six-dim external_scores
   chat.py           Chat, recall, session, memory, guide, and Timechain action handlers
   marketplace.py    Marketplace and Creator Studio route handlers
   imagegen.py       ImageGen generate/edit/redefine/delete handlers
@@ -21,7 +29,8 @@ server/
   server.py         HTTP server class, route dispatch, CLI args, startup
 ```
 
-The root `timechain.py` remains the low-level library. `server/timechain.py` is the app-specific, user/session-aware layer on top.
+Root `timechain.py` is a thin compatibility entry that points at the skill bundle.
+Session ledgers live at `data/users/<user>/sessions/<id>/chain/rings.jsonl`.
 
 ## Timechain Responsibilities
 

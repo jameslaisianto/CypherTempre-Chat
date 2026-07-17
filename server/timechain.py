@@ -25,12 +25,15 @@ import marketplace
 from server.config import (
     DEFAULT_MODEL, DEFAULT_PROVIDER, PROVIDERS, IMAGE_PROVIDERS, PERSONAS,
     DOMAIN_KEYWORDS, GUIDE_TOPICS, GUIDE_EXPLAINER_PERSONA,
-    DEFAULT_TIMECHAIN_PATH, DEFAULT_ENV_PATH,
+    DEFAULT_SKILL_ROOT, DEFAULT_ENV_PATH,
     ACTIVE_CONTEXT_DAYS, DEFAULT_POQ_ENABLED, DEFAULT_POQ_MIN_SCORE,
     DEFAULT_POQ_MAX_RETRIES, DEFAULT_POQ_OVERFITTING_CHECK,
 )
 from server.poq import PoQGate
 from server.trainer import Trainer
+from server import skill_runtime
+from server import product as product_policy
+from server.skill_runtime import SkillSession, bootstrap as bootstrap_skill
 
 from server.llm import (
     recall_memory_facts,
@@ -64,8 +67,10 @@ from server.llm import (
     build_messages,
     resolve_runtime_options,
     call_llm,
+    call_llm_stream,
     call_openrouter,
     call_image_generation,
+    extract_frame_declaration,
 )
 
 def active_call_llm(*args: Any, **kwargs: Any) -> dict[str, Any]:
@@ -74,29 +79,72 @@ def active_call_llm(*args: Any, **kwargs: Any) -> dict[str, Any]:
     target = patched if callable(patched) else call_llm
     return target(*args, **kwargs)
 
-def resolve_timechain_path(path: pathlib.Path) -> pathlib.Path:
-    candidates = [
-        path,
-        pathlib.Path(os.environ.get("TIMECHAIN_PATH", "")) if os.environ.get("TIMECHAIN_PATH") else None,
-        pathlib.Path(__file__).resolve().parent.parent / "timechain.py",
-    ]
-    for candidate in candidates:
-        if candidate and candidate.exists():
-            return candidate.resolve()
-    raise FileNotFoundError(
-        "timechain.py not found. Copy it into cyphertempre-chat-poc/timechain.py "
-        "or pass --timechain-path /path/to/timechain.py."
-    )
+def resolve_skill_root(path: pathlib.Path | None = None) -> pathlib.Path:
+    """Resolve the vendored Cypher Tempre skill root (OpenClaw bundle)."""
+    return skill_runtime.resolve_skill_root(path)
 
-def load_timechain_module(path: pathlib.Path) -> Any:
-    path = resolve_timechain_path(path)
-    spec = importlib.util.spec_from_file_location("cyphertempre_timechain", path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"Could not import Timechain script: {path}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+
+def load_skill(path: pathlib.Path | None = None) -> Any:
+    """Bootstrap skill modules (timechain/poq/recall/...)."""
+    return bootstrap_skill(path)
+
+
+# Backward-compatible alias for callers that still import the Forge loader name.
+load_timechain_module = load_skill
+resolve_timechain_path = resolve_skill_root
+
+
+def _overlays_path(workspace: pathlib.Path) -> pathlib.Path:
+    path = workspace / ".timechain"
+    path.mkdir(parents=True, exist_ok=True)
+    return path / "overlays.json"
+
+
+def _load_overlays(workspace: pathlib.Path) -> dict[str, float]:
+    path = _overlays_path(workspace)
+    if not path.exists():
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, float] = {}
+    for key, value in raw.items():
+        try:
+            out[str(key)] = float(value)
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def _save_overlays(workspace: pathlib.Path, overlays: dict[str, float]) -> None:
+    path = _overlays_path(workspace)
+    path.write_text(json.dumps(overlays, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def _ensure_memory_paths(workspace: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path]:
+    workspace.mkdir(parents=True, exist_ok=True)
+    (workspace / ".timechain").mkdir(parents=True, exist_ok=True)
+    # Prefer workspace-root MEMORY.md (historical host layout / tests).
+    memory_md = workspace / "MEMORY.md"
+    daily = workspace / ".timechain" / "memory_daily.md"
+    if not memory_md.exists():
+        memory_md.write_text("# Memory\n", encoding="utf-8")
+    if not daily.exists():
+        daily.write_text("# Daily\n", encoding="utf-8")
+    return memory_md, daily
+
+
+def _update_memory_summary(path: pathlib.Path, body: str) -> None:
+    path.write_text(body.rstrip() + "\n", encoding="utf-8")
+
+
+def _append_daily_log(path: pathlib.Path, line: str) -> None:
+    stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(f"- {stamp}: {line}\n")
 
 
 MEMORY_SCOPES = {"global", "session"}
@@ -142,7 +190,7 @@ def memory_model_path(workspace: pathlib.Path) -> pathlib.Path:
     return workspace / ".timechain" / "memory_model.json"
 
 def ring_timestamp_map(workspace: pathlib.Path) -> dict[int, str]:
-    path = workspace / ".timechain" / "chain.jsonl"
+    path = skill_runtime.skill_rings_path(workspace)
     timestamps: dict[int, str] = {}
     if not path.exists():
         return timestamps
@@ -153,10 +201,10 @@ def ring_timestamp_map(workspace: pathlib.Path) -> dict[int, str]:
     for line in lines:
         try:
             raw = json.loads(line)
-            number = int(raw.get("n", 0) or 0)
+            number = int(raw.get("index", raw.get("n", 0)) or 0)
         except (json.JSONDecodeError, TypeError, ValueError):
             continue
-        timestamp = str(raw.get("ts", "")).strip()
+        timestamp = str(raw.get("timestamp") or raw.get("ts") or "").strip()
         if timestamp:
             timestamps[number] = timestamp
     return timestamps
@@ -255,10 +303,60 @@ def normalize_local_fallback_mode(value: Any) -> str:
     return mode if mode in LOCAL_FALLBACK_MODES else "chat"
 
 
-def build_local_fallback_reply(query: str, *, persona_name: str = "CypherTempre") -> str:
+def build_engineering_fallback_reply(
+    query: str,
+    *,
+    durable_hits: list[dict[str, Any]] | None = None,
+    ring_hits: list[Any] | None = None,
+) -> str:
+    lines = [
+        "Engineering analysis:",
+        "(local offline mode — no live model)",
+        f"- Request: {str(query or '').strip() or '(empty)'}",
+        "- Approach: clarify constraints, propose a minimal correct design, and verify with tests.",
+    ]
+    if durable_hits:
+        lines.append("- Known durable facts:")
+        for fact in durable_hits[:6]:
+            lines.append(f"  · {fact.get('key')}={fact.get('value')} (ring #{fact.get('source_ring', '?')})")
+    if ring_hits:
+        lines.append("- Relevant sealed rings:")
+        for ring in ring_hits[:5]:
+            snippet = str(getattr(ring, "content", "") or "")[:160].replace("\n", " ")
+            lines.append(f"  · #{getattr(ring, 'n', '?')} [{getattr(ring, 'domain', '?')}]: {snippet}")
+    lines.append("- Next step: reconnect a provider key, or continue from the rings/facts above.")
+    return "\n".join(lines)
+
+
+def build_local_fallback_reply(
+    query: str,
+    *,
+    persona_name: str = "CypherTempre",
+    durable_hits: list[dict[str, Any]] | None = None,
+    ring_hits: list[Any] | None = None,
+) -> str:
     text = str(query or "").strip()
     if not text:
         return f"{persona_name} is here. Tell me what you want to work on, and we can take it one step at a time."
+
+    # Prefer answering from sealed memory when offline.
+    if durable_hits:
+        from server.llm import local_memory_answer
+
+        memory_answer = local_memory_answer(text, durable_hits, persona_name)
+        if memory_answer:
+            return (
+                f"{memory_answer}\n\n"
+                "_(Local offline mode — answered from accepted durable memory; reconnect a provider for full generation.)_"
+            )
+    if ring_hits:
+        top = ring_hits[0]
+        snippet = str(getattr(top, "content", "") or "")[:280].replace("\n", " ")
+        return (
+            f"I am offline from the model provider, but this sealed ring looks relevant:\n"
+            f"- Ring #{getattr(top, 'n', '?')} [{getattr(top, 'domain', '?')}]: {snippet}\n\n"
+            "Reconnect your API key for a full answer, or ask me to expand on that ring."
+        )
 
     lowered = text.lower()
     if any(token in lowered for token in ("busy", "stressed", "stress", "overwhelmed", "tired", "exhausted", "burnout")):
@@ -273,7 +371,8 @@ def build_local_fallback_reply(query: str, *, persona_name: str = "CypherTempre"
     if text.endswith("?"):
         return (
             "Good question. I can help think it through step by step. "
-            "Share a bit more context and I will make it concrete."
+            "Share a bit more context and I will make it concrete. "
+            "(Local offline mode — no live model right now.)"
         )
 
     return (
@@ -371,6 +470,10 @@ USER_SETTING_KEYS = {
     "audio_provider",
     "audio_model",
     "audio_base_url",
+    # Daily-driver product preferences (string-encoded)
+    "memory_autopilot",
+    "identity_bridge",
+    "stream_replies",
 }
 
 
@@ -950,7 +1053,7 @@ def build_guide_explainer_messages(topic: dict[str, Any], source_bundle: list[di
         {
             "role": "user",
             "content": (
-                f"Explain this CypherTempre chat PoC guide topic for a user.\n\n"
+                f"Explain this CypherTempre guide topic for a user.\n\n"
                 f"Topic: {topic['title']}\n\n"
                 f"Source excerpts:\n{source_text}\n\n"
                 "Answer in clear paragraphs. Include a short 'Sources used' line naming the local sources."
@@ -1140,7 +1243,7 @@ class App:
     def __init__(
         self,
         workspace: pathlib.Path,
-        timechain_path: pathlib.Path,
+        skill_root: pathlib.Path | None = None,
         *,
         default_model: str,
         provider: str,
@@ -1164,7 +1267,25 @@ class App:
     ) -> None:
         self.root_workspace = workspace.resolve()
         self.root_workspace.mkdir(parents=True, exist_ok=True)
-        self.timechain = load_timechain_module(timechain_path)
+        self.skill = load_skill(skill_root)
+        self.skill_root = self.skill.skill_root
+        # Compatibility: older code/tests used app.timechain.verify_chain / retrieve(...)
+        def _compat_retrieve(chain, query, domain=None, cphy_weights=None, config=None):
+            limit = 12
+            if config is not None:
+                limit = int(getattr(config, "limit", 12) or 12)
+            views = skill_runtime.retrieve_views(self.workspace, query, limit=limit, skill=self.skill)
+            if domain and domain not in ("auto", ""):
+                views = [v for v in views if str(v.domain) == str(domain)]
+            return [(float(v.brightness), v) for v in views]
+
+        self.timechain = SimpleNamespace(
+            verify_chain=lambda chain=None: skill_runtime.verify_root(self.workspace, self.skill),
+            retrieve=_compat_retrieve,
+            RetrieverConfig=lambda **kwargs: SimpleNamespace(**kwargs),
+            skill=self.skill,
+            skill_root=self.skill_root,
+        )
         self.default_model = default_model
         self.provider = provider
         self.api_key = api_key
@@ -1195,7 +1316,7 @@ class App:
         self._image_agents: dict[str, Any] = {}
         self._video_agents: dict[str, Any] = {}
         self.workspace = self.workspace_for_session(self.active_session)
-        self.agent = self.timechain.TimechainAgent(workspace=self.workspace)
+        self.agent = SkillSession(self.workspace, name="CypherTempre", skill=self.skill)
         self.trainer = Trainer()
 
     @property
@@ -1237,12 +1358,7 @@ class App:
         if agent is not None:
             return agent
         workspace = self.user_gallery_root(username)
-        agent = self.timechain.TimechainAgent(
-            name="ImageGen",
-            values=self.timechain.ENGINEERING_COVENANT,
-            core="imagegen-core",
-            workspace=workspace,
-        )
+        agent = SkillSession(workspace, name="ImageGen", skill=self.skill)
         self._image_agents[username] = agent
         return agent
 
@@ -1282,39 +1398,23 @@ class App:
         if kind == "image_redefine" and source_id:
             supersedes = self._resolve_image_ring_n(username, source_id)
 
-        # Covenant-only gate — same pattern as seal_cambium_event
-        scores, brightness = agent.poq.evaluate(
-            query=prompt,
-            content=content,
-            covenant=agent.values,
-            retrieved=[],
-            chain=agent.chain,
-        )
-        if scores["covenant"] < agent.poq.config.covenant_hard_floor:
-            return 0
-
-        neuro = self.timechain.compute_neuro(agent.chain, "image")
-        candidate = self.timechain.Ring(
-            n=len(agent.chain),
-            prev=agent.chain[-1].hash,
-            ts=dt.datetime.now(dt.timezone.utc).isoformat(),
-            kind=kind,
-            domain="image",
-            query=prompt,
-            content=content,
-            brightness=max(brightness, 0.5),
-            scores=scores,
-            neuro=neuro,
-            retrieved=[],
-            epistemic="known",
-            tags=[kind, mode, "image"],
-            supersedes=supersedes,
-            perception={k: [0.45] * 5 for k in self.timechain.PERCEPTION_DIMENSIONS},
-            fields={k: 0.45 for k in self.timechain.EXPERIENTIAL_FIELDS},
-            planes=["aesthetic_harmony", "poetic_reasoning", "pattern_matching"],
-        )
-        sealed = agent._append(candidate)
-        return sealed.n
+        payload = {
+            "summary": content,
+            "content": content,
+            "query": prompt,
+            "domain": "image",
+            "tags": [kind, mode, "image"],
+            "image_id": image_id,
+            "source_id": source_id,
+            "supersedes": supersedes,
+            "epistemic": "known",
+            "mode": mode,
+            "model": model,
+            "provider": provider,
+            "aspect_ratio": aspect_ratio,
+        }
+        sealed = agent.seal_meta(kind=kind, payload=payload)
+        return int(sealed.n)
 
     def _resolve_image_ring_n(self, username: str, image_id: str) -> int:
         """Find the ring_n for a previously sealed image operation."""
@@ -1490,12 +1590,7 @@ class App:
         if agent is not None:
             return agent
         workspace = self.user_videogen_root(username)
-        agent = self.timechain.TimechainAgent(
-            name="CineTempre",
-            values=self.timechain.ENGINEERING_COVENANT,
-            core="videogen-core",
-            workspace=workspace,
-        )
+        agent = SkillSession(workspace, name="VideoGen", skill=self.skill)
         self._video_agents[username] = agent
         return agent
 
@@ -1530,38 +1625,16 @@ class App:
         if kind in ("video_remix", "video_extend") and source_id:
             supersedes = self._resolve_video_ring_n(username, source_id)
 
-        scores, brightness = agent.poq.evaluate(
-            query=prompt,
-            content=content,
-            covenant=agent.values,
-            retrieved=[],
-            chain=agent.chain,
-        )
-        if scores["covenant"] < agent.poq.config.covenant_hard_floor:
-            return 0
-
-        neuro = self.timechain.compute_neuro(agent.chain, "video")
-        candidate = self.timechain.Ring(
-            n=len(agent.chain),
-            prev=agent.chain[-1].hash,
-            ts=dt.datetime.now(dt.timezone.utc).isoformat(),
-            kind=kind,
-            domain="video",
-            query=prompt,
-            content=content,
-            brightness=max(brightness, 0.5),
-            scores=scores,
-            neuro=neuro,
-            retrieved=[],
-            epistemic="known",
-            tags=[kind, "video", motion_preset],
-            supersedes=supersedes,
-            perception={k: [0.45] * 5 for k in self.timechain.PERCEPTION_DIMENSIONS},
-            fields={k: 0.45 for k in self.timechain.EXPERIENTIAL_FIELDS},
-            planes=["aesthetic_harmony", "temporal_flow", "cinematic_reasoning"],
-        )
-        sealed = agent._append(candidate)
-        return sealed.n
+        payload = {
+            "summary": content,
+            "content": content,
+            "query": prompt,
+            "domain": "video",
+            "tags": [kind, "video"],
+            "epistemic": "known",
+        }
+        sealed = agent.seal_meta(kind=kind, payload=payload)
+        return int(sealed.n)
 
     def _resolve_video_ring_n(self, username: str, video_id: str) -> int:
         index = self.load_videogen_index(username)
@@ -1784,7 +1857,7 @@ class App:
             default_path = self.root_workspace
             sessions_dir = self.sessions_root
         for session_id, path in [("default", default_path)]:
-            chain_path = path / ".timechain" / "chain.jsonl"
+            chain_path = skill_runtime.skill_rings_path(path)
             if chain_path.exists():
                 with chain_path.open("r", encoding="utf-8") as handle:
                     rings = sum(1 for _ in handle)
@@ -1802,7 +1875,7 @@ class App:
         if sessions_dir.exists():
             for path in sorted(p for p in sessions_dir.iterdir() if p.is_dir() and p.name != "default"):
                 session_id = sanitize_session_id(path.name)
-                chain_path = path / ".timechain" / "chain.jsonl"
+                chain_path = skill_runtime.skill_rings_path(path)
                 if chain_path.exists():
                     with chain_path.open("r", encoding="utf-8") as handle:
                         rings = sum(1 for _ in handle)
@@ -1886,7 +1959,47 @@ class App:
         }
 
     def reload_agent(self) -> None:
-        self.agent = self.timechain.TimechainAgent(workspace=self.workspace)
+        self.agent = SkillSession(self.workspace, name="CypherTempre", skill=self.skill)
+
+    def _normalize_self_model(self, model: dict[str, Any]) -> dict[str, Any]:
+        normalized = dict(model or {})
+        ring_count = int(normalized.get("rings", normalized.get("ring_count", 0)) or 0)
+        # Exclude genesis from "active" interaction counts when possible.
+        interaction_count = sum(1 for ring in self.agent.chain if str(getattr(ring, "kind", "")) not in {"", "genesis"})
+        active_rings, stale_rings = split_active_rings(self.agent.chain)
+        normalized.setdefault("ring_count", ring_count)
+        normalized.setdefault("rings", ring_count)
+        normalized.setdefault("temporal_mass", float(normalized.get("temporal_mass", 0) or 0))
+        top = normalized.get("top_domains") or []
+        if top and isinstance(top[0], (list, tuple)):
+            top = [item[0] for item in top]
+        normalized["top_domains"] = list(top)
+        normalized.setdefault("genesis_hash", self.agent.genesis_hash)
+        normalized.setdefault("agent_id", "cyphertempre")
+        normalized.setdefault("name", "CypherTempre")
+        normalized.setdefault("core", "cypher-tempre-skill")
+        normalized.setdefault("pending_memories", 0)
+        normalized.setdefault("accepted_memories", 0)
+        normalized.setdefault("skill_version", self.skill.version)
+        active_non_genesis = [r for r in active_rings if str(getattr(r, "kind", "")) != "genesis"]
+        stale_non_genesis = [r for r in stale_rings if str(getattr(r, "kind", "")) != "genesis"]
+        normalized["active_ring_count"] = len(active_non_genesis)
+        normalized["stale_ring_count"] = len(stale_non_genesis)
+        # Memory activity counts for inspector / self-model panels.
+        try:
+            mem = self.list_memories()
+            accepted = list(mem.get("accepted") or [])
+            normalized["active_memory_count"] = sum(1 for f in accepted if f.get("active"))
+            normalized["stale_memory_count"] = sum(1 for f in accepted if not f.get("active"))
+            normalized["active_context_days"] = ACTIVE_CONTEXT_DAYS
+        except Exception:
+            normalized.setdefault("active_memory_count", 0)
+            normalized.setdefault("stale_memory_count", 0)
+            normalized.setdefault("active_context_days", ACTIVE_CONTEXT_DAYS)
+        normalized.setdefault("gaps", [])
+        normalized.setdefault("consolidations", [])
+        normalized.setdefault("untouched_se_domains", [])
+        return normalized
 
     def memory_anchor_config(self) -> dict[str, Any]:
         metadata = load_session_metadata(self.workspace)
@@ -1965,34 +2078,26 @@ class App:
                 "reason": "no new anchor facts",
                 "auto_anchor": self.memory_anchor_config(),
             }
-        neuro = self.timechain.compute_neuro(self.agent.chain, "memory")
-        lattice = self.timechain.compute_lattice(
-            "memory anchor",
-            content,
-            [],
-            self.agent.chain,
-            domain="memory",
-        )
-        candidate = self.timechain.Ring(
-            n=len(self.agent.chain),
-            prev=self.agent.chain[-1].hash,
-            ts=dt.datetime.now(dt.timezone.utc).isoformat(),
+        sealed = self.agent.seal_meta(
             kind="anchor",
-            domain="memory",
-            query=f"memory anchor ring {anchored_ring}",
-            content=content,
-            brightness=1.0,
-            scores={"coherence": 1.0, "relevance": 1.0, "novelty": 0.7, "consistency": 1.0, "depth": 0.8, "continuity": 1.0, "covenant": 1.0},
-            neuro=neuro,
-            retrieved=[],
-            epistemic="known",
-            tags=["anchor", "memory-anchor", f"anchor-ring:{anchored_ring}"],
-            importance=1.0,
-            perception=lattice["perception"],
-            fields=lattice["fields"],
-            planes=lattice["planes"],
+            payload={
+                "summary": content,
+                "content": content,
+                "query": f"memory anchor ring {anchored_ring}",
+                "domain": "memory",
+                "tags": ["anchor", "memory-anchor", f"anchor-ring:{anchored_ring}"],
+                "epistemic": "known",
+                "importance": 1.0,
+            },
+            scores={
+                "coherence": 255,
+                "relevance": 255,
+                "novelty": 180,
+                "consistency": 255,
+                "depth": 200,
+                "covenant": 255,
+            },
         )
-        sealed = self.agent._append(candidate)
         self._save_memory_anchor_progress(anchored_ring)
         return {
             "ok": True,
@@ -2146,6 +2251,91 @@ class App:
             save_memory_model(self.workspace, session_model)
         return staged
 
+    def product_settings(self, username: str | None = None) -> dict[str, Any]:
+        settings = self.load_user_settings(username) if username else {}
+        return product_policy.product_settings_from_user(settings)
+
+    def apply_memory_autopilot(self, staged: list[dict[str, Any]], *, username: str | None = None) -> list[dict[str, Any]]:
+        mode = self.product_settings(username).get("memory_autopilot", "conservative")
+
+        def _accept(memory_id: str) -> dict[str, Any]:
+            return self.update_memory_status(memory_id, "accept", {})
+
+        accepted = product_policy.apply_memory_autopilot(staged, mode=mode, accept_fn=_accept)
+        # Mirror trusted global identity/preference facts into the identity chain.
+        for memory in accepted:
+            if str(memory.get("scope")) == "global" and str(memory.get("kind")) in product_policy.AUTOPILOT_TRUSTED_KINDS:
+                try:
+                    self.seal_identity_fact(username or "", memory)
+                except Exception:
+                    pass
+        return accepted
+
+    def user_identity_root(self, username: str) -> pathlib.Path:
+        path = self.root_workspace / "data" / "users" / username / "identity"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def seal_identity_fact(self, username: str, memory: dict[str, Any]) -> None:
+        if not username:
+            return
+        root = self.user_identity_root(username)
+        summary = f"{memory.get('key')}={memory.get('value')}"
+        skill_runtime.seal_interaction(
+            root,
+            summary=summary,
+            context=f"identity fact: {memory.get('key')}",
+            domain="identity",
+            tags=["identity", "global", str(memory.get("kind") or "fact")],
+            external_scores=skill_runtime.default_pass_scores(),
+            meta={"memory_id": memory.get("id"), "key": memory.get("key"), "value": memory.get("value")},
+            skill=self.skill,
+        )
+
+    def identity_recall(self, username: str, query: str, *, limit: int = 6) -> list[dict[str, Any]]:
+        if not username:
+            return []
+        root = self.user_identity_root(username)
+        try:
+            skill_runtime.ensure_session_root(root, name=f"{username}-identity", skill=self.skill)
+            views = skill_runtime.retrieve_views(root, query, limit=limit, skill=self.skill)
+        except Exception:
+            return []
+        hits: list[dict[str, Any]] = []
+        for view in views:
+            hits.append({
+                "content": view.content,
+                "domain": view.domain or "identity",
+                "brightness": float(view.brightness or 0),
+                "source_session": "identity",
+                "source_ring": view.n,
+            })
+        return hits
+
+    def trust_status(self, username: str | None = None) -> dict[str, Any]:
+        self.reload_agent()
+        ok, status = skill_runtime.verify_root(self.workspace, self.skill)
+        chain = self.agent.chain
+        head = chain[-1] if chain else None
+        product = self.product_settings(username) if username else product_policy.product_settings_from_user({})
+        return {
+            "ok": True,
+            "skill_version": self.skill.version,
+            "app_version": "CypherTempre/1.0",
+            "session": self.active_session,
+            "verify_ok": bool(ok),
+            "verify_status": status,
+            "ring_count": len(chain),
+            "height": max(0, len(chain) - 1),
+            "frozen": self.agent.frozen,
+            "dormant": bool(skill_runtime.dormancy_status(self.workspace, self.skill).get("paused")),
+            "last_seal_ts": str(getattr(head, "ts", "") or ""),
+            "last_ring": int(getattr(head, "n", 0) or 0) if head else 0,
+            "covenant": (self.agent.values or "")[:120],
+            "product": product,
+            "recommended_profile": product_policy.RECOMMENDED_PROFILE,
+        }
+
     def list_memories(self, *, now: dt.datetime | None = None) -> dict[str, Any]:
         model = self.memory_model()
         facts = [annotate_memory(fact, now=now) for fact in model.get("facts", [])]
@@ -2198,19 +2388,35 @@ class App:
             if not memory_activity(fact, now=now)["active"]
         ]
         _, stale_rings = split_active_rings(self.agent.chain, now=now)
-        retrieved = self.timechain.retrieve(
-            self.agent.chain,
+        retrieved_views = skill_runtime.retrieve_views(
+            self.workspace,
             query,
-            domain=domain,
-            cphy_weights=self.agent.cphy_weights,
-            config=self.timechain.RetrieverConfig(limit=max(1, min(limit, 20)), now=now, block_recency_weight=0.35),
+            limit=max(1, min(limit, 20)),
+            skill=self.skill,
         )
+        # Lexical fallback over the live chain when skill pre-filter is cold.
+        if not retrieved_views:
+            tokens = {t for t in re.findall(r"[a-z0-9]{3,}", str(query or "").lower())}
+            scored: list[tuple[float, Any]] = []
+            for ring in self.agent.chain:
+                if str(getattr(ring, "kind", "")) == "genesis":
+                    continue
+                if domain and domain not in ("auto", "") and str(ring.domain) != str(domain):
+                    continue
+                text = f"{ring.query} {ring.content} {' '.join(ring.tags or [])}".lower()
+                overlap = sum(1 for tok in tokens if tok in text)
+                if overlap:
+                    scored.append((overlap + float(ring.brightness), ring))
+            scored.sort(key=lambda item: item[0], reverse=True)
+            retrieved_views = [ring for _, ring in scored[: max(1, min(limit, 20))]]
         results = []
-        for score, ring in retrieved:
+        for ring in retrieved_views:
+            if domain and domain not in ("auto", "") and str(ring.domain) != str(domain):
+                continue
             content = ring.content[:500] if len(ring.content) > 500 else ring.content
             ring_age_days = age_days(getattr(ring, "ts", ""), now=now)
             results.append({
-                "score": round(float(score), 4),
+                "score": round(float(ring.brightness), 4),
                 "n": ring.n,
                 "ts": ring.ts,
                 "age_days": ring_age_days,
@@ -2314,7 +2520,7 @@ class App:
         return save_user_settings(self.root_workspace, username, settings)
 
     def self_model(self, *, now: dt.datetime | None = None) -> dict[str, Any]:
-        model = self.agent.self_model()
+        model = self._normalize_self_model(self.agent.self_model())
         memory_model = self.memory_model()
         facts = [annotate_memory(fact, now=now) for fact in memory_model.get("facts", [])]
         accepted_facts = [fact for fact in facts if fact.get("status") in MEMORY_ACCEPTED_STATUSES]
@@ -2328,8 +2534,8 @@ class App:
         model["pending_memory_count"] = sum(1 for fact in memory_model.get("facts", []) if fact.get("status") == "pending")
         model["active_memory_count"] = len(active_memories)
         model["stale_memory_count"] = len(stale_memories)
-        model["active_ring_count"] = len(active_rings)
-        model["stale_ring_count"] = len(stale_rings)
+        model["active_ring_count"] = len([r for r in active_rings if str(getattr(r, "kind", "")) != "genesis"])
+        model["stale_ring_count"] = len([r for r in stale_rings if str(getattr(r, "kind", "")) != "genesis"])
         return model
 
     def ring_workbench(self, *, limit: int = 24) -> dict[str, Any]:
@@ -2375,7 +2581,7 @@ class App:
 
     def sync_snapshot(self) -> dict[str, Any]:
         self.reload_agent()
-        ok, status = self.timechain.verify_chain(self.agent.chain)
+        ok, status = skill_runtime.verify_root(self.workspace, self.skill)
         rings = serialize_rings(self.agent.chain, limit=16)
         memories = self.list_memories()
         cambium = self.cambium_workbench()
@@ -2409,38 +2615,61 @@ class App:
         }
 
     def run_dream(self, domains: str, *, cycles: int = 3) -> dict[str, Any]:
+        """Run the skill dream consolidation cycle (not Forge multi-domain dream)."""
         self.reload_agent()
         if self.agent.frozen:
             raise PermissionError("timechain is frozen")
         domain_list = [part.strip() for part in str(domains or "").split(",") if part.strip()]
+        # Keep host API validation (UI still collects domain pairs) even though
+        # skill dream consolidation is chain-global.
         if len(domain_list) < 2:
             raise ValueError("At least two dream domains are required.")
-        cycles = max(1, min(int(cycles), 12))
-        dreams = self.agent.dream(domains=domain_list, cycles=cycles)
+        _ = max(1, min(int(cycles), 12))
+        before = len(self.agent.chain)
+        result = skill_runtime.run_dream(self.workspace, self.skill)
+        self.reload_agent()
+        report = result.get("report") if isinstance(result, dict) else result
+        new_rings = self.agent.chain[before:]
+        dreams = [
+            {
+                "n": ring.n,
+                "kind": ring.kind,
+                "domain": ring.domain,
+                "content": ring.content,
+                "brightness": round(float(ring.brightness), 4),
+                "epistemic": ring.epistemic,
+                "tags": ring.tags,
+                "hash_prefix": ring.hash[:16],
+            }
+            for ring in new_rings
+        ]
+        # If dream produced no new rings (cold start / insufficient telemetry), expose report.
+        if not dreams and isinstance(report, dict):
+            dreams = [{
+                "n": len(self.agent.chain) - 1,
+                "kind": "dream",
+                "domain": "self",
+                "content": json.dumps(report, ensure_ascii=False)[:500],
+                "brightness": 0.0,
+                "epistemic": "speculated",
+                "tags": ["dream"],
+                "hash_prefix": "",
+            }]
         return {
-            "ok": True,
+            "ok": bool(result.get("ok", True)) if isinstance(result, dict) else True,
             "session": self.active_session,
-            "domains": domain_list,
-            "dreams": [
-                {
-                    "n": ring.n,
-                    "kind": ring.kind,
-                    "domain": ring.domain,
-                    "content": ring.content,
-                    "brightness": round(float(ring.brightness), 4),
-                    "epistemic": ring.epistemic,
-                    "tags": ring.tags,
-                    "hash_prefix": ring.hash[:16],
-                }
-                for ring in dreams
-            ],
+            "domains": domain_list or ["skill-dream"],
+            "skill_version": self.skill.version,
+            "report": report,
+            "error": result.get("error") if isinstance(result, dict) else None,
+            "dreams": dreams,
         }
 
     def list_overlays(self) -> dict[str, Any]:
         return {
             "ok": True,
             "session": self.active_session,
-            "overlays": self.timechain.TimechainStore(self.workspace).load_overlays(),
+            "overlays": _load_overlays(self.workspace),
         }
 
     def set_overlay(self, tag: str, weight: float) -> dict[str, Any]:
@@ -2451,38 +2680,38 @@ class App:
             weight_value = float(weight)
         except (TypeError, ValueError) as exc:
             raise ValueError("overlay weight must be a number") from exc
-        store = self.timechain.TimechainStore(self.workspace)
-        overlays = store.load_overlays()
+        overlays = _load_overlays(self.workspace)
         overlays[tag] = weight_value
-        store.save_overlays(overlays)
+        _save_overlays(self.workspace, overlays)
         return {"ok": True, "session": self.active_session, "overlays": overlays}
 
     def memory_sync(self) -> dict[str, Any]:
         self.reload_agent()
-        ok, status = self.timechain.verify_chain(self.agent.chain)
+        ok, status = skill_runtime.verify_root(self.workspace, self.skill)
         if not ok:
             raise ValueError(f"verification failed: {status}")
-        model = self.agent.self_model()
-        overlays = self.agent.store.load_overlays()
+        model = self._normalize_self_model(self.agent.self_model())
+        overlays = _load_overlays(self.workspace)
+        covenant = str(model.get("covenant") or "")
+        genesis = str(model.get("genesis_hash") or "")
         lines = [
-            f"- Agent: **{model['name']}** (`{model['agent_id']}`)",
-            f"- Core: {model['core']}",
-            f"- Covenant: {model['covenant'][:80]}...",
-            f"- Rings: {model['ring_count']}",
-            f"- Temporal mass: {model['temporal_mass']}",
-            f"- Frozen: {model['frozen']}",
-            f"- Top domains: {', '.join(model['top_domains']) if model['top_domains'] else '(none)'}",
-            f"- Untouched domains: {', '.join(model['untouched_se_domains']) if model['untouched_se_domains'] else '(none)'}",
-            f"- Gaps: {model['gaps']}",
-            f"- Consolidations: {model['consolidations']}",
+            f"# Memory sync — session `{self.active_session}`",
+            f"- Agent: **{model.get('name', 'CypherTempre')}**",
+            f"- Skill version: {model.get('skill_version', self.skill.version)}",
+            f"- Covenant: {covenant[:120]}{'...' if len(covenant) > 120 else ''}",
+            f"- Rings: {model.get('ring_count', 0)}",
+            f"- Temporal mass: {model.get('temporal_mass', 0)}",
+            f"- Frozen: {model.get('frozen', False)}",
+            f"- Top domains: {', '.join(model.get('top_domains') or []) or '(none)'}",
+            f"- Verify: {'PASS' if ok else 'FAIL'} — {status}",
             f"- Active overlays: {json.dumps(overlays, ensure_ascii=False)}",
-            f"- Genesis hash prefix: `{model['genesis_hash'][:16]}`",
+            f"- Genesis hash prefix: `{genesis[:16]}`",
         ]
-        memory_md, daily = self.timechain.ensure_memory_paths(self.workspace)
-        self.timechain.update_memory_summary(memory_md, "\n".join(lines))
-        self.timechain.append_daily_log(
+        memory_md, daily = _ensure_memory_paths(self.workspace)
+        _update_memory_summary(memory_md, "\n".join(lines))
+        _append_daily_log(
             daily,
-            f"Timechain sync: rings={model['ring_count']} mass={model['temporal_mass']} top={model['top_domains']}",
+            f"Timechain sync: rings={model.get('ring_count')} mass={model.get('temporal_mass')} top={model.get('top_domains')}",
         )
         return {"ok": True, "session": self.active_session, "memory_md": str(memory_md), "daily": str(daily)}
 
@@ -2495,6 +2724,12 @@ class App:
         source = str(source or "").strip()
         if not source:
             raise ValueError("source is required")
+        content = str(ring.get("content") or ring.get("summary") or "").strip()
+        query = str(ring.get("query") or ring.get("context") or "").strip()
+        domain = str(ring.get("domain") or "").strip()
+        # Require a structured foreign ring — bare opaque text is not importable.
+        if not content or not query or not domain:
+            raise ValueError("fleet import rejected by covenant gate")
         imported = self.agent.fleet_import(ring, source=source)
         if imported is None:
             raise ValueError("fleet import rejected by covenant gate")
@@ -2515,7 +2750,7 @@ class App:
             if session_id == exclude_session:
                 continue
             workspace = self.workspace_for_session(session_id, username=username)
-            chain = self.timechain.TimechainStore(workspace).load_chain()
+            chain = skill_runtime.load_ring_views(workspace, self.skill)
             if chain:
                 results.append((session_id, workspace, chain))
         return results
@@ -2530,13 +2765,14 @@ class App:
         exclude_session = sanitize_session_id(exclude_session or self.active_session)
         hits: list[dict[str, Any]] = []
         for session_id, _workspace, chain in self._other_session_chains(username, exclude_session):
-            retrieved = self.timechain.retrieve(
-                chain,
+            retrieved = skill_runtime.retrieve_views(
+                _workspace,
                 query,
-                cphy_weights=self.agent.cphy_weights,
-                config=self.timechain.RetrieverConfig(limit=max(1, min(limit, 20)), block_recency_weight=0.35),
+                limit=max(1, min(limit, 20)),
+                skill=self.skill,
             )
-            for score, ring in retrieved:
+            for ring in retrieved:
+                score = float(ring.brightness)
                 hits.append({
                     "id": f"{session_id}:{ring.n}:{ring.hash[:16]}",
                     "source_session": session_id,
@@ -2574,11 +2810,11 @@ class App:
             raise ValueError("hit_id ring number must be an integer") from exc
         source_hash_prefix = parts[2] if len(parts) > 2 else ""
         source_workspace = self.workspace_for_session(source_session, username=username)
-        chain = self.timechain.TimechainStore(source_workspace).load_chain()
+        chain = skill_runtime.load_ring_views(source_workspace, self.skill)
         ring = next((r for r in chain if r.n == source_ring_n and (not source_hash_prefix or r.hash.startswith(source_hash_prefix))), None)
         if ring is None:
             raise ValueError(f"Ring not found in session {source_session}: {source_ring_n}")
-        ring_dict = ring.to_dict()
+        ring_dict = skill_runtime.view_to_dict(ring)
         imported = self.agent.fleet_import(ring_dict, source=source_session)
         if imported is None:
             raise ValueError("shared memory import rejected by covenant gate")
@@ -2619,7 +2855,7 @@ class App:
                 continue
             source_hash_prefix = parts[2] if len(parts) > 2 else ""
             source_workspace = self.workspace_for_session(source_session, username=username)
-            chain = self.timechain.TimechainStore(source_workspace).load_chain()
+            chain = skill_runtime.load_ring_views(source_workspace, self.skill)
             ring = next((r for r in chain if r.n == source_ring_n and (not source_hash_prefix or r.hash.startswith(source_hash_prefix))), None)
             if ring is not None:
                 picks.append((ring, source_session))
@@ -2628,53 +2864,33 @@ class App:
         content = "Shared memory comprehension synthesis:\n" + "\n".join(
             f"  [{ring.domain} session={source_session} ring {ring.n}] {ring.content[:120]}" for ring, source_session in picks
         )
-        scores, brightness = self.agent.poq.evaluate(
-            query=query or "shared memory comprehension synthesis",
-            content=content,
-            covenant=self.agent.values,
-            retrieved=[ring for ring, _ in picks],
-            chain=self.agent.chain,
+        result = self.agent.interact(
+            query or "shared memory comprehension synthesis",
+            domain="comprehension",
+            tags=["comprehension", "shared_memory"] + [ring.domain for ring, _ in picks],
+            override_content=content,
+            used_rings=[ring.n for ring, _ in picks],
         )
-        accepted, reason = self.agent.poq.gate(scores, brightness)
-        if not accepted:
+        if not result.get("accepted"):
             return {
                 "ok": False,
                 "session": self.active_session,
                 "rejected": True,
-                "reason": reason,
-                "brightness": round(float(brightness), 4),
-                "scores": {k: round(float(v), 4) for k, v in scores.items()},
+                "reason": result.get("reason"),
+                "brightness": round(float(result.get("brightness") or 0), 4),
+                "scores": result.get("scores") or {},
             }
-        candidate = self.timechain.Ring(
-            n=len(self.agent.chain),
-            prev=self.agent.chain[-1].hash if self.agent.chain else "0" * 64,
-            ts=dt.datetime.now(dt.timezone.utc).isoformat(),
-            kind="interaction",
-            domain="comprehension",
-            query=query or "shared memory comprehension synthesis",
-            content=content,
-            brightness=min(brightness, 0.65),
-            scores=scores,
-            neuro=self.timechain.compute_neuro(self.agent.chain, "comprehension"),
-            retrieved=[ring.n for ring, _ in picks],
-            epistemic="speculated",
-            tags=["comprehension", "shared_memory"] + [ring.domain for ring, _ in picks],
-            source=f"synthesis:{','.join(f'{session}:{ring.n}' for ring, session in picks)}",
-            perception={k: [0.5] * 5 for k in self.timechain.PERCEPTION_DIMENSIONS},
-            fields={k: 0.5 for k in self.timechain.EXPERIENTIAL_FIELDS},
-            planes=["meta_cognitive_self", "dialectical_synthesis", "pattern_matching"],
-        )
-        sealed = self.agent._append(candidate)
+        sealed = result["ring"]
         return {
             "ok": True,
             "session": self.active_session,
-            "ring": sealed.n,
-            "kind": sealed.kind,
-            "hash": sealed.hash[:16],
-            "brightness": round(float(sealed.brightness), 4),
-            "epistemic": sealed.epistemic,
-            "tags": sealed.tags,
-            "reason": reason,
+            "ring": sealed.get("n"),
+            "kind": sealed.get("kind"),
+            "hash": str(sealed.get("hash") or "")[:16],
+            "brightness": round(float(result.get("brightness") or 0), 4),
+            "epistemic": sealed.get("epistemic"),
+            "tags": sealed.get("tags"),
+            "reason": result.get("reason"),
         }
 
     def challenge(self, indices: str, *, nonce: str = "") -> dict[str, Any]:
@@ -2683,7 +2899,7 @@ class App:
             parsed_indices = [int(part.strip()) for part in str(indices or "").split(",") if part.strip()]
         except ValueError as exc:
             raise ValueError("indices must be comma-separated integers") from exc
-        challenge = {"indices": parsed_indices, "nonce": str(nonce or "") or os.urandom(8).hex()}
+        challenge = {"rings": parsed_indices, "nonce": str(nonce or "") or os.urandom(8).hex()}
         return {"ok": True, "session": self.active_session, **self.agent.respond_to_challenge(challenge)}
 
     def archive_active_timechain(self, *, label: str) -> pathlib.Path:
@@ -2694,9 +2910,14 @@ class App:
         if archives_root not in archive.parents:
             raise RuntimeError(f"Refusing to archive unexpected path: {archive}")
         archive.mkdir(parents=True, exist_ok=False)
-        source = self.workspace / ".timechain"
-        if source.exists():
-            shutil.copytree(source, archive / ".timechain")
+        for name in (".timechain", "chain", "registry"):
+            source = self.workspace / name
+            if source.exists():
+                dest = archive / name
+                if source.is_dir():
+                    shutil.copytree(source, dest)
+                else:
+                    shutil.copy2(source, dest)
         return archive
 
     def rewind_to_ring(self, ring_number: int) -> dict[str, Any]:
@@ -2706,10 +2927,13 @@ class App:
             raise ValueError(f"Unknown ring: {ring_number}")
         archive = self.archive_active_timechain(label=f"rewind-to-{ring_number}")
         kept = [ring for ring in self.agent.chain if int(getattr(ring, "n", -1)) <= int(ring_number)]
-        chain_path = self.workspace / ".timechain" / "chain.jsonl"
+        chain_path = skill_runtime.skill_rings_path(self.workspace)
         chain_path.parent.mkdir(parents=True, exist_ok=True)
         chain_path.write_text(
-            "".join(json.dumps(ring.to_dict(), ensure_ascii=False) + "\n" for ring in kept),
+            "".join(
+                json.dumps(getattr(ring, "raw", None) or skill_runtime.view_to_dict(ring), ensure_ascii=False) + "\n"
+                for ring in kept
+            ),
             encoding="utf-8",
         )
         config_path = self.workspace / ".timechain" / "config.json"
@@ -2730,7 +2954,7 @@ class App:
         model = prune_memory_model_to_ring(load_memory_model(model_path), int(ring_number))
         save_memory_model(model_path, model)
         self.reload_agent()
-        ok, status = self.timechain.verify_chain(self.agent.chain)
+        ok, status = skill_runtime.verify_root(self.workspace, self.skill)
         return {
             "session": self.active_session,
             "archive": str(archive),
@@ -2820,24 +3044,56 @@ class App:
         base_url: str = "",
         shared_hits: list[dict[str, Any]] | None = None,
         poq_enabled: bool | None = None,
+        username: str | None = None,
+        stream: bool = False,
+        on_token: Any | None = None,
     ) -> dict[str, Any]:
         persona_id = self.bind_session_persona(persona_id)
         persona = custom_persona or self.get_custom_persona(persona_id) or PERSONAS.get(persona_id) or PERSONAS["companion"]
         memory_model = self.memory_model()
         durable_hits = recall_memory_facts(memory_model, query, limit=16, session_id=self.active_session)
-        retrieved_scored = self.timechain.retrieve(
-            self.agent.chain,
-            query,
-            domain=domain,
-            cphy_weights=self.agent.cphy_weights,
-            config=self.timechain.RetrieverConfig(limit=12, block_recency_weight=0.35),
-        )
-        retrieved = [ring for _, ring in retrieved_scored]
+        product = self.product_settings(username) if username else product_policy.product_settings_from_user({})
+        # Identity bridge: always pull user-level identity chain + optional shared sessions.
+        if username and product.get("identity_bridge", True):
+            identity_hits = self.identity_recall(username, query, limit=6)
+            if identity_hits:
+                shared_hits = list(identity_hits) + list(shared_hits or [])
+            if not shared_hits:
+                try:
+                    bridged = self.shared_recall(username, query, exclude_session=self.active_session, limit=4)
+                    shared_hits = list(bridged.get("hits") or [])
+                except Exception:
+                    pass
+        # Skill loop prep: immune + router are advisory context; recall feeds prompts.
+        try:
+            screen = skill_runtime.screen_input(self.workspace, query, self.skill)
+            if screen.get("blocked"):
+                return {
+                    "content": f"Input declined at the immune membrane: {screen.get('reason') or 'blocked'}.",
+                    "model_used": "skill-immune",
+                    "usage": {},
+                    "retrieved": [],
+                    "memory_hits": durable_hits,
+                    "memory_candidates": [],
+                    "retry": {"attempted": False, "reason": ""},
+                    "poq": {"enabled": True, "skipped": False, "passed": False, "reason": "immune_blocked"},
+                    "persona": persona,
+                    "provider_error": "",
+                    "immune": screen,
+                }
+        except Exception:
+            screen = {}
+        route = skill_runtime.route_query(self.workspace, query, self.skill)
+        retrieved = skill_runtime.retrieve_views(self.workspace, query, limit=12, skill=self.skill)
         recent_turns = build_recent_turns(self.agent.chain, limit=8)
-        neuro = self.timechain.compute_neuro(self.agent.chain, domain)
-        lattice = self.timechain.compute_lattice(
-            query, query, retrieved, self.agent.chain, domain=domain
-        )
+        neuro = {"dopamine": 0.5, "serotonin": 0.5, "norepinephrine": 0.3, "gaba": 0.2, "acetylcholine": 0.5}
+        lattice = {
+            "perception": {},
+            "fields": {},
+            "planes": [],
+            "route": route,
+            "skill_version": self.skill.version,
+        }
         runtime_options = resolve_runtime_options(persona_id, persona)
         scaffolded_query = (
             self.trainer.build_query(self.active_session, query, domain_hint=domain)
@@ -2864,13 +3120,23 @@ class App:
         def local_fallback(provider_error: str = "") -> dict[str, Any]:
             fallback_mode = self.local_fallback_mode()
             if fallback_mode == "engineering":
-                fallback = self.timechain._default_generator(query, retrieved, neuro)
+                fallback = build_engineering_fallback_reply(
+                    query, durable_hits=durable_hits, ring_hits=retrieved
+                )
             else:
-                fallback = build_local_fallback_reply(query, persona_name=persona["name"])
+                fallback = build_local_fallback_reply(
+                    query,
+                    persona_name=persona["name"],
+                    durable_hits=durable_hits,
+                    ring_hits=retrieved,
+                )
             retry_reason = memory_retry_reason(query, fallback, durable_hits, persona["name"])
             local_repair = local_memory_answer(query, durable_hits, persona["name"]) if retry_reason else ""
             if local_repair:
-                fallback = local_repair
+                fallback = (
+                    f"{local_repair}\n\n"
+                    "_(Local offline mode — answered from accepted durable memory.)_"
+                )
             result = {
                 "content": fallback,
                 "model_used": "local-default-generator",
@@ -2880,6 +3146,7 @@ class App:
                 "memory_candidates": [],
                 "retry": {"attempted": bool(local_repair), "reason": retry_reason},
                 "fallback_mode": fallback_mode,
+                "offline": True,
                 "poq": {
                     "enabled": bool(self.poq.get("enabled")),
                     "skipped": True,
@@ -2895,15 +3162,44 @@ class App:
         if not key:
             return local_fallback()
         try:
-            llm = active_call_llm(
-                provider=provider,
-                api_key=key,
-                model=model or self.default_model,
-                messages=messages,
-                timeout=self.timeout,
-                base_url=base_url,
-                max_tokens=response_token_budget(query),
-            )
+            if stream and callable(on_token):
+                pieces: list[str] = []
+                for piece in call_llm_stream(
+                    provider=provider,
+                    api_key=key,
+                    model=model or self.default_model,
+                    messages=messages,
+                    timeout=self.timeout,
+                    base_url=base_url,
+                    max_tokens=response_token_budget(query),
+                ):
+                    pieces.append(piece)
+                    try:
+                        on_token(piece)
+                    except Exception:
+                        pass
+                raw_content = "".join(pieces)
+                content, frame_declaration = extract_frame_declaration(raw_content)
+                llm = {
+                    "content": content or raw_content,
+                    "model_used": getattr(call_llm_stream, "last_model_used", model or self.default_model),
+                    "usage": {},
+                    "streamed": True,
+                }
+                if frame_declaration:
+                    llm["frame_declaration"] = frame_declaration
+                if not llm["content"]:
+                    return local_fallback("empty stream")
+            else:
+                llm = active_call_llm(
+                    provider=provider,
+                    api_key=key,
+                    model=model or self.default_model,
+                    messages=messages,
+                    timeout=self.timeout,
+                    base_url=base_url,
+                    max_tokens=response_token_budget(query),
+                )
         except RuntimeError as exc:
             return local_fallback(str(exc))
         retry_reason = memory_retry_reason(query, llm.get("content", ""), durable_hits, persona["name"])
@@ -2989,7 +3285,95 @@ class App:
         llm["memory_hits"] = durable_hits
         llm["retry"] = retry
         llm["persona"] = persona
+        # Cited-answer discipline: span-guard against declared used rings (skill).
+        used = list(llm.get("retrieved") or [])
+        if used and llm.get("content") and not llm.get("provider_error"):
+            citation = skill_runtime.cite_answer(
+                self.workspace,
+                question=query,
+                answer=str(llm.get("content") or ""),
+                used_rings=used,
+                skill=self.skill,
+            )
+            llm["citations"] = citation
         return llm
+
+    def configure_session_project(
+        self,
+        *,
+        mode: str = "chat",
+        objective: str = "",
+        username: str | None = None,
+    ) -> dict[str, Any]:
+        mode_clean = str(mode or "chat").strip().lower()
+        if mode_clean not in {"chat", "project"}:
+            raise ValueError("mode must be 'chat' or 'project'")
+        metadata = load_session_metadata(self.workspace)
+        metadata["mode"] = mode_clean
+        objective_clean = str(objective or "").strip()[:500]
+        if mode_clean == "project":
+            if not objective_clean:
+                raise ValueError("project sessions require an objective")
+            metadata["objective"] = objective_clean
+            # Dedicated task sub-root for long-horizon notes without bloating chat history.
+            task_root = self.workspace / "task"
+            skill_runtime.ensure_session_root(task_root, name=f"task-{self.active_session}", skill=self.skill)
+            metadata["task_root"] = "task"
+            if objective_clean:
+                skill_runtime.seal_interaction(
+                    task_root,
+                    summary=f"Project objective: {objective_clean}",
+                    context="project open",
+                    domain="project",
+                    tags=["project", "objective"],
+                    skill=self.skill,
+                )
+        else:
+            metadata.pop("objective", None)
+        save_session_metadata(self.workspace, metadata)
+        return {
+            "session": self.active_session,
+            "mode": metadata.get("mode", "chat"),
+            "objective": metadata.get("objective", ""),
+            "task_root": metadata.get("task_root", ""),
+        }
+
+    def seal_task_progress(self, note: str, *, username: str | None = None) -> dict[str, Any]:
+        metadata = load_session_metadata(self.workspace)
+        if str(metadata.get("mode") or "chat") != "project":
+            raise ValueError("Active session is not a project session")
+        task_root = self.workspace / str(metadata.get("task_root") or "task")
+        skill_runtime.ensure_session_root(task_root, name=f"task-{self.active_session}", skill=self.skill)
+        result = skill_runtime.seal_interaction(
+            task_root,
+            summary=str(note or "").strip(),
+            context=str(metadata.get("objective") or "project progress"),
+            domain="project",
+            tags=["project", "progress"],
+            skill=self.skill,
+        )
+        return {
+            "ok": bool(result.get("accepted")),
+            "session": self.active_session,
+            "objective": metadata.get("objective", ""),
+            "task_ring": (result.get("ring") or {}).get("n"),
+            "reason": result.get("reason"),
+        }
+
+    def export_user_backup(self, username: str, *, note: str = "", include_media: bool = True) -> bytes:
+        from server import workpack
+
+        return workpack.export_user_pack(
+            self.root_workspace,
+            username,
+            note=note,
+            include_gallery_binaries=include_media,
+        )
+
+    def restore_user_backup(self, username: str, data: bytes, *, mode: str = "merge") -> dict[str, Any]:
+        from server import workpack
+
+        return workpack.restore_user_pack(self.root_workspace, username, data, mode=mode)
 
 def finalize_chat_response(
     *,
@@ -3054,11 +3438,22 @@ def finalize_chat_response(
             "domain": domain,
         }
 
+    external_scores = None
+    poq_meta = llm.get("poq") or {}
+    if isinstance(poq_meta.get("skill_scores"), dict) and poq_meta.get("skill_scores"):
+        external_scores = poq_meta.get("skill_scores")
+    elif isinstance(poq_meta.get("scores"), dict) and poq_meta.get("scores"):
+        from server.poq import host_scores_to_skill
+
+        external_scores = host_scores_to_skill(poq_meta.get("scores"))
+    used_rings = llm.get("retrieved") or []
     result = app.agent.interact(
         message,
         domain=domain,
         tags=tags,
         override_content=llm["content"],
+        external_scores=external_scores,
+        used_rings=used_rings,
     )
     if not result.get("accepted"):
         app.append_poq_cambium_event(
@@ -3088,7 +3483,8 @@ def finalize_chat_response(
             "domain": domain,
         }
 
-    ring = result["ring"]
+    ring = result["ring"] if isinstance(result.get("ring"), dict) else {}
+    sealed_content = str(result.get("content") or ring.get("content") or llm.get("content") or "")
     app.append_poq_cambium_event(
         query=message,
         event=llm.get("poq", {}).get("cambium_event"),
@@ -3099,19 +3495,25 @@ def finalize_chat_response(
         session=app.active_session,
         ring=ring.get("n"),
         cam_event=llm.get("poq", {}).get("cambium_event"),
-        response_text=llm.get("content", ""),
+        response_text=sealed_content,
         frame_declaration=llm.get("frame_declaration"),
     )
     staged = app.queue_memory_candidates(
-        SimpleNamespace(**ring),
+        SimpleNamespace(**ring) if ring else SimpleNamespace(n=0, query=message, content=sealed_content, kind="interaction", domain=domain, tags=tags or [], ts=""),
         persona_name=persona_name,
         llm_candidates=llm.get("memory_candidates", []),
     )
+    auto_accepted = app.apply_memory_autopilot(staged, username=str(llm.get("username") or "") or None)
     auto_anchor = app.maybe_write_auto_memory_anchor()
+    pending_after = [memory for memory in staged if memory.get("status") == "pending"]
+    # Refresh statuses for autopilot-accepted items.
+    if auto_accepted:
+        accepted_ids = {str(m.get("id")) for m in auto_accepted}
+        pending_after = [m for m in pending_after if str(m.get("id")) not in accepted_ids]
     return {
         "ok": True,
         "accepted": True,
-        "content": ring.get("content", ""),
+        "content": sealed_content,
         "ring": ring.get("n"),
         "hash": ring.get("hash"),
         "hash_prefix": str(ring.get("hash", ""))[:16],
@@ -3120,16 +3522,21 @@ def finalize_chat_response(
         "retrieved": llm.get("retrieved", result.get("retrieved")),
         "memory_hits": llm.get("memory_hits", []),
         "memory_extracted": staged,
-        "memory_pending": [memory for memory in staged if memory.get("status") == "pending"],
+        "memory_pending": pending_after,
+        "memory_auto_accepted": auto_accepted,
         "anchor": auto_anchor.get("anchor") if auto_anchor.get("written") else None,
         "retry": llm.get("retry", {"attempted": False, "reason": ""}),
         "poq": llm.get("poq", {}),
         "epistemic": result.get("epistemic"),
         "cache_hit": result.get("cache_hit"),
+        "skill_decision": result.get("decision"),
+        "skill_version": getattr(getattr(app, "skill", None), "version", ""),
+        "citations": llm.get("citations") or {},
         "model": model,
         "model_used": llm.get("model_used"),
         "provider_error": "",
         "usage": llm.get("usage", {}),
         "persona_name": persona_name,
         "domain": domain,
+        "offline": bool(llm.get("offline")),
     }

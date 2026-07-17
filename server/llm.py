@@ -1092,6 +1092,36 @@ def build_messages(
             )
     return messages
 
+def _llm_request_headers(provider: str, api_key: str) -> tuple[dict[str, Any], dict[str, str]]:
+    config = PROVIDERS.get(provider, PROVIDERS[DEFAULT_PROVIDER])
+    if provider == "other":
+        config = {"url": "", "needs_referer": False, "needs_title": False, "label": "Custom"}
+    headers: dict[str, str] = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    if config.get("needs_referer"):
+        headers["HTTP-Referer"] = "http://127.0.0.1:8765"
+    if config.get("needs_title"):
+        headers["X-Title"] = "CypherTempre"
+    return config, headers
+
+
+def _validate_api_key(api_key: str) -> str:
+    api_key = (api_key or "").strip()
+    if not api_key:
+        raise RuntimeError("API key is missing. Add a browser key or set API_KEY.")
+    if api_key in {
+        "YOUR_API_KEY",
+        "YOUR_MORPHEUS_API_KEY",
+        "YOUR_OPENROUTER_API_KEY",
+        "sk-or-your-key-here",
+        "sk-or-your-real-key",
+    }:
+        raise RuntimeError("API key is still the example placeholder.")
+    return api_key
+
+
 def call_llm(
     *,
     provider: str,
@@ -1102,14 +1132,8 @@ def call_llm(
     base_url: str = "",
     max_tokens: int = DEFAULT_RESPONSE_TOKENS,
 ) -> dict[str, Any]:
-    api_key = api_key.strip()
-    if not api_key:
-        raise RuntimeError("API key is missing. Add a browser key or set API_KEY.")
-    if api_key in {"YOUR_API_KEY", "YOUR_MORPHEUS_API_KEY", "YOUR_OPENROUTER_API_KEY", "sk-or-your-key-here", "sk-or-your-real-key"}:
-        raise RuntimeError("API key is still the example placeholder.")
-    config = PROVIDERS.get(provider, PROVIDERS[DEFAULT_PROVIDER])
-    if provider == "other":
-        config = {"url": "", "needs_referer": False, "needs_title": False, "label": "Custom"}
+    api_key = _validate_api_key(api_key)
+    config, headers = _llm_request_headers(provider, api_key)
     url = resolve_chat_completions_url(provider, base_url)
     payload = {
         "model": model or DEFAULT_MODEL,
@@ -1117,14 +1141,6 @@ def call_llm(
         "temperature": 0.7,
         "max_tokens": max(1, min(int(max_tokens or DEFAULT_RESPONSE_TOKENS), 4000)),
     }
-    headers: dict[str, str] = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-    if config.get("needs_referer"):
-        headers["HTTP-Referer"] = "http://127.0.0.1:8765"
-    if config.get("needs_title"):
-        headers["X-Title"] = "CypherTempre Chat PoC"
     last_message = ""
     for attempt in range(3):
         request = urllib.request.Request(
@@ -1188,6 +1204,98 @@ def call_llm(
     if frame_declaration:
         result["frame_declaration"] = frame_declaration
     return result
+
+
+def call_llm_stream(
+    *,
+    provider: str,
+    api_key: str,
+    model: str,
+    messages: list[dict[str, str]],
+    timeout: float,
+    base_url: str = "",
+    max_tokens: int = DEFAULT_RESPONSE_TOKENS,
+):
+    """Yield OpenAI-compatible stream deltas as plain text chunks.
+
+    Falls back to a single full completion if the provider rejects stream=true.
+    """
+    api_key = _validate_api_key(api_key)
+    config, headers = _llm_request_headers(provider, api_key)
+    url = resolve_chat_completions_url(provider, base_url)
+    payload = {
+        "model": model or DEFAULT_MODEL,
+        "messages": messages,
+        "temperature": 0.7,
+        "max_tokens": max(1, min(int(max_tokens or DEFAULT_RESPONSE_TOKENS), 4000)),
+        "stream": True,
+    }
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    try:
+        response = urllib.request.urlopen(request, timeout=timeout)
+    except urllib.error.HTTPError as exc:
+        # Provider may not support streaming — fall back to non-stream.
+        if exc.code in {400, 404, 405, 422}:
+            full = call_llm(
+                provider=provider,
+                api_key=api_key,
+                model=model,
+                messages=messages,
+                timeout=timeout,
+                base_url=base_url,
+                max_tokens=max_tokens,
+            )
+            content = str(full.get("content") or "")
+            if content:
+                yield content
+            return
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"{config['label']} HTTP {exc.code}: {detail}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"{config['label']} request failed: {exc.reason}") from exc
+
+    model_used = model
+    try:
+        while True:
+            raw = response.readline()
+            if not raw:
+                break
+            line = raw.decode("utf-8", errors="replace").strip()
+            if not line or line.startswith(":"):
+                continue
+            if not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if data == "[DONE]":
+                break
+            try:
+                chunk = json.loads(data)
+            except json.JSONDecodeError:
+                continue
+            if chunk.get("model"):
+                model_used = chunk.get("model") or model_used
+            choices = chunk.get("choices") or []
+            if not choices:
+                continue
+            choice = choices[0] if isinstance(choices[0], dict) else {}
+            delta = choice.get("delta") or {}
+            piece = delta.get("content") or delta.get("text") or ""
+            if not piece and isinstance(choice.get("text"), str):
+                piece = choice.get("text") or ""
+            if piece:
+                yield str(piece)
+    finally:
+        try:
+            response.close()
+        except Exception:
+            pass
+    # model_used available for callers via attribute if needed; content is streamed.
+    call_llm_stream.last_model_used = model_used  # type: ignore[attr-defined]
 
 def call_openrouter(
     *,
@@ -1284,7 +1392,7 @@ def call_image_generation(
     if config.get("needs_referer"):
         headers["HTTP-Referer"] = "http://127.0.0.1:8765"
     if config.get("needs_title"):
-        headers["X-Title"] = "CypherTempre Chat PoC"
+        headers["X-Title"] = "CypherTempre"
     request = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),

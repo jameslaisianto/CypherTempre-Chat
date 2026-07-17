@@ -168,7 +168,7 @@ def _request_headers(config: dict[str, Any], provider: str, api_key: str, *, jso
     if config.get("needs_referer"):
         headers["HTTP-Referer"] = "http://127.0.0.1:8765"
     if config.get("needs_title"):
-        headers["X-Title"] = "CypherTempre Chat PoC"
+        headers["X-Title"] = "CypherTempre"
     return headers
 
 

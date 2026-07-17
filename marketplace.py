@@ -398,12 +398,51 @@ def _sanitize_session_id(value: str) -> str:
 
 
 def _session_chain_path(username: str, session_id: str) -> pathlib.Path:
+    """Return the preferred skill rings path for a user session.
+
+    Skill layout: sessions/<id>/chain/rings.jsonl
+    Legacy Forge: sessions/<id>/.timechain/chain.jsonl
+    """
     session_id = _sanitize_session_id(session_id)
     user_sessions = (USERS_DIR / _sanitize_username(username) / "sessions").resolve()
-    chain_path = (user_sessions / session_id / ".timechain" / "chain.jsonl").resolve()
-    if user_sessions not in chain_path.parents:
+    skill_path = (user_sessions / session_id / "chain" / "rings.jsonl").resolve()
+    forge_path = (user_sessions / session_id / ".timechain" / "chain.jsonl").resolve()
+    for chain_path in (skill_path, forge_path):
+        if user_sessions not in chain_path.parents:
+            raise KeyError(f"Session not found: {session_id}")
+        if chain_path.exists():
+            return chain_path
+    # Default to skill path for error messaging / existence checks.
+    if user_sessions not in skill_path.parents:
         raise KeyError(f"Session not found: {session_id}")
-    return chain_path
+    return skill_path
+
+
+def _normalize_ring_for_capsule(raw: dict[str, Any]) -> dict[str, Any]:
+    """Normalize skill or Forge rings into the capsule/host view shape."""
+    if "ring_type" in raw or "payload" in raw:
+        payload = raw.get("payload") if isinstance(raw.get("payload"), dict) else {}
+        poq = raw.get("poq") if isinstance(raw.get("poq"), dict) else {}
+        brightness = poq.get("brightness")
+        try:
+            brightness_f = float(brightness) if brightness is not None else 0.0
+        except (TypeError, ValueError):
+            brightness_f = 0.0
+        if brightness_f > 1.5:
+            brightness_f = brightness_f / 255.0
+        return {
+            "n": int(raw.get("index", raw.get("n", 0)) or 0),
+            "kind": str(raw.get("ring_type") or payload.get("role") or ""),
+            "domain": str(payload.get("domain") or "chat"),
+            "query": str(payload.get("query") or payload.get("context") or ""),
+            "content": str(payload.get("content") or payload.get("summary") or ""),
+            "brightness": brightness_f,
+            "ts": str(raw.get("timestamp") or raw.get("ts") or ""),
+            "hash": str(raw.get("ring_hash") or raw.get("hash") or ""),
+            "tags": list(payload.get("tags") or []),
+            "epistemic": str(payload.get("epistemic") or ""),
+        }
+    return raw
 
 
 def _load_session_rings(username: str, session_id: str, *, required: bool) -> list[dict[str, Any]]:
@@ -413,7 +452,8 @@ def _load_session_rings(username: str, session_id: str, *, required: bool) -> li
             raise KeyError(f"Session not found: {_sanitize_session_id(session_id)}")
         return []
     with chain_path.open("r", encoding="utf-8") as f:
-        return [json.loads(line) for line in f if line.strip()]
+        rings = [json.loads(line) for line in f if line.strip()]
+    return [_normalize_ring_for_capsule(ring) for ring in rings]
 
 
 def distill_persona(
